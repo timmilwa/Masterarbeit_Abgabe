@@ -122,18 +122,18 @@ function App() {
     <Layout>
       <Header onOpenSettings={() => setIsSettingsOpen(true)} />
 
+      <ReflectionControls
+        currentLevel={currentLevel}
+        onSelectLevel={handleLevelSelect}
+        disabled={!reflectionObject || isTyping}
+      />
+
       <ChatInterface
         messages={messages}
         input={input}
         setInput={setInput}
         onSend={handleSend}
         isTyping={isTyping}
-      />
-
-      <ReflectionControls
-        currentLevel={currentLevel}
-        onSelectLevel={handleLevelSelect}
-        disabled={!reflectionObject || isTyping}
       />
 
       <SettingsModal

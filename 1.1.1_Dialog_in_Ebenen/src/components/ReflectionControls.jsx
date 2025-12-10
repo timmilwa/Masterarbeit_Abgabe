@@ -33,7 +33,7 @@ const containerStyle = {
     alignItems: 'center',
     padding: 'var(--spacing-md)',
     backgroundColor: 'var(--color-bg-primary)',
-    borderTop: '1px solid var(--color-border)',
+    borderBottom: '1px solid var(--color-border)',
     gap: 'var(--spacing-sm)'
 };
 
