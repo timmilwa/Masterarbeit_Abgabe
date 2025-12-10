@@ -1,0 +1,14 @@
+Visuelle Sprache (fix):
+• Farbschema: Hell, neutral, weiß (#FFFFFF), hellgrau (#F3F3F3), Schwarz (#111111), Akzentfarbe Blau (#3A64FF) nur für Interaktionen.
+• Typografie: Sans-Serif, 14–16px Body, 20–24px Headings, semibold für UI-Elemente.
+• Layout: 12-Column Grid, großzügige whitespace, 16px spacing, 24px section-spacing.
+• Komponenten: Karten mit 8px Radius, 1px Rahmen in #E0E0E0. Buttons immer primary/secondary, keine Icons außer wenn funktional.
+• Motion: Keine Animationen außer leichte hover-states.
+• Screens: Fokus auf Klarheit und Lesbarkeit, nie verspielt.
+
+Funktionalitäten: 
+- Nutze für alle AI-Interaktionen Google Gemini.
+
+Layout: 
+Oben eine dezente Menüleiste, in der oben links der Titel des Prototypens geschrieben steht. Auf der rechten Seite ein Button mit einem Einstellungsrad. Wenn man auf dieses klickt, kann man den API Key für Google Gemini hinterlegen. Außerdem sollte man in diesem Menü ein Inputfeld haben, um custom instructions für die AI zu hinterlegen. Die Anzahl der benötigten Felder richtet sich nach den Eigenschaften des Prototypens.
+

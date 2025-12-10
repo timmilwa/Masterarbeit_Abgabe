@@ -1,0 +1,40 @@
+:root {
+  /* Colors */
+  --color-bg-primary: #FFFFFF;
+  --color-bg-secondary: #F3F3F3;
+  --color-text-primary: #111111;
+  --color-text-secondary: #666666; /* Implicit for better contrast on subtle text */
+  --color-accent: #3A64FF;
+  --color-border: #E0E0E0;
+
+  /* Typography */
+  --font-family-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-size-body: 16px;
+  --font-size-small: 14px;
+  --font-size-heading: 24px;
+  --font-size-subheading: 20px;
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+
+  /* Spacing & Layout */
+  --spacing-unit: 8px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --grid-columns: 12;
+  
+  /* UI Elements */
+  --radius-card: 8px;
+  --radius-button: 8px;
+  --border-width: 1px;
+}
+
+body {
+  font-family: var(--font-family-base);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
