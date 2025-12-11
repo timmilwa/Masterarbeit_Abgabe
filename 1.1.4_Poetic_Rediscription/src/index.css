@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-input: #f3f3f5;
+  --color-ring: oklch(0.623 .214 259.815);
+  --color-background: #ffffff;
+  --color-foreground: oklch(0.145 0 0);
+
+  --color-primary: #030213;
+  --color-primary-foreground: oklch(1 0 0);
+
+  --color-secondary: oklch(0.95 0.0058 264.53);
+  --color-secondary-foreground: oklch(0.145 0 0);
+
+  --color-destructive: #d4183d;
+  --color-destructive-foreground: oklch(1 0 0);
+
+  --color-muted: #f3f3f5;
+  --color-muted-foreground: oklch(0.145 0 0);
+
+  --color-accent: #e9ebef;
+  --color-accent-foreground: oklch(0.145 0 0);
+
+  --color-popover: #ffffff;
+  --color-popover-foreground: oklch(0.145 0 0);
+
+  --color-card: #ffffff;
+  --color-card-foreground: oklch(0.145 0 0);
+
+  --radius: 0.625rem;
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  /* Font Family - Tailwind v4 automatically picks up system fonts often, but we define our stack */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
