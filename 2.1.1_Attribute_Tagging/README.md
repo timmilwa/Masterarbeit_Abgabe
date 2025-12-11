@@ -43,3 +43,4 @@ This application follows the "Clean Minimalist Interactive" design system define
 - Smooth transitions and interactions
 
 
+
