@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Upload, X, Pin, MessageSquare, ArrowUp, Settings, Check, XCircle } from "lucide-react"
+import { Upload, X, Pin, MessageSquare, ArrowUp, Settings, Check, XCircle, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import "./App.css"
@@ -263,7 +263,7 @@ function App() {
                     setSelectedTagId(null)
                   }}
                 >
-                  <X size={16} />
+                  <Trash2 size={16} />
                 </Button>
               )}
               <input
