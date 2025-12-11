@@ -92,7 +92,7 @@ export const ChatInterface: React.FC = () => {
             <div className="p-6 bg-background/80 backdrop-blur-sm border-t border-border/40">
                 <form
                     onSubmit={handleSendMessage}
-                    className="relative flex items-center gap-2 p-2 bg-input rounded-xl border border-transparent focus-within:border-ring/30 focus-within:ring-4 focus-within:ring-ring/10 transition-all duration-300"
+                    className="relative flex items-center gap-2 p-2 bg-input rounded-md border border-transparent focus-within:border-ring/30 focus-within:ring-4 focus-within:ring-ring/10 transition-all duration-300"
                 >
                     <input
                         type="text"
