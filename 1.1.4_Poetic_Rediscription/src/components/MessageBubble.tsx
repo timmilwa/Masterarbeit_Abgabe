@@ -16,7 +16,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content }) =
                 {/* Avatar / Icon */}
                 <div className={`
           flex items-center justify-center shrink-0 size-8 rounded-full border shadow-sm
-          ${isUser ? 'bg-primary text-primary-foreground border-primary' : 'bg-white text-secondary border-border'}
+          ${isUser ? 'bg-primary text-primary-foreground border-primary' : 'bg-white text-black border-border'}
         `}>
                     {isUser ? <User size={14} /> : <Sparkles size={14} />}
                 </div>
