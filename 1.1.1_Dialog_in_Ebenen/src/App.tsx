@@ -150,9 +150,7 @@ function App() {
           </Button>
         </div>
 
-        <div className="mt-4 text-center text-xs font-medium text-muted-foreground/40 tracking-wide">
-          Designed with intention.
-        </div>
+
       </div>
     </div>
   )
