@@ -1,10 +1,13 @@
 import React from 'react';
 
-const Layout = ({ children }) => {
+const Layout = ({ children, sidebar }) => {
     return (
         <div style={layoutStyle}>
-            <div style={containerStyle}>
-                {children}
+            <div style={{ ...containerStyle, maxWidth: sidebar ? '1100px' : '800px' }}>
+                <div style={mainContentStyle}>
+                    {children}
+                </div>
+                {sidebar && sidebar}
             </div>
         </div>
     );
@@ -19,12 +22,20 @@ const layoutStyle = {
 
 const containerStyle = {
     width: '100%',
-    maxWidth: '800px', // Restrain width for better reading experience
     backgroundColor: 'var(--color-bg-primary)',
     boxShadow: '0 0 20px rgba(0,0,0,0.05)',
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row', // changed to row to put sidebar next to content
     height: '100vh', // Full viewport height
+    position: 'relative',
+    overflow: 'hidden' // Ensure no double scrollbars
+};
+
+const mainContentStyle = {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
     position: 'relative'
 };
 

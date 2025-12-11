@@ -3,8 +3,9 @@ import Layout from './components/Layout';
 import Header from './components/Header';
 import ChatInterface from './components/ChatInterface';
 import ReflectionControls from './components/ReflectionControls';
+import Sidebar from './components/Sidebar';
 import SettingsModal from './components/SettingsModal';
-import { generateResponse } from './services/gemini';
+import { generateResponse, generateSummaries } from './services/gemini';
 
 function App() {
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
@@ -17,6 +18,7 @@ function App() {
 
   const [reflectionObject, setReflectionObject] = useState(null);
   const [currentLevel, setCurrentLevel] = useState(null); // 'Funktion', 'Emotion', 'Werte'
+  const [summaries, setSummaries] = useState({ function: '', emotion: '', values: '' });
 
   // Persist settings
   useEffect(() => {
@@ -83,6 +85,11 @@ function App() {
       );
 
       setMessages(prev => [...prev, { sender: 'bot', text: botText }]);
+
+      // Update summaries in background
+      generateSummaries(apiKey, [...nextMessages, { sender: 'bot', text: botText }], summaries)
+        .then(newSummaries => setSummaries(newSummaries))
+        .catch(err => console.error("Summarization error:", err));
     } catch (error) {
       setMessages(prev => [...prev, { sender: 'bot', text: `Fehler: ${error.message}` }]);
     } finally {
@@ -119,7 +126,7 @@ function App() {
   };
 
   return (
-    <Layout>
+    <Layout sidebar={<Sidebar summaries={summaries} />}>
       <Header onOpenSettings={() => setIsSettingsOpen(true)} />
 
       <ReflectionControls
