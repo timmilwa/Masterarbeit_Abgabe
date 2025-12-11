@@ -67,7 +67,7 @@ export const ChatInterface: React.FC = () => {
             <header className="flex items-center justify-between px-6 py-4 border-b border-border/40 bg-white/50 backdrop-blur-md sticky top-0 z-10">
                 <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    <span className="text-sm font-medium text-muted-foreground tracking-wide">Poetic Rediscription</span>
+                    <span className="text-sm font-medium text-muted-foreground tracking-wide">Poetic Rediscription by Paul Ricoeur</span>
                 </div>
             </header>
 
