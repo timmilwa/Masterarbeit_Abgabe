@@ -42,3 +42,4 @@ This application follows the "Clean Minimalist Interactive" design system define
 - Premium feel with fine borders and soft shadows
 - Smooth transitions and interactions
 
+
