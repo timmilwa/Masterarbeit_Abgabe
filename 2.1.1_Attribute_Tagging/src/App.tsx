@@ -65,42 +65,7 @@ function App() {
     const x = ((e.clientX - rect.left) / rect.width) * 100
     const y = ((e.clientY - rect.top) / rect.height) * 100
 
-    // If there's text in the input, create a tag and message
-    if (inputText.trim()) {
-      const tagId = `tag-${Date.now()}`
-      const messageId = `msg-${Date.now()}`
-      
-      const newTag: Tag = {
-        id: tagId,
-        x,
-        y,
-        messageId,
-      }
-
-      const newMessage: Message = {
-        id: messageId,
-        text: inputText.trim(),
-        isUser: true,
-        tagId,
-      }
-
-      setTags((prev) => [...prev, newTag])
-      setMessages((prev) => [...prev, newMessage])
-      
-      // Add AI response (demo mode)
-      setTimeout(() => {
-        const aiMessage: Message = {
-          id: `ai-${Date.now()}`,
-          text: "I understand you're referring to this area of the image.",
-          isUser: false,
-        }
-        setMessages((prev) => [...prev, aiMessage])
-      }, 500)
-
-      setInputText("")
-      setSelectedTagId(tagId)
-      setPendingTag(null) // Clear pending tag after using it
-    } else if (pendingMessages.length > 0) {
+    if (pendingMessages.length > 0) {
       // If there are pending messages without locations, assign to the first one
       const unassignedIndex = pendingMessages.findIndex(msg => msg.x === undefined || msg.y === undefined)
       if (unassignedIndex !== -1) {
@@ -115,7 +80,7 @@ function App() {
         setPendingTag({ x, y })
       }
     } else {
-      // No pending messages and no input text - set pendingTag for future messages
+      // Set pendingTag location for the current or next message
       setPendingTag({ x, y })
     }
   }
@@ -431,6 +396,12 @@ function App() {
                   </div>
                 </div>
               )}
+
+              {/* Floating hint at bottom left */}
+              <div className="absolute bottom-4 left-4 z-10 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 shadow-lg flex items-center gap-2 text-sm text-muted-foreground">
+                <Pin size={14} className="text-blue-500" />
+                <span>Click on the image to pin a comment</span>
+              </div>
             </>
           ) : (
             <div className="flex flex-col items-center justify-center gap-4 text-muted-foreground">
@@ -551,7 +522,7 @@ function App() {
                 <div
                   className={`max-w-[80%] rounded-md px-3 py-2 text-sm ${
                     message.isUser
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-blue-500 text-white"
                       : "bg-muted text-foreground"
                   }`}
                 >
@@ -570,56 +541,35 @@ function App() {
 
         {/* Floating Input area */}
         <div className="absolute bottom-0 left-0 right-0 p-4">
-          {pendingMessages.filter(msg => msg.x !== undefined && msg.y !== undefined).length > 0 && (
-            <div className="mb-2 px-3 py-2 bg-accent rounded-md text-xs text-foreground flex items-center gap-2">
-              <Pin size={12} />
-              <span>
-                {pendingMessages.filter(msg => msg.x !== undefined && msg.y !== undefined).length} pending message{pendingMessages.filter(msg => msg.x !== undefined && msg.y !== undefined).length !== 1 ? 's' : ''} {pendingMessages.filter(msg => msg.x === undefined || msg.y === undefined).length > 0 ? 'without location. Click on image to assign locations.' : 'ready to send.'}
-              </span>
-            </div>
-          )}
-          {pendingTag && (
-            <div className="mb-2 px-3 py-2 bg-accent rounded-md text-xs text-foreground flex items-center gap-2">
-              <Pin size={12} />
-              <span>
-                {pendingMessages.length > 0 
-                  ? "Location selected. Next message will be pinned here."
-                  : "Location selected. Type a message and it will be pinned here."}
-              </span>
-            </div>
-          )}
-          {selectedTagId && !pendingTag && pendingMessages.length === 0 && (
-            <div className="mb-2 px-3 py-2 bg-accent rounded-md text-xs text-foreground flex items-center gap-2">
-              <Pin size={12} />
-              <span>Click on the image to create a tag in a new location.</span>
-            </div>
-          )}
-          
           {/* Pending messages */}
           {pendingMessages.length > 0 && (
-            <div className="mb-2 flex flex-row gap-2 overflow-x-auto relative z-10">
+            <div className="mb-2 flex flex-row gap-2 overflow-x-auto relative z-10 pb-1">
               {pendingMessages.map((pendingMsg) => (
                 <div
                   key={pendingMsg.id}
-                  className={`group flex items-center gap-1.5 bg-blue-500/20 text-blue-600 rounded-lg px-2.5 py-1.5 text-xs shadow-sm border border-dashed border-blue-500 shrink-0 ${
-                    pendingMsg.x !== undefined && pendingMsg.y !== undefined ? 'ring-1 ring-blue-400' : ''
+                  className={`group flex items-center gap-2 bg-blue-50 text-blue-700 rounded-md px-3 py-1.5 text-sm shadow-sm border border-dashed shrink-0 transition-all ${
+                    pendingMsg.x !== undefined && pendingMsg.y !== undefined 
+                      ? 'border-blue-400 bg-blue-100' 
+                      : 'border-blue-200'
                   }`}
                 >
                   <Pin 
-                    size={10} 
-                    className={`shrink-0 w-3 h-3 ${
-                      pendingMsg.x !== undefined && pendingMsg.y !== undefined ? 'fill-blue-600' : ''
+                    size={14} 
+                    className={`shrink-0 ${
+                      pendingMsg.x !== undefined && pendingMsg.y !== undefined 
+                        ? 'text-blue-600 fill-blue-600' 
+                        : 'text-blue-400'
                     }`} 
                   />
-                  <span className="break-words whitespace-nowrap text-xs">{pendingMsg.text}</span>
+                  <span className="text-sm font-medium max-w-[200px] truncate">{pendingMsg.text}</span>
                   <div className="w-0 group-hover:w-6 overflow-hidden transition-all duration-200 ease-in-out">
                     <button
                       onClick={() => removePendingMessage(pendingMsg.id)}
-                      className="opacity-0 group-hover:opacity-100 shrink-0 hover:bg-blue-500/30 rounded p-0.5 transition-opacity duration-200 flex items-center justify-center text-blue-600 w-6"
+                      className="opacity-0 group-hover:opacity-100 shrink-0 hover:bg-blue-200 rounded p-1 transition-opacity duration-200 flex items-center justify-center text-blue-600 w-6"
                       type="button"
                       aria-label="Remove pending message"
                     >
-                      <X size={12} className="shrink-0" />
+                      <X size={14} />
                     </button>
                   </div>
                 </div>
@@ -628,6 +578,11 @@ function App() {
           )}
 
           <div className="relative bg-gray-200 rounded-xl px-3 py-2 flex items-center gap-2">
+            {pendingTag && (
+              <div className="flex items-center justify-center shrink-0">
+                <Pin size={16} className="text-blue-500" />
+              </div>
+            )}
             <Input
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -654,7 +609,7 @@ function App() {
             <Button 
               onClick={handleSendMessage} 
               disabled={pendingMessages.length === 0 && !inputText.trim()}
-              className="shrink-0"
+              className="shrink-0 bg-blue-500 text-white hover:bg-blue-600"
               size="icon"
             >
               <ArrowUp size={16} />
