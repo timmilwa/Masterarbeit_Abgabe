@@ -1,0 +1,18 @@
+{
+  "name": "drift-app",
+  "productName": "Drift",
+  "version": "1.0.0",
+  "description": "An invisible fullscreen overlay app with a clickable button",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-reload": "^2.0.0-alpha.1"
+  }
+}
