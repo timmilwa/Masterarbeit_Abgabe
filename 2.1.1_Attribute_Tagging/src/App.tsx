@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from "react"
-import { Upload, X, Pin, MessageSquare } from "lucide-react"
+import { useState, useRef, useCallback, useEffect } from "react"
+import { Upload, X, Pin, MessageSquare, ArrowUp, Settings, Check, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import "./App.css"
@@ -25,8 +25,14 @@ function App() {
   const [inputText, setInputText] = useState("")
   const [pendingTag, setPendingTag] = useState<{ x: number; y: number } | null>(null)
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [apiKey, setApiKey] = useState<string>("")
+  const [selectedModel, setSelectedModel] = useState<string>("gemini-2.5-flash")
+  const [apiKeyValid, setApiKeyValid] = useState<boolean | null>(null)
+  const [isValidating, setIsValidating] = useState(false)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const settingsRef = useRef<HTMLDivElement>(null)
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -156,11 +162,92 @@ function App() {
     }
   }
 
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setShowSettings(false)
+      }
+    }
+
+    if (showSettings) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [showSettings])
+
+  // Load saved API key and model from localStorage
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem("apiKey")
+    const savedModel = localStorage.getItem("selectedModel")
+    if (savedApiKey) {
+      setApiKey(savedApiKey)
+    }
+    if (savedModel) {
+      setSelectedModel(savedModel)
+    }
+  }, [])
+
+  const validateApiKey = async () => {
+    if (!apiKey.trim()) {
+      setApiKeyValid(false)
+      return
+    }
+
+    setIsValidating(true)
+    setApiKeyValid(null)
+
+    try {
+      // Validate API key based on selected model
+      if (selectedModel.startsWith("gemini")) {
+        // For Gemini API, check if key starts with expected format
+        // You can make an actual API call here to validate
+        const isValid = apiKey.trim().length > 0 && /^[A-Za-z0-9_-]+$/.test(apiKey.trim())
+        setApiKeyValid(isValid)
+        
+        if (isValid) {
+          localStorage.setItem("apiKey", apiKey.trim())
+          localStorage.setItem("selectedModel", selectedModel)
+        }
+      } else if (selectedModel.startsWith("gpt") || selectedModel.startsWith("claude")) {
+        // For OpenAI/Anthropic, check format
+        const isValid = apiKey.trim().length > 0
+        setApiKeyValid(isValid)
+        
+        if (isValid) {
+          localStorage.setItem("apiKey", apiKey.trim())
+          localStorage.setItem("selectedModel", selectedModel)
+        }
+      } else {
+        setApiKeyValid(apiKey.trim().length > 0)
+        if (apiKey.trim().length > 0) {
+          localStorage.setItem("apiKey", apiKey.trim())
+          localStorage.setItem("selectedModel", selectedModel)
+        }
+      }
+    } catch (error) {
+      setApiKeyValid(false)
+    } finally {
+      setIsValidating(false)
+    }
+  }
+
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model)
+    // Re-validate API key when model changes
+    if (apiKey.trim()) {
+      validateApiKey()
+    }
+  }
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
+    <div className="flex h-screen w-screen overflow-hidden p-4 gap-4 bg-gray-100">
       {/* Left side - Image area (60%) */}
-      <div className="flex-[0.6] flex flex-col border-r border-border bg-muted/30">
-        <div className="p-4 border-b border-border">
+      <div className="flex-[0.6] flex flex-col border border-border rounded-lg bg-muted/30 shadow-sm">
+        <div className="p-4 border-b border-border bg-white rounded-t-lg">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-medium">Image</h2>
             <div className="flex items-center gap-2">
@@ -179,13 +266,6 @@ function App() {
                   <X size={16} />
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload size={16} />
-                Upload Image
-              </Button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -199,7 +279,7 @@ function App() {
 
         <div
           ref={imageContainerRef}
-          className="flex-1 relative overflow-auto bg-background flex items-center justify-center cursor-crosshair"
+          className="flex-1 relative overflow-auto bg-background flex items-center justify-center cursor-crosshair rounded-b-lg"
           onClick={handleImageClick}
         >
           {image ? (
@@ -276,16 +356,95 @@ function App() {
       </div>
 
       {/* Right side - Chat area (40%) */}
-      <div className="flex-[0.4] flex flex-col bg-background">
-        <div className="p-4 border-b border-border">
-          <h2 className="text-base font-medium flex items-center gap-2">
-            <MessageSquare size={16} />
-            AI Chat
-          </h2>
+      <div className="flex-[0.4] flex flex-col border border-border rounded-lg bg-background relative shadow-sm">
+        <div className="p-4 border-b border-border relative">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-medium flex items-center gap-2">
+              <MessageSquare size={16} />
+              Reflexion Chat
+            </h2>
+            <div className="relative" ref={settingsRef}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowSettings(!showSettings)}
+                className="h-8 w-8"
+              >
+                <Settings size={16} />
+              </Button>
+              
+              {showSettings && (
+                <div className="absolute right-0 top-10 z-50 w-80 bg-background border border-border rounded-lg shadow-lg p-4">
+                  <h3 className="text-sm font-semibold mb-3">Settings</h3>
+                  
+                  {/* Model Selector */}
+                  <div className="mb-4">
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                      AI Model
+                    </label>
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => handleModelChange(e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    >
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                      <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                      <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                    </select>
+                  </div>
+
+                  {/* API Key Input */}
+                  <div className="mb-4">
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                      API Key
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => {
+                          setApiKey(e.target.value)
+                          setApiKeyValid(null)
+                        }}
+                        placeholder="Enter your API key"
+                        className="pr-8"
+                      />
+                      {apiKeyValid !== null && (
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                          {apiKeyValid ? (
+                            <Check size={16} className="text-green-500" />
+                          ) : (
+                            <XCircle size={16} className="text-red-500" />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {apiKeyValid === false && apiKey.trim() && (
+                      <p className="text-xs text-red-500 mt-1">Invalid API key</p>
+                    )}
+                    {apiKeyValid === true && (
+                      <p className="text-xs text-green-500 mt-1">API key is valid</p>
+                    )}
+                  </div>
+
+                  {/* Validate Button */}
+                  <Button
+                    onClick={validateApiKey}
+                    disabled={isValidating || !apiKey.trim()}
+                    className="w-full"
+                    size="sm"
+                  >
+                    {isValidating ? "Validating..." : "Validate API Key"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 pb-32 space-y-4">
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
               Start a conversation about the image
@@ -316,8 +475,8 @@ function App() {
           )}
         </div>
 
-        {/* Input area */}
-        <div className="p-4 border-t border-border">
+        {/* Floating Input area */}
+        <div className="absolute bottom-0 left-0 right-0 p-4">
           {pendingTag && (
             <div className="mb-2 px-3 py-2 bg-accent rounded-md text-xs text-foreground flex items-center gap-2">
               <Pin size={12} />
@@ -330,7 +489,7 @@ function App() {
               <span>You are viewing a tagged message. Click on the image to create a new tag.</span>
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="relative bg-gray-200 rounded-xl px-3 py-2 flex items-center gap-2">
             <Input
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -340,10 +499,15 @@ function App() {
                   ? "Type a message to pin here..."
                   : "Type a message or click on image to tag..."
               }
-              className="flex-1"
+              className="flex-1 bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
-            <Button onClick={handleSendMessage} disabled={!inputText.trim()}>
-              Send
+            <Button 
+              onClick={handleSendMessage} 
+              disabled={!inputText.trim()}
+              className="shrink-0"
+              size="icon"
+            >
+              <ArrowUp size={16} />
             </Button>
           </div>
         </div>
