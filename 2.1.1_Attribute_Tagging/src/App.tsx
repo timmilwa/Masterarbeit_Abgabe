@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Upload, X, Pin, MessageSquare, Send, Settings, Check, XCircle, Trash2, MessageSquarePlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -190,13 +190,6 @@ function App() {
     }
   }
 
-  const removeTag = (tagId: string) => {
-    setTags((prev) => prev.filter((tag) => tag.id !== tagId))
-    setMessages((prev) => prev.filter((msg) => msg.tagId !== tagId))
-    if (selectedTagId === tagId) {
-      setSelectedTagId(null)
-    }
-  }
 
   // Close settings dropdown when clicking outside
   useEffect(() => {
@@ -622,6 +615,7 @@ function App() {
 }
 
 export default App
+
 
 
 
