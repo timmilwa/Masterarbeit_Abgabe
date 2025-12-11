@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Upload, X, Pin, MessageSquare, ArrowUp, Settings, Check, XCircle, Trash2, Plus } from "lucide-react"
+import { Upload, X, Pin, MessageSquare, Send, Settings, Check, XCircle, Trash2, MessageSquarePlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import "./App.css"
@@ -604,7 +604,7 @@ function App() {
               variant="outline"
               title="Add to pending messages"
             >
-              <Plus size={16} />
+              <MessageSquarePlus size={16} />
             </Button>
             <Button 
               onClick={handleSendMessage} 
@@ -612,7 +612,7 @@ function App() {
               className="shrink-0 bg-blue-500 text-white hover:bg-blue-600"
               size="icon"
             >
-              <ArrowUp size={16} />
+              <Send size={16} />
             </Button>
           </div>
         </div>
