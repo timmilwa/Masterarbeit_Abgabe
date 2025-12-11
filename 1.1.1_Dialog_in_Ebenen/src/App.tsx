@@ -1,7 +1,8 @@
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
-import { Settings, Plus, Send, Sparkles, Zap, Heart, Scale } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Settings, Send, Sparkles, Zap, Heart, Scale } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 type Category = 'Funktion' | 'Emotion' | 'Werte'
@@ -33,6 +34,10 @@ function App() {
   ])
   const [inputValue, setInputValue] = useState("")
   const [activeTab, setActiveTab] = useState<Category>('Funktion')
+  const [showSettings, setShowSettings] = useState(false)
+  const [apiKey, setApiKey] = useState("")
+  const [customInstructions, setCustomInstructions] = useState("")
+  const settingsRef = useRef<HTMLDivElement>(null)
 
   const handleSend = () => {
     if (!inputValue.trim()) return
@@ -66,8 +71,65 @@ function App() {
     { id: 'Werte', icon: Scale },
   ] as const
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setShowSettings(false)
+      }
+    }
+
+    if (showSettings) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showSettings])
+
   return (
     <div className="flex h-screen w-full flex-col bg-background text-foreground font-sans relative overflow-hidden selection:bg-selection selection:text-white">
+      {/* Settings Button */}
+      <div className="absolute top-6 right-6 z-30" ref={settingsRef}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowSettings(!showSettings)}
+          className="h-10 w-10 rounded-xl text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+        >
+          <Settings className="h-5 w-5" />
+        </Button>
+
+        {/* Settings Dropdown */}
+        {showSettings && (
+          <div className="absolute top-12 right-0 w-80 bg-white rounded-2xl border border-border/40 shadow-xl shadow-black/10 p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">API Key</label>
+              <Input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your API key"
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Custom Instructions</label>
+              <textarea
+                value={customInstructions}
+                onChange={(e) => setCustomInstructions(e.target.value)}
+                placeholder="Enter custom instructions for the AI..."
+                rows={4}
+                className={cn(
+                  "flex w-full rounded-md border border-input bg-muted px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                )}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Top Segmented Switch */}
       <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-top-4 duration-700">
         <div className="flex items-center p-1 bg-muted/80 backdrop-blur-md rounded-xl border border-border/40 shadow-sm">
@@ -114,12 +176,8 @@ function App() {
       </div>
 
       {/* Bottom Floating Input Area */}
-      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 z-20">
+      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-20">
         <div className="group relative flex items-center gap-2 rounded-2xl border border-border/40 bg-white p-2 shadow-xl shadow-black/5 ring-1 ring-black/5 transition-all focus-within:ring-2 focus-within:ring-primary/10 hover:shadow-2xl hover:shadow-black/10">
-          <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:bg-muted/50 rounded-xl">
-            <Plus className="h-5 w-5" />
-          </Button>
-
           <input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
@@ -139,18 +197,6 @@ function App() {
             <Send className="h-4 w-4" />
           </Button>
         </div>
-
-        <div className="flex justify-center gap-3 mt-4">
-          <Button variant="default">Primary Action</Button>
-          <Button variant="secondary">Secondary Action</Button>
-          <Button variant="outline">Outline Action</Button>
-          <Button variant="ghost">Ghost Action</Button>
-          <Button variant="outline" size="icon">
-            <Settings className="h-4 w-4" />
-          </Button>
-        </div>
-
-
       </div>
     </div>
   )
