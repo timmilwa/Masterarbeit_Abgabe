@@ -22,13 +22,20 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content }) =
                 </div>
 
                 {/* Bubble */}
-                <div className={`
-          relative px-5 py-3.5 rounded-2xl shadow-sm text-base leading-relaxed border
-          ${isUser
-                        ? 'bg-primary text-primary-foreground border-primary rounded-tr-sm'
-                        : 'bg-white text-foreground border-border rounded-tl-sm'
-                    }
-        `}>
+                <div 
+                    className={`
+                        relative px-5 py-3.5 shadow-sm text-base leading-relaxed border
+                        ${isUser
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-white text-foreground border-border'
+                        }
+                    `}
+                    style={{
+                        borderRadius: isUser 
+                            ? '16px 16px 6px 16px' // top-left, top-right, bottom-right, bottom-left (6px on lower right)
+                            : '16px 16px 16px 6px' // top-left, top-right, bottom-right, bottom-left (6px on lower left)
+                    }}
+                >
                     {content}
                 </div>
             </div>
