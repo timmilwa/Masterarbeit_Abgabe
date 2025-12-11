@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Upload, X, Pin, MessageSquare, ArrowUp, Settings, Check, XCircle, Trash2 } from "lucide-react"
+import { Upload, X, Pin, MessageSquare, ArrowUp, Settings, Check, XCircle, Trash2, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import "./App.css"
@@ -18,6 +18,13 @@ interface Message {
   tagId?: string
 }
 
+interface PendingMessage {
+  id: string
+  text: string
+  x?: number // percentage
+  y?: number // percentage
+}
+
 function App() {
   const [image, setImage] = useState<string | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
@@ -30,6 +37,7 @@ function App() {
   const [selectedModel, setSelectedModel] = useState<string>("gemini-2.5-flash")
   const [apiKeyValid, setApiKeyValid] = useState<boolean | null>(null)
   const [isValidating, setIsValidating] = useState(false)
+  const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([])
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const settingsRef = useRef<HTMLDivElement>(null)
@@ -44,6 +52,7 @@ function App() {
         setMessages([])
         setPendingTag(null)
         setSelectedTagId(null)
+        setPendingMessages([])
       }
       reader.readAsDataURL(file)
     }
@@ -90,53 +99,115 @@ function App() {
 
       setInputText("")
       setSelectedTagId(tagId)
+      setPendingTag(null) // Clear pending tag after using it
+    } else if (pendingMessages.length > 0) {
+      // If there are pending messages without locations, assign to the first one
+      const unassignedIndex = pendingMessages.findIndex(msg => msg.x === undefined || msg.y === undefined)
+      if (unassignedIndex !== -1) {
+        setPendingMessages((prev) => 
+          prev.map((msg, idx) => 
+            idx === unassignedIndex ? { ...msg, x, y } : msg
+          )
+        )
+        setPendingTag(null) // Clear pending tag after assigning
+      } else {
+        // All pending messages have locations, set pendingTag for next message
+        setPendingTag({ x, y })
+      }
     } else {
-      // Just show pending tag location
+      // No pending messages and no input text - set pendingTag for future messages
       setPendingTag({ x, y })
     }
   }
 
-  const handleSendMessage = () => {
+  const handleAddPendingMessage = () => {
     if (!inputText.trim()) return
 
-    // If there's a pending tag, create tag and message
-    if (pendingTag) {
-      const tagId = `tag-${Date.now()}`
-      const messageId = `msg-${Date.now()}`
-      
-      const newTag: Tag = {
-        id: tagId,
-        x: pendingTag.x,
-        y: pendingTag.y,
-        messageId,
-      }
-
-      const newMessage: Message = {
-        id: messageId,
-        text: inputText.trim(),
-        isUser: true,
-        tagId,
-      }
-
-      setTags((prev) => [...prev, newTag])
-      setMessages((prev) => [...prev, newMessage])
-      setPendingTag(null)
-      setSelectedTagId(tagId)
-    } else {
-      // Regular message without tag
-      const newMessage: Message = {
-        id: `msg-${Date.now()}`,
-        text: inputText.trim(),
-        isUser: true,
-      }
-      setMessages((prev) => [...prev, newMessage])
+    const pendingMessage: PendingMessage = {
+      id: `pending-${Date.now()}`,
+      text: inputText.trim(),
+      // If there's a pendingTag location, use it for this message
+      x: pendingTag?.x,
+      y: pendingTag?.y,
     }
 
-    // Add AI response (demo mode)
+    setPendingMessages((prev) => [...prev, pendingMessage])
+    setInputText("")
+    // Clear pendingTag after using it (user can click image again to set new location)
+    setPendingTag(null)
+  }
+
+  const removePendingMessage = (id: string) => {
+    setPendingMessages((prev) => prev.filter((msg) => msg.id !== id))
+  }
+
+  const handleSendMessage = () => {
+    // First, send all pending messages
+    const allMessagesToSend = [...pendingMessages]
+    
+    // If there's current input text, add it to the list
+    if (inputText.trim()) {
+      allMessagesToSend.push({
+        id: `pending-current-${Date.now()}`,
+        text: inputText.trim(),
+        x: pendingTag?.x,
+        y: pendingTag?.y,
+      })
+      // Clear pendingTag after using it
+      setPendingTag(null)
+    }
+
+    if (allMessagesToSend.length === 0) return
+
+    let hasPinnedMessage = false
+
+    // Send all pending messages
+    allMessagesToSend.forEach((pendingMsg, index) => {
+      // If the message has a location, create tag and message
+      if (pendingMsg.x !== undefined && pendingMsg.y !== undefined) {
+        const tagId = `tag-${Date.now()}-${index}`
+        const messageId = `msg-${Date.now()}-${index}`
+        
+        const newTag: Tag = {
+          id: tagId,
+          x: pendingMsg.x,
+          y: pendingMsg.y,
+          messageId,
+        }
+
+        const newMessage: Message = {
+          id: messageId,
+          text: pendingMsg.text,
+          isUser: true,
+          tagId,
+        }
+
+        setTags((prev) => [...prev, newTag])
+        setMessages((prev) => [...prev, newMessage])
+        if (index === 0) {
+          setSelectedTagId(tagId)
+        }
+        hasPinnedMessage = true
+      } else {
+        // Regular message without tag
+        const newMessage: Message = {
+          id: `msg-${Date.now()}-${index}`,
+          text: pendingMsg.text,
+          isUser: true,
+        }
+        setMessages((prev) => [...prev, newMessage])
+      }
+    })
+
+    // Clear pending messages and tag
+    setPendingMessages([])
+    setPendingTag(null)
+
+    // Add AI response (demo mode) after all messages are sent
     setTimeout(() => {
       const aiMessage: Message = {
         id: `ai-${Date.now()}`,
-        text: pendingTag 
+        text: hasPinnedMessage 
           ? "I understand you're referring to this area of the image."
           : "How can I help you with this image?",
         isUser: false,
@@ -261,6 +332,7 @@ function App() {
                     setMessages([])
                     setPendingTag(null)
                     setSelectedTagId(null)
+                    setPendingMessages([])
                   }}
                 >
                   <Trash2 size={16} />
@@ -323,7 +395,26 @@ function App() {
                 </div>
               ))}
 
-              {/* Pending tag indicator */}
+              {/* Pending message indicators */}
+              {pendingMessages
+                .filter(msg => msg.x !== undefined && msg.y !== undefined)
+                .map((pendingMsg) => (
+                  <div
+                    key={pendingMsg.id}
+                    className="absolute transform -translate-x-1/2 -translate-y-1/2 z-10"
+                    style={{
+                      left: `${pendingMsg.x}%`,
+                      top: `${pendingMsg.y}%`,
+                    }}
+                  >
+                    <div className="w-4 h-4 rounded-full border-2 border-dashed border-blue-500 bg-blue-500/20" />
+                    <div className="absolute top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap bg-background border border-border rounded-md px-2 py-1 shadow-lg text-xs text-muted-foreground max-w-[150px] truncate">
+                      {pendingMsg.text || "Pending"}
+                    </div>
+                  </div>
+                ))}
+
+              {/* Pending tag indicator - shows selected location for future messages */}
               {pendingTag && (
                 <div
                   className="absolute transform -translate-x-1/2 -translate-y-1/2 z-10"
@@ -334,7 +425,9 @@ function App() {
                 >
                   <div className="w-4 h-4 rounded-full border-2 border-dashed border-blue-500 bg-blue-500/10 animate-pulse" />
                   <div className="absolute top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap bg-background border border-border rounded-md px-2 py-1 shadow-lg text-xs text-muted-foreground">
-                    Click to pin message
+                    {pendingMessages.length > 0 
+                      ? "Next message will be pinned here"
+                      : "Type a message to pin here"}
                   </div>
                 </div>
               )}
@@ -477,18 +570,63 @@ function App() {
 
         {/* Floating Input area */}
         <div className="absolute bottom-0 left-0 right-0 p-4">
+          {pendingMessages.filter(msg => msg.x !== undefined && msg.y !== undefined).length > 0 && (
+            <div className="mb-2 px-3 py-2 bg-accent rounded-md text-xs text-foreground flex items-center gap-2">
+              <Pin size={12} />
+              <span>
+                {pendingMessages.filter(msg => msg.x !== undefined && msg.y !== undefined).length} pending message{pendingMessages.filter(msg => msg.x !== undefined && msg.y !== undefined).length !== 1 ? 's' : ''} {pendingMessages.filter(msg => msg.x === undefined || msg.y === undefined).length > 0 ? 'without location. Click on image to assign locations.' : 'ready to send.'}
+              </span>
+            </div>
+          )}
           {pendingTag && (
             <div className="mb-2 px-3 py-2 bg-accent rounded-md text-xs text-foreground flex items-center gap-2">
               <Pin size={12} />
-              <span>Your message will be pinned to the selected location on the image</span>
+              <span>
+                {pendingMessages.length > 0 
+                  ? "Location selected. Next message will be pinned here."
+                  : "Location selected. Type a message and it will be pinned here."}
+              </span>
             </div>
           )}
-          {selectedTagId && !pendingTag && (
+          {selectedTagId && !pendingTag && pendingMessages.length === 0 && (
             <div className="mb-2 px-3 py-2 bg-accent rounded-md text-xs text-foreground flex items-center gap-2">
               <Pin size={12} />
-              <span>You are viewing a tagged message. Click on the image to create a new tag.</span>
+              <span>Click on the image to create a tag in a new location.</span>
             </div>
           )}
+          
+          {/* Pending messages */}
+          {pendingMessages.length > 0 && (
+            <div className="mb-2 flex flex-row gap-2 overflow-x-auto relative z-10">
+              {pendingMessages.map((pendingMsg) => (
+                <div
+                  key={pendingMsg.id}
+                  className={`group flex items-center gap-1.5 bg-blue-500/20 text-blue-600 rounded-lg px-2.5 py-1.5 text-xs shadow-sm border border-dashed border-blue-500 shrink-0 ${
+                    pendingMsg.x !== undefined && pendingMsg.y !== undefined ? 'ring-1 ring-blue-400' : ''
+                  }`}
+                >
+                  <Pin 
+                    size={10} 
+                    className={`shrink-0 w-3 h-3 ${
+                      pendingMsg.x !== undefined && pendingMsg.y !== undefined ? 'fill-blue-600' : ''
+                    }`} 
+                  />
+                  <span className="break-words whitespace-nowrap text-xs">{pendingMsg.text}</span>
+                  <div className="w-0 group-hover:w-6 overflow-hidden transition-all duration-200 ease-in-out">
+                    <button
+                      onClick={() => removePendingMessage(pendingMsg.id)}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 hover:bg-blue-500/30 rounded p-0.5 transition-opacity duration-200 flex items-center justify-center text-blue-600 w-6"
+                      type="button"
+                      aria-label="Remove pending message"
+                    >
+                      <X size={12} className="shrink-0" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="relative bg-gray-200 rounded-xl px-3 py-2 flex items-center gap-2">
             <Input
               value={inputText}
@@ -496,14 +634,26 @@ function App() {
               onKeyPress={handleKeyPress}
               placeholder={
                 pendingTag
-                  ? "Type a message to pin here..."
-                  : "Type a message or click on image to tag..."
+                  ? "Type a message to pin at selected location..."
+                  : pendingMessages.length > 0
+                  ? "Type a message or click on image to assign location..."
+                  : "Type a message or click on image to select location..."
               }
               className="flex-1 bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             <Button 
-              onClick={handleSendMessage} 
+              onClick={handleAddPendingMessage} 
               disabled={!inputText.trim()}
+              className="shrink-0"
+              size="icon"
+              variant="outline"
+              title="Add to pending messages"
+            >
+              <Plus size={16} />
+            </Button>
+            <Button 
+              onClick={handleSendMessage} 
+              disabled={pendingMessages.length === 0 && !inputText.trim()}
               className="shrink-0"
               size="icon"
             >
