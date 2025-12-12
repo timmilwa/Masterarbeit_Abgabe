@@ -527,3 +527,4 @@ function Canvas({ children, onImageUpload, transform, onTransformChange, isRefle
 }
 
 export default Canvas
+

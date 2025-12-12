@@ -56,3 +56,4 @@ function Toolbar({ reflectionMode, onReflectionModeToggle, onMerge, onExport, on
 }
 
 export default Toolbar
+

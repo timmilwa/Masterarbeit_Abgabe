@@ -648,3 +648,4 @@ function CanvasImage({
 
 export default CanvasImage
 
+

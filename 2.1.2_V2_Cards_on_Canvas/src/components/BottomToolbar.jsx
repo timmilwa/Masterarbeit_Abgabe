@@ -37,3 +37,4 @@ function BottomToolbar({ onAddImage }) {
 }
 
 export default BottomToolbar
+
