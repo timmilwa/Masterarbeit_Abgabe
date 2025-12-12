@@ -14,6 +14,7 @@ export default {
         'primary-foreground': 'oklch(1 0 0)',
         secondary: 'oklch(0.95 0.0058 264.53)',
         accent: '#e9ebef',
+        'accent-foreground': 'oklch(0.145 0 0)',
         destructive: '#d4183d',
         ring: 'oklch(0.623 .214 259.815)',
       },
@@ -24,4 +25,7 @@ export default {
   },
   plugins: [],
 }
+
+
+
 
