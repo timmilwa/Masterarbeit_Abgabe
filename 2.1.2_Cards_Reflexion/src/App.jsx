@@ -487,7 +487,7 @@ function App() {
                         value={apiKey}
                         onChange={(e) => handleApiKeyChange(e.target.value)}
                         placeholder="Enter your API key"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 pr-10"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 pr-10 bg-gray-100 text-gray-900"
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2">
                         {isValidatingApiKey ? (
@@ -509,7 +509,7 @@ function App() {
                     <select
                       value={selectedModel}
                       onChange={(e) => setSelectedModel(e.target.value)}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 bg-white"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 bg-gray-100 text-gray-900"
                     >
                       <option value="gemini-2.0-flash-exp">Gemini 2.5 Flash</option>
                       <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
@@ -528,12 +528,12 @@ function App() {
                           onChange={(e) => setAiMode(e.target.checked)}
                           className="sr-only"
                         />
-                        <div className={`w-11 h-6 rounded-full transition-colors ${
+                        <div className={`relative w-11 h-6 rounded-full transition-colors ${
                           aiMode ? 'bg-blue-600' : 'bg-gray-300'
                         }`}>
-                          <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${
+                          <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${
                             aiMode ? 'translate-x-5' : 'translate-x-0.5'
-                          } mt-0.5`} />
+                          }`} />
                         </div>
                       </div>
                     </label>
@@ -565,7 +565,7 @@ function App() {
                           onChange={(e) => setAiInstructions(prev => ({ ...prev, titleGeneration: e.target.value }))}
                           placeholder="e.g., Keep titles to 2-3 words. Be descriptive but concise."
                           rows={2}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none bg-gray-100 text-gray-900"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           Context: The uploaded image is analyzed directly. No additional context provided.
@@ -582,7 +582,7 @@ function App() {
                           onChange={(e) => setAiInstructions(prev => ({ ...prev, functionalQuestions: e.target.value }))}
                           placeholder="e.g., Ask about visual hierarchy. Keep questions under 15 words."
                           rows={2}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none bg-gray-100 text-gray-900"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           Context: AI-generated image title, user focus from first card, existing pinned answers, previously asked questions, and covered aspects.
@@ -599,7 +599,7 @@ function App() {
                           onChange={(e) => setAiInstructions(prev => ({ ...prev, consequencesQuestion1: e.target.value }))}
                           placeholder="e.g., Focus on data implications. Keep it concise."
                           rows={2}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none bg-gray-100 text-gray-900"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           Context: Selected pin's functional answer, AI-generated image title, user focus from first card. (Currently uses static questions; AI generation coming soon)
@@ -616,7 +616,7 @@ function App() {
                           onChange={(e) => setAiInstructions(prev => ({ ...prev, consequencesQuestion2: e.target.value }))}
                           placeholder="e.g., Focus on user impact. Keep it concise."
                           rows={2}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none bg-gray-100 text-gray-900"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           Context: Selected pin's functional answer, answer to Question 1, AI-generated image title, user focus. (Currently uses static questions; AI generation coming soon)
@@ -633,7 +633,7 @@ function App() {
                           onChange={(e) => setAiInstructions(prev => ({ ...prev, valuesQuestion: e.target.value }))}
                           placeholder="e.g., Focus on ethical implications. Keep it reflective."
                           rows={2}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none bg-gray-100 text-gray-900"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           Context: Selected pin's functional answer, consequences answers (both questions), AI-generated image title, user focus. (Currently uses static questions; AI generation coming soon)
