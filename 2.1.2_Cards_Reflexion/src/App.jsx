@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { Settings, Trash2 } from 'lucide-react'
 import EmptyState from './components/EmptyState'
 import ImageCard from './components/ImageCard'
 import Tag from './components/Tag'
@@ -10,7 +11,10 @@ function App() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [currentLayerIndex, setCurrentLayerIndex] = useState(0)
   const [activeTagId, setActiveTagId] = useState(null)
+  const [hoveredTagId, setHoveredTagId] = useState(null)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const imageRef = useRef(null)
+  const settingsRef = useRef(null)
 
   const handleImageUpload = (event) => {
     const file = event.target.files?.[0]
@@ -38,7 +42,9 @@ function App() {
       y: Math.max(0, Math.min(100, y)), // Clamp between 0-100
       text: '',
       questionId: currentQuestionIndex,
-      saved: false // Tag is pending until user clicks plus button
+      saved: false, // Tag is pending until user clicks plus button
+      dataLayerResponses: null, // Initialize as null for new tags
+      valuesLayerResponses: null // Initialize as null for new tags
     }
     
     setTags(prev => [...prev, newTag])
@@ -68,6 +74,99 @@ function App() {
     setActiveTagId(id) // Set clicked tag as active
   }
 
+  const handleTagHover = (id) => {
+    setHoveredTagId(id) // Set hovered tag
+  }
+
+  const handleTagHoverEnd = () => {
+    setHoveredTagId(null) // Clear hovered tag
+  }
+
+  const handleDeleteAllTags = () => {
+    setTags([])
+    setActiveTagId(null)
+    setHoveredTagId(null)
+    setIsSettingsOpen(false)
+  }
+
+  const handleLayerIndexChange = (newLayerIndex) => {
+    setCurrentLayerIndex(newLayerIndex)
+    // Deselect all pins when switching to Consequences card (index 2) or Values card (index 3)
+    if (newLayerIndex === 2 || newLayerIndex === 3) {
+      setActiveTagId(null)
+    }
+  }
+
+  const handleDataLayerResponse = (tagId, questionIndex, answer, questionText) => {
+    setTags(prev => prev.map(tag => {
+      if (tag.id === tagId) {
+        const currentResponses = tag.dataLayerResponses || {
+          question1: null,
+          answer1: null,
+          question2: null,
+          answer2: null,
+          completed: false
+        }
+        
+        const updatedResponses = { ...currentResponses }
+        
+        if (questionIndex === 0) {
+          updatedResponses.question1 = questionText
+          updatedResponses.answer1 = answer
+        } else if (questionIndex === 1) {
+          updatedResponses.question2 = questionText
+          updatedResponses.answer2 = answer
+          updatedResponses.completed = true
+        }
+        
+        return {
+          ...tag,
+          dataLayerResponses: updatedResponses
+        }
+      }
+      return tag
+    }))
+  }
+
+  const handleValuesLayerResponse = (tagId, answer, questionText) => {
+    setTags(prev => prev.map(tag => {
+      if (tag.id === tagId) {
+        const currentResponses = tag.valuesLayerResponses || {
+          question: null,
+          answer: null,
+          completed: false
+        }
+        
+        return {
+          ...tag,
+          valuesLayerResponses: {
+            question: questionText,
+            answer: answer,
+            completed: true
+          }
+        }
+      }
+      return tag
+    }))
+  }
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+        setIsSettingsOpen(false)
+      }
+    }
+
+    if (isSettingsOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isSettingsOpen])
+
   return (
     <div className="min-h-screen bg-background">
       {!imageUrl ? (
@@ -78,7 +177,7 @@ function App() {
             {/* Image Section */}
             <div className="flex-shrink-0">
               <div 
-                className={`relative rounded-lg overflow-hidden ${currentLayerIndex === 1 ? 'cursor-crosshair' : 'cursor-default'}`}
+                className={`relative rounded-lg overflow-visible ${currentLayerIndex === 1 ? 'cursor-crosshair' : 'cursor-default'}`}
                 onClick={(e) => {
                   // Only handle click if not clicking on a tag
                   if (!e.target.closest('[data-tag-container]')) {
@@ -104,11 +203,16 @@ function App() {
                     key={tag.id}
                     tag={tag}
                     isActive={activeTagId === tag.id}
+                    isHovered={hoveredTagId === tag.id}
                     onTextChange={handleTagTextChange}
                     onSave={handleSaveTag}
                     onDelete={handleDeleteTag}
                     onClick={handleTagClick}
+                    onHover={handleTagHover}
+                    onHoverEnd={handleTagHoverEnd}
                     imageRef={imageRef}
+                    currentLayerIndex={currentLayerIndex}
+                    activeTagId={activeTagId}
                   />
                 ))}
               </div>
@@ -120,9 +224,39 @@ function App() {
                 tags={tags}
                 currentQuestionIndex={currentQuestionIndex}
                 onQuestionIndexChange={setCurrentQuestionIndex}
-                onLayerIndexChange={setCurrentLayerIndex}
+                onLayerIndexChange={handleLayerIndexChange}
+                activeTagId={activeTagId}
+                onDataLayerResponse={handleDataLayerResponse}
+                onValuesLayerResponse={handleValuesLayerResponse}
               />
             </div>
+          </div>
+          
+          {/* Settings Button - Bottom Left */}
+          <div 
+            ref={settingsRef}
+            className="fixed bottom-6 left-6 z-50"
+          >
+            <button
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              className="w-10 h-10 flex items-center justify-center rounded-full bg-white border border-gray-200 shadow-lg hover:bg-gray-50 transition-colors"
+              aria-label="Settings"
+            >
+              <Settings size={20} className="text-gray-700" />
+            </button>
+            
+            {/* Dropdown Menu */}
+            {isSettingsOpen && (
+              <div className="absolute bottom-12 left-0 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] overflow-hidden">
+                <button
+                  onClick={handleDeleteAllTags}
+                  className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={16} />
+                  <span>Delete all pins</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

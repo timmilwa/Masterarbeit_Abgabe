@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
-import { Pencil, Pin, CircleQuestionMark } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Pencil, Pin, CircleQuestionMark, CircleCheck, CircleDotDashed, ArrowUp } from 'lucide-react'
 import Button from './Button'
 import Input from './Input'
 
-// Define the three different cards with different content
+// Define the four different cards with different content
 const initialLayers = [
   { 
     headline: 'Weather-App',
@@ -14,8 +14,12 @@ const initialLayers = [
     content: 'This is the Functional Layer card showing functional components and logic.'
   },
   { 
-    headline: 'Data Layer',
-    content: 'This is the Data Layer card displaying data structures and storage.'
+    headline: 'Consequences',
+    content: 'This is the Consequences card displaying data structures and storage.'
+  },
+  { 
+    headline: 'Values',
+    content: 'This is the Values card displaying values and principles.'
   }
 ]
 
@@ -26,7 +30,7 @@ const demoQuestions = [
   'What are the main functional components of this application?'
 ]
 
-function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange, onLayerIndexChange }) {
+function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange, onLayerIndexChange, activeTagId = null, onDataLayerResponse, onValuesLayerResponse }) {
   const [layers, setLayers] = useState(initialLayers)
   const [currentLayerIndex, setCurrentLayerIndex] = useState(0)
   const [animationKey, setAnimationKey] = useState(0)
@@ -36,13 +40,126 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
   const [weatherInput, setWeatherInput] = useState('')
   const [editingHeadlineIndex, setEditingHeadlineIndex] = useState(null)
   const [editingHeadlineValue, setEditingHeadlineValue] = useState('')
+  const [chatInput, setChatInput] = useState('')
+  const [chatMessages, setChatMessages] = useState([])
+  const [lastActiveTagId, setLastActiveTagId] = useState(null)
+  const [currentDataLayerQuestion, setCurrentDataLayerQuestion] = useState(0) // 0 = question 1, 1 = question 2, 2 = completed
+  const [currentValuesLayerQuestion, setCurrentValuesLayerQuestion] = useState(0) // 0 = question, 1 = completed
+  const chatMessagesEndRef = useRef(null)
+  
+  // Configurable questions for Consequences
+  const dataLayerQuestions = [
+    'Question 1 for Consequences',
+    'Question 2 for Consequences'
+  ]
+  
+  // Configurable question for Values
+  const valuesLayerQuestion = 'Question for Values'
 
-  // Sync initial layer index with parent
+  // Sync layer index with parent
   useEffect(() => {
     if (onLayerIndexChange) {
       onLayerIndexChange(currentLayerIndex)
     }
-  }, []) // Only on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLayerIndex]) // Only depend on currentLayerIndex to avoid unnecessary re-renders
+
+  // Handle chat messages when pin is selected/deselected
+  useEffect(() => {
+    if (currentLayerIndex === 2) { // Consequences
+      if (activeTagId) {
+        // Pin is selected
+        if (activeTagId !== lastActiveTagId) {
+          // Different pin selected - check existing responses and initialize chat
+          const activeTag = tags.find(tag => tag.id === activeTagId)
+          const responses = activeTag?.dataLayerResponses
+          
+          if (!responses || !responses.completed) {
+            // Not completed - determine which question to show
+            if (!responses || !responses.answer1) {
+              // Show question 1
+              setCurrentDataLayerQuestion(0)
+              const question1 = responses?.question1 || dataLayerQuestions[0]
+              setChatMessages([{ type: 'ai', text: question1 }])
+            } else if (!responses.answer2) {
+              // Show question 2
+              setCurrentDataLayerQuestion(1)
+              const question1 = responses.question1 || dataLayerQuestions[0]
+              const question2 = responses.question2 || dataLayerQuestions[1]
+              setChatMessages([
+                { type: 'ai', text: question1 },
+                { type: 'user', text: responses.answer1 },
+                { type: 'ai', text: question2 }
+              ])
+            }
+          } else {
+            // Completed - show all messages and completion state
+            setCurrentDataLayerQuestion(2)
+            const question1 = responses.question1 || dataLayerQuestions[0]
+            const question2 = responses.question2 || dataLayerQuestions[1]
+            setChatMessages([
+              { type: 'ai', text: question1 },
+              { type: 'user', text: responses.answer1 },
+              { type: 'ai', text: question2 },
+              { type: 'user', text: responses.answer2 }
+            ])
+          }
+          
+          setChatInput('')
+          setLastActiveTagId(activeTagId)
+        }
+        // If same pin, keep existing messages and state
+      } else {
+        // No pin selected - clear messages
+        setChatMessages([])
+        setChatInput('')
+        setLastActiveTagId(null)
+        setCurrentDataLayerQuestion(0)
+      }
+    } else if (currentLayerIndex === 3) { // Values
+      if (activeTagId) {
+        // Pin is selected
+        if (activeTagId !== lastActiveTagId) {
+          // Different pin selected - check existing responses and initialize chat
+          const activeTag = tags.find(tag => tag.id === activeTagId)
+          const responses = activeTag?.valuesLayerResponses
+          
+          if (!responses || !responses.completed) {
+            // Not completed - show question
+            setCurrentValuesLayerQuestion(0)
+            const question = responses?.question || valuesLayerQuestion
+            setChatMessages([{ type: 'ai', text: question }])
+          } else {
+            // Completed - show all messages and completion state
+            setCurrentValuesLayerQuestion(1)
+            const question = responses.question || valuesLayerQuestion
+            setChatMessages([
+              { type: 'ai', text: question },
+              { type: 'user', text: responses.answer }
+            ])
+          }
+          
+          setChatInput('')
+          setLastActiveTagId(activeTagId)
+        }
+        // If same pin, keep existing messages and state
+      } else {
+        // No pin selected - clear messages
+        setChatMessages([])
+        setChatInput('')
+        setLastActiveTagId(null)
+        setCurrentValuesLayerQuestion(0)
+      }
+    } else {
+      // Not on Consequences or Values layer - reset state
+      setChatMessages([])
+      setChatInput('')
+      setLastActiveTagId(null)
+      setCurrentDataLayerQuestion(0)
+      setCurrentValuesLayerQuestion(0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTagId, currentLayerIndex, tags])
 
   const handleNext = () => {
     if (currentLayerIndex < initialLayers.length - 1) {
@@ -112,6 +229,57 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
     }
   }
 
+  const handleSendMessage = () => {
+    if (chatInput.trim() && activeTagId && currentDataLayerQuestion < 2) {
+      const answer = chatInput.trim()
+      const questionIndex = currentDataLayerQuestion
+      
+      // Store the answer with question text
+      if (onDataLayerResponse) {
+        onDataLayerResponse(activeTagId, questionIndex, answer, dataLayerQuestions[questionIndex])
+      }
+      
+      // Add user message to chat
+      setChatMessages(prev => [...prev, { type: 'user', text: answer }])
+      setChatInput('')
+      
+      // Advance to next question or complete
+      if (currentDataLayerQuestion === 0) {
+        // Move to question 2
+        setCurrentDataLayerQuestion(1)
+        setChatMessages(prev => [...prev, { type: 'ai', text: dataLayerQuestions[1] }])
+      } else if (currentDataLayerQuestion === 1) {
+        // Mark as completed
+        setCurrentDataLayerQuestion(2)
+      }
+    }
+  }
+
+  const handleValuesSendMessage = () => {
+    if (chatInput.trim() && activeTagId && currentValuesLayerQuestion === 0) {
+      const answer = chatInput.trim()
+      
+      // Store the answer with question text
+      if (onValuesLayerResponse) {
+        onValuesLayerResponse(activeTagId, answer, valuesLayerQuestion)
+      }
+      
+      // Add user message to chat
+      setChatMessages(prev => [...prev, { type: 'user', text: answer }])
+      setChatInput('')
+      
+      // Mark as completed
+      setCurrentValuesLayerQuestion(1)
+    }
+  }
+
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    if (chatMessagesEndRef.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [chatMessages])
+
   // Calculate tag count for current question (only saved tags)
   const tagCount = tags.filter(tag => tag.questionId === currentQuestionIndex && tag.saved).length
 
@@ -120,6 +288,7 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
   const isFirstLayer = currentLayerIndex === 0
   const isSecondLayer = currentLayerIndex === 1
   const isThirdLayer = currentLayerIndex === 2
+  const isFourthLayer = currentLayerIndex === 3
   const previousIsFirstLayer = previousLayer && currentLayerIndex === 1
   const previousIsSecondLayer = previousLayer && currentLayerIndex === 2
 
@@ -137,11 +306,17 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
         border: 'border-[#007AFF]',
         text: 'text-[#007AFF]'
       }
-    } else {
+    } else if (index === 2) {
       return {
         bg: 'bg-[#F8D866]',
         border: 'border-[#AA8302]',
         text: 'text-[#AA8302]'
+      }
+    } else {
+      return {
+        bg: 'bg-[#D4B5FF]',
+        border: 'border-[#8B5CF6]',
+        text: 'text-[#8B5CF6]'
       }
     }
   }
@@ -149,22 +324,24 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
   return (
     <div className="space-y-2">
       {/* Card Stack Container */}
-      <div className="relative min-h-[200px] pb-20">
+      <div className="relative min-h-[320px] pb-6">
         {/* Render all cards and position them based on their state */}
-        {layers.map((layer, index) => {
+        {layers.length > 0 && layers.map((layer, index) => {
           const isActive = index === currentLayerIndex
           const isBackground = index === currentLayerIndex - 1
           const isExiting = index === exitingCardIndex
           const colors = getCardColors(index)
           
           // Render active card, background card, or exiting card
+          // Always ensure the active card is rendered
           if (!isActive && !isBackground && !isExiting) return null
           
           // Get semi-transparent background for active card
           const getActiveBg = () => {
             if (index === 0) return 'bg-[#E0E0E0]/50'
             if (index === 1) return 'bg-[#BDDAFF]/50'
-            return 'bg-[#F8D866]/50'
+            if (index === 2) return 'bg-[#F8D866]/50'
+            return 'bg-[#D4B5FF]/50'
           }
 
           return (
@@ -180,14 +357,15 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                   transform: 'translateY(100%)',
                   opacity: 0,
                   width: '100%',
-                  minHeight: '150px',
+                  minHeight: (index === 2 || index === 3) ? '270px' : '150px',
                   transition: 'transform 0.4s ease-out, opacity 0.4s ease-out'
                 } : isActive ? {
                   top: '0',
                   left: '0',
                   transform: 'translateX(0) translateY(0) scale(1)',
                   width: '100%',
-                  minHeight: '150px',
+                  minHeight: (index === 2 || index === 3) ? '270px' : '150px',
+                  height: (index === 2 || index === 3) ? '270px' : 'auto',
                   transition: 'transform 0.4s ease-out, top 0.4s ease-out, left 0.4s ease-out'
                 } : {
                   top: '-30px',
@@ -195,12 +373,13 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                   transform: 'translateX(-50%) translateY(-20px) scale(0.85)',
                   transformOrigin: 'center',
                   width: '100%',
-                  minHeight: '150px',
+                  minHeight: (index === 2 || index === 3) ? '270px' : '150px',
+                  height: (index === 2 || index === 3) ? '270px' : 'auto',
                   transition: 'transform 0.4s ease-out, top 0.4s ease-out, left 0.4s ease-out'
                 })
               }}
             >
-              <div className="p-5 relative">
+              <div className={`p-5 relative ${(index === 2 || index === 3) ? 'flex flex-col' : ''}`} style={(index === 2 || index === 3) ? { height: '100%', minHeight: 0 } : {}}>
                 <div className={`absolute z-10 flex items-center gap-3 ${colors.text}`}
                 style={{
                   ...(isBackground ? {
@@ -248,25 +427,54 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                         </svg>
                       </button>
                     </>
-                  ) : (
-                    <>
-                      <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
-                        {layer.headline}
-                      </h3>
-                      {index === 0 && (
-                        <button
-                          onClick={() => handleEditHeadline(index)}
-                          className={`p-1 hover:opacity-70 transition-opacity duration-[400ms] ease-out ${!isActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
-                          aria-label="Edit headline"
-                          style={{
-                            transition: 'opacity 400ms ease-out'
-                          }}
-                        >
-                          <Pencil size={16} />
-                        </button>
-                      )}
-                      {index === 1 && (
-                        <CircleQuestionMark size={20} className="text-[#007AFF]" />
+                      ) : (
+                        <>
+                          {index === 1 && isBackground && currentLayerIndex === 2 ? (
+                            <div className="flex items-center gap-2">
+                              {activeTagId ? (
+                                <CircleCheck size={20} strokeWidth={2} className="text-[#007AFF] flex-shrink-0" />
+                              ) : (
+                                <CircleDotDashed size={20} strokeWidth={2} className="text-[#007AFF] flex-shrink-0" />
+                              )}
+                              <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
+                                {activeTagId ? 'Pin selected' : 'Select a pin on the artefact to get started'}
+                              </h3>
+                            </div>
+                          ) : index === 2 && isBackground && currentLayerIndex === 3 ? (
+                            <div className="flex items-center gap-2">
+                              {activeTagId ? (
+                                <CircleCheck size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                              ) : (
+                                <>
+                                  <CircleDotDashed size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                  <CircleDotDashed size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                </>
+                              )}
+                              <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
+                                {activeTagId ? 'Pin selected' : 'Select a pin to get started'}
+                              </h3>
+                            </div>
+                          ) : (
+                            <>
+                              <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
+                                {layer.headline}
+                              </h3>
+                          {index === 0 && (
+                            <button
+                              onClick={() => handleEditHeadline(index)}
+                              className={`p-1 hover:opacity-70 transition-opacity duration-[400ms] ease-out ${!isActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                              aria-label="Edit headline"
+                              style={{
+                                transition: 'opacity 400ms ease-out'
+                              }}
+                            >
+                              <Pencil size={16} />
+                            </button>
+                          )}
+                          {index === 1 && (
+                            <CircleQuestionMark size={20} className="text-[#007AFF]" />
+                          )}
+                        </>
                       )}
                     </>
                   )}
@@ -306,13 +514,160 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                       
                       {/* Button in bottom right */}
                       <div className="ml-4">
-                        <Button 
-                          onClick={handleNextQuestion}
-                          className="px-3 py-1 rounded-[9px] !bg-[#007AFF] !text-white hover:!bg-[#007AFF]/90 border-0"
-                        >
-                          Next Question
-                        </Button>
+                        {tagCount === 0 ? (
+                          <Button 
+                            onClick={handleNextQuestion}
+                            className="px-3 py-1 rounded-[9px] bg-transparent !text-[#007AFF] border-[1.5px] border-[#007AFF] hover:bg-[#007AFF]/10"
+                          >
+                            Skip Question
+                          </Button>
+                        ) : (
+                          <Button 
+                            onClick={handleNextQuestion}
+                            className="px-3 py-1 rounded-[9px] !bg-[#007AFF] !text-white hover:!bg-[#007AFF]/90 border-[1.5px] border-[#007AFF]"
+                          >
+                            Next Question
+                          </Button>
+                        )}
                       </div>
+                    </div>
+                  </div>
+                ) : index === 2 ? (
+                  <div className={`flex flex-col flex-1 min-h-0 ${isBackground ? 'pt-10' : 'pt-12'}`}>
+                    {/* Chat Messages - Scrollable area */}
+                    <div className="flex-1 overflow-y-auto mb-3 pr-1">
+                      <div className="flex flex-col gap-3">
+                        {chatMessages.map((message, msgIndex) => (
+                          <div
+                            key={msgIndex}
+                            className={`flex items-start ${message.type === 'ai' ? 'justify-start' : 'justify-end'}`}
+                          >
+                            <div
+                              className={`rounded-lg px-4 py-3 max-w-[80%] ${
+                                message.type === 'ai'
+                                  ? `bg-[#FDF5E6]`
+                                  : `${colors.border} bg-[#AA8302]`
+                              }`}
+                            >
+                              <p
+                                className={`text-sm ${
+                                  message.type === 'ai' ? colors.text : 'text-white'
+                                }`}
+                              >
+                                {message.text}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={chatMessagesEndRef} />
+                      </div>
+                    </div>
+                    
+                    {/* Input Field and Send Button or Completion Message - Fixed at bottom */}
+                    <div className="mt-auto">
+                      {currentDataLayerQuestion === 2 ? (
+                        <div className="text-center py-3">
+                          <p className={`text-sm ${colors.text}`}>
+                            Choose another pin to continue
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            placeholder="Text"
+                            disabled={!activeTagId || currentDataLayerQuestion === 2}
+                            className={`${colors.text} border ${colors.border} bg-[#FDF5E6] placeholder:text-[#AA8302]/60 flex-1 ${
+                              !activeTagId || currentDataLayerQuestion === 2 ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && activeTagId && currentDataLayerQuestion < 2) {
+                                handleSendMessage()
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={handleSendMessage}
+                            disabled={!activeTagId || !chatInput.trim() || currentDataLayerQuestion === 2}
+                            className={`w-10 h-10 flex items-center justify-center rounded-lg ${colors.border} bg-[#AA8302] hover:opacity-90 transition-opacity ${
+                              !activeTagId || !chatInput.trim() || currentDataLayerQuestion === 2 ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                            aria-label="Send message"
+                          >
+                            <ArrowUp size={18} className="text-white" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : index === 3 ? (
+                  <div className={`flex flex-col flex-1 min-h-0 ${isBackground ? 'pt-10' : 'pt-12'}`}>
+                    {/* Chat Messages - Scrollable area */}
+                    <div className="flex-1 overflow-y-auto mb-3 pr-1">
+                      <div className="flex flex-col gap-3">
+                        {chatMessages.map((message, msgIndex) => (
+                          <div
+                            key={msgIndex}
+                            className={`flex items-start ${message.type === 'ai' ? 'justify-start' : 'justify-end'}`}
+                          >
+                            <div
+                              className={`rounded-lg px-4 py-3 max-w-[80%] ${
+                                message.type === 'ai'
+                                  ? `bg-[#FDF5E6]`
+                                  : `${colors.border} bg-[#8B5CF6]`
+                              }`}
+                            >
+                              <p
+                                className={`text-sm ${
+                                  message.type === 'ai' ? colors.text : 'text-white'
+                                }`}
+                              >
+                                {message.text}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={chatMessagesEndRef} />
+                      </div>
+                    </div>
+                    
+                    {/* Input Field and Send Button or Completion Message - Fixed at bottom */}
+                    <div className="mt-auto">
+                      {currentValuesLayerQuestion === 1 ? (
+                        <div className="text-center py-3">
+                          <p className={`text-sm ${colors.text}`}>
+                            Choose another pin to continue
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            placeholder="Text"
+                            disabled={!activeTagId || currentValuesLayerQuestion === 1}
+                            className={`${colors.text} border ${colors.border} bg-[#FDF5E6] placeholder:text-[#8B5CF6]/60 flex-1 ${
+                              !activeTagId || currentValuesLayerQuestion === 1 ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && activeTagId && currentValuesLayerQuestion === 0) {
+                                handleValuesSendMessage()
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={handleValuesSendMessage}
+                            disabled={!activeTagId || !chatInput.trim() || currentValuesLayerQuestion === 1}
+                            className={`w-10 h-10 flex items-center justify-center rounded-lg ${colors.border} bg-[#8B5CF6] hover:opacity-90 transition-opacity ${
+                              !activeTagId || !chatInput.trim() || currentValuesLayerQuestion === 1 ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                            aria-label="Send message"
+                          >
+                            <ArrowUp size={18} className="text-white" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
