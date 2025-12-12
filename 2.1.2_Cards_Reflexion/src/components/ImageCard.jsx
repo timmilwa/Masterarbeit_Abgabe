@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { Pencil, Pin, CircleQuestionMark, CircleCheck, CircleDotDashed, ArrowUp } from 'lucide-react'
+import { Pencil, Pin, CircleQuestionMark, CircleCheck, CircleDotDashed, ArrowUp, Loader2 } from 'lucide-react'
 import Button from './Button'
 import Input from './Input'
+import { generateFunctionalQuestion, generateConsequencesQuestion, generateValuesQuestion } from '../services/geminiService'
 
 // Define the four different cards with different content
 const initialLayers = [
@@ -30,7 +31,7 @@ const demoQuestions = [
   'What are the main functional components of this application?'
 ]
 
-function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange, onLayerIndexChange, activeTagId = null, onDataLayerResponse, onValuesLayerResponse }) {
+function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange, onLayerIndexChange, activeTagId = null, onDataLayerResponse, onValuesLayerResponse, onConsequencesQuestionGenerated, onValuesQuestionGenerated, aiGeneratedTitle = '', aiMode = false, isGeneratingTitle = false, apiKey = '', selectedModel = 'gemini-2.0-flash-exp', aiInstructions = {} }) {
   const [layers, setLayers] = useState(initialLayers)
   const [currentLayerIndex, setCurrentLayerIndex] = useState(0)
   const [animationKey, setAnimationKey] = useState(0)
@@ -46,6 +47,16 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
   const [currentDataLayerQuestion, setCurrentDataLayerQuestion] = useState(0) // 0 = question 1, 1 = question 2, 2 = completed
   const [currentValuesLayerQuestion, setCurrentValuesLayerQuestion] = useState(0) // 0 = question, 1 = completed
   const chatMessagesEndRef = useRef(null)
+  
+  // AI-generated questions state for Functional Layer
+  const [functionalQuestions, setFunctionalQuestions] = useState([])
+  const [isGeneratingQuestion, setIsGeneratingQuestion] = useState(false)
+  const [coveredAspects, setCoveredAspects] = useState([])
+  const [questionHistory, setQuestionHistory] = useState([])
+  
+  // Loading states for Consequences and Values questions
+  const [isGeneratingConsequencesQuestion, setIsGeneratingConsequencesQuestion] = useState(false)
+  const [isGeneratingValuesQuestion, setIsGeneratingValuesQuestion] = useState(false)
   
   // Configurable questions for Consequences
   const dataLayerQuestions = [
@@ -73,36 +84,151 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
           // Different pin selected - check existing responses and initialize chat
           const activeTag = tags.find(tag => tag.id === activeTagId)
           const responses = activeTag?.dataLayerResponses
+          const functionalAnswer = activeTag?.text || ''
           
-          if (!responses || !responses.completed) {
-            // Not completed - determine which question to show
-            if (!responses || !responses.answer1) {
-              // Show question 1
+          // Generate questions if in AI mode and questions don't exist
+          if (aiMode && apiKey && functionalAnswer) {
+            // Generate Question 1 if missing
+            if (!responses || !responses.question1) {
+              setIsGeneratingConsequencesQuestion(true)
               setCurrentDataLayerQuestion(0)
-              const question1 = responses?.question1 || dataLayerQuestions[0]
-              setChatMessages([{ type: 'ai', text: question1 }])
-            } else if (!responses.answer2) {
-              // Show question 2
+              setChatMessages([])
+              
+              const generateQ1 = async () => {
+                try {
+                  const context = {
+                    imageTitle: aiGeneratedTitle || 'the interface',
+                    userFocus: weatherInput || '',
+                    functionalAnswer: functionalAnswer,
+                    question1Answer: '',
+                    customInstructions: aiInstructions
+                  }
+                  
+                  const question1 = await generateConsequencesQuestion(apiKey, selectedModel, context, 1)
+                  
+                  if (question1) {
+                    // Store question in tag responses
+                    if (onConsequencesQuestionGenerated) {
+                      onConsequencesQuestionGenerated(activeTagId, 1, question1)
+                    }
+                    setChatMessages([{ type: 'ai', text: question1 }])
+                  } else {
+                    // Fallback to static question
+                    setChatMessages([{ type: 'ai', text: dataLayerQuestions[0] }])
+                  }
+                } catch (error) {
+                  console.error('Error generating consequences question 1:', error)
+                  setChatMessages([{ type: 'ai', text: dataLayerQuestions[0] }])
+                } finally {
+                  setIsGeneratingConsequencesQuestion(false)
+                }
+              }
+              
+              generateQ1()
+            } 
+            // Generate Question 2 if Question 1 is answered but Question 2 is missing
+            else if (responses.answer1 && (!responses.question2)) {
+              setIsGeneratingConsequencesQuestion(true)
               setCurrentDataLayerQuestion(1)
+              setChatMessages([
+                { type: 'ai', text: responses.question1 },
+                { type: 'user', text: responses.answer1 }
+              ])
+              
+              const generateQ2 = async () => {
+                try {
+                  const context = {
+                    imageTitle: aiGeneratedTitle || 'the interface',
+                    userFocus: weatherInput || '',
+                    functionalAnswer: functionalAnswer,
+                    question1Answer: responses.answer1,
+                    customInstructions: aiInstructions
+                  }
+                  
+                  const question2 = await generateConsequencesQuestion(apiKey, selectedModel, context, 2)
+                  
+                  if (question2) {
+                    // Store question in tag responses
+                    if (onConsequencesQuestionGenerated) {
+                      onConsequencesQuestionGenerated(activeTagId, 2, question2)
+                    }
+                    setChatMessages(prev => [...prev, { type: 'ai', text: question2 }])
+                  } else {
+                    // Fallback to static question
+                    setChatMessages(prev => [...prev, { type: 'ai', text: dataLayerQuestions[1] }])
+                  }
+                } catch (error) {
+                  console.error('Error generating consequences question 2:', error)
+                  setChatMessages(prev => [...prev, { type: 'ai', text: dataLayerQuestions[1] }])
+                } finally {
+                  setIsGeneratingConsequencesQuestion(false)
+                }
+              }
+              
+              generateQ2()
+            }
+            // Show existing questions if they exist
+            else if (responses && responses.question1) {
+              if (!responses || !responses.answer1) {
+                // Show question 1
+                setCurrentDataLayerQuestion(0)
+                const question1 = responses.question1 || dataLayerQuestions[0]
+                setChatMessages([{ type: 'ai', text: question1 }])
+              } else if (!responses.answer2) {
+                // Show question 2
+                setCurrentDataLayerQuestion(1)
+                const question1 = responses.question1 || dataLayerQuestions[0]
+                const question2 = responses.question2 || dataLayerQuestions[1]
+                setChatMessages([
+                  { type: 'ai', text: question1 },
+                  { type: 'user', text: responses.answer1 },
+                  { type: 'ai', text: question2 }
+                ])
+              } else {
+                // Completed - show all messages
+                setCurrentDataLayerQuestion(2)
+                const question1 = responses.question1 || dataLayerQuestions[0]
+                const question2 = responses.question2 || dataLayerQuestions[1]
+                setChatMessages([
+                  { type: 'ai', text: question1 },
+                  { type: 'user', text: responses.answer1 },
+                  { type: 'ai', text: question2 },
+                  { type: 'user', text: responses.answer2 }
+                ])
+              }
+            }
+          } else {
+            // Demo mode or no AI - use static questions
+            if (!responses || !responses.completed) {
+              // Not completed - determine which question to show
+              if (!responses || !responses.answer1) {
+                // Show question 1
+                setCurrentDataLayerQuestion(0)
+                const question1 = responses?.question1 || dataLayerQuestions[0]
+                setChatMessages([{ type: 'ai', text: question1 }])
+              } else if (!responses.answer2) {
+                // Show question 2
+                setCurrentDataLayerQuestion(1)
+                const question1 = responses.question1 || dataLayerQuestions[0]
+                const question2 = responses.question2 || dataLayerQuestions[1]
+                setChatMessages([
+                  { type: 'ai', text: question1 },
+                  { type: 'user', text: responses.answer1 },
+                  { type: 'ai', text: question2 }
+                ])
+              }
+            } else {
+              // Completed - show all messages and completion state
+              setCurrentDataLayerQuestion(2)
               const question1 = responses.question1 || dataLayerQuestions[0]
               const question2 = responses.question2 || dataLayerQuestions[1]
               setChatMessages([
                 { type: 'ai', text: question1 },
                 { type: 'user', text: responses.answer1 },
-                { type: 'ai', text: question2 }
+                { type: 'ai', text: question2 },
+                { type: 'user', text: responses.answer2 }
               ])
             }
-          } else {
-            // Completed - show all messages and completion state
-            setCurrentDataLayerQuestion(2)
-            const question1 = responses.question1 || dataLayerQuestions[0]
-            const question2 = responses.question2 || dataLayerQuestions[1]
-            setChatMessages([
-              { type: 'ai', text: question1 },
-              { type: 'user', text: responses.answer1 },
-              { type: 'ai', text: question2 },
-              { type: 'user', text: responses.answer2 }
-            ])
           }
           
           setChatInput('')
@@ -115,6 +241,7 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
         setChatInput('')
         setLastActiveTagId(null)
         setCurrentDataLayerQuestion(0)
+        setIsGeneratingConsequencesQuestion(false)
       }
     } else if (currentLayerIndex === 3) { // Values
       if (activeTagId) {
@@ -123,20 +250,81 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
           // Different pin selected - check existing responses and initialize chat
           const activeTag = tags.find(tag => tag.id === activeTagId)
           const responses = activeTag?.valuesLayerResponses
+          const dataResponses = activeTag?.dataLayerResponses
+          const functionalAnswer = activeTag?.text || ''
           
-          if (!responses || !responses.completed) {
-            // Not completed - show question
-            setCurrentValuesLayerQuestion(0)
-            const question = responses?.question || valuesLayerQuestion
-            setChatMessages([{ type: 'ai', text: question }])
+          // Generate question if in AI mode and question doesn't exist
+          if (aiMode && apiKey && functionalAnswer && dataResponses?.completed) {
+            if (!responses || !responses.question) {
+              setIsGeneratingValuesQuestion(true)
+              setCurrentValuesLayerQuestion(0)
+              setChatMessages([])
+              
+              const generateValuesQ = async () => {
+                try {
+                  const context = {
+                    imageTitle: aiGeneratedTitle || 'the interface',
+                    userFocus: weatherInput || '',
+                    functionalAnswer: functionalAnswer,
+                    consequencesAnswer1: dataResponses.answer1 || '',
+                    consequencesAnswer2: dataResponses.answer2 || '',
+                    customInstructions: aiInstructions
+                  }
+                  
+                  const question = await generateValuesQuestion(apiKey, selectedModel, context)
+                  
+                  if (question) {
+                    // Store question in tag responses
+                    if (onValuesQuestionGenerated) {
+                      onValuesQuestionGenerated(activeTagId, question)
+                    }
+                    setChatMessages([{ type: 'ai', text: question }])
+                  } else {
+                    // Fallback to static question
+                    setChatMessages([{ type: 'ai', text: valuesLayerQuestion }])
+                  }
+                } catch (error) {
+                  console.error('Error generating values question:', error)
+                  setChatMessages([{ type: 'ai', text: valuesLayerQuestion }])
+                } finally {
+                  setIsGeneratingValuesQuestion(false)
+                }
+              }
+              
+              generateValuesQ()
+            } else {
+              // Show existing question
+              if (!responses.completed) {
+                // Not completed - show question
+                setCurrentValuesLayerQuestion(0)
+                const question = responses.question || valuesLayerQuestion
+                setChatMessages([{ type: 'ai', text: question }])
+              } else {
+                // Completed - show all messages and completion state
+                setCurrentValuesLayerQuestion(1)
+                const question = responses.question || valuesLayerQuestion
+                setChatMessages([
+                  { type: 'ai', text: question },
+                  { type: 'user', text: responses.answer }
+                ])
+              }
+            }
           } else {
-            // Completed - show all messages and completion state
-            setCurrentValuesLayerQuestion(1)
-            const question = responses.question || valuesLayerQuestion
-            setChatMessages([
-              { type: 'ai', text: question },
-              { type: 'user', text: responses.answer }
-            ])
+            // Demo mode or consequences not completed - use static question
+            if (!responses || !responses.completed) {
+              // Not completed - show question
+              setCurrentValuesLayerQuestion(0)
+              const question = responses?.question || valuesLayerQuestion
+              setChatMessages([{ type: 'ai', text: question }])
+            } else {
+              // Completed - show all messages and completion state
+              setCurrentValuesLayerQuestion(1)
+              const question = responses.question || valuesLayerQuestion
+              setChatMessages([
+                { type: 'ai', text: question },
+                { type: 'user', text: responses.answer }
+              ])
+            }
           }
           
           setChatInput('')
@@ -149,6 +337,7 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
         setChatInput('')
         setLastActiveTagId(null)
         setCurrentValuesLayerQuestion(0)
+        setIsGeneratingValuesQuestion(false)
       }
     } else {
       // Not on Consequences or Values layer - reset state
@@ -160,6 +349,58 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTagId, currentLayerIndex, tags])
+
+  // Generate first question when entering Functional Layer in AI mode
+  useEffect(() => {
+    if (currentLayerIndex === 1 && aiMode && apiKey && functionalQuestions.length === 0 && !isGeneratingQuestion) {
+      setIsGeneratingQuestion(true)
+      
+      const generateFirstQuestion = async () => {
+        try {
+          const existingTags = tags
+            .filter(tag => tag.saved && tag.text && tag.text.trim() !== '')
+            .map(tag => tag.text.trim())
+            .slice(0, 10)
+
+          const context = {
+            imageTitle: aiGeneratedTitle || 'the interface',
+            userFocus: weatherInput || '',
+            existingTags: existingTags,
+            coveredAspects: [],
+            questionHistory: [],
+            customInstructions: aiInstructions
+          }
+
+          const firstQuestion = await generateFunctionalQuestion(apiKey, selectedModel, context)
+          
+          if (firstQuestion) {
+            setFunctionalQuestions([firstQuestion])
+            setQuestionHistory([firstQuestion])
+            // Set question index to 0 to show the first question
+            if (onQuestionIndexChange) {
+              onQuestionIndexChange(0)
+            }
+          }
+        } catch (error) {
+          console.error('Error generating first question:', error)
+        } finally {
+          setIsGeneratingQuestion(false)
+        }
+      }
+
+      generateFirstQuestion()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLayerIndex, aiMode, apiKey])
+
+  // Reset functional questions when leaving Functional Layer or switching modes
+  useEffect(() => {
+    if (currentLayerIndex !== 1) {
+      setFunctionalQuestions([])
+      setCoveredAspects([])
+      setQuestionHistory([])
+    }
+  }, [currentLayerIndex])
 
   const handleNext = () => {
     // Check if user can move to next layer based on validation rules
@@ -211,7 +452,9 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
 
   const handleEditHeadline = (index) => {
     setEditingHeadlineIndex(index)
-    setEditingHeadlineValue(layers[index].headline)
+    // Use AI-generated title if available and in AI mode, otherwise use layer headline
+    const currentTitle = index === 0 && aiMode && aiGeneratedTitle ? aiGeneratedTitle : layers[index].headline
+    setEditingHeadlineValue(currentTitle)
   }
 
   const handleSaveHeadline = (index) => {
@@ -227,21 +470,84 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
     setEditingHeadlineValue('')
   }
 
-  const handleNextQuestion = () => {
-    const nextIndex = (currentQuestionIndex + 1) % demoQuestions.length
-    if (onQuestionIndexChange) {
-      onQuestionIndexChange(nextIndex)
+  const handleNextQuestion = async () => {
+    // If in demo mode, use static questions
+    if (!aiMode || !apiKey) {
+      const nextIndex = (currentQuestionIndex + 1) % demoQuestions.length
+      if (onQuestionIndexChange) {
+        onQuestionIndexChange(nextIndex)
+      }
+      return
+    }
+
+    // In AI mode, generate a new question
+    setIsGeneratingQuestion(true)
+    
+    try {
+      // Build context for question generation
+      const existingTags = tags
+        .filter(tag => tag.saved && tag.text && tag.text.trim() !== '')
+        .map(tag => tag.text.trim())
+        .slice(0, 10) // Limit to avoid token limits
+
+      const context = {
+        imageTitle: aiGeneratedTitle || 'the interface',
+        userFocus: weatherInput || '',
+        existingTags: existingTags,
+        coveredAspects: coveredAspects,
+        questionHistory: questionHistory.slice(-5), // Keep last 5 questions for context
+        customInstructions: aiInstructions
+      }
+
+      const newQuestion = await generateFunctionalQuestion(apiKey, selectedModel, context)
+      
+      if (newQuestion) {
+        // Add question to array
+        const newIndex = functionalQuestions.length
+        setFunctionalQuestions(prev => [...prev, newQuestion])
+        setQuestionHistory(prev => [...prev, newQuestion])
+        
+        // Update question index
+        if (onQuestionIndexChange) {
+          onQuestionIndexChange(newIndex)
+        }
+      } else {
+        // Fallback to demo question if generation fails
+        console.warn('Failed to generate question, using demo question')
+        const nextIndex = (currentQuestionIndex + 1) % demoQuestions.length
+        if (onQuestionIndexChange) {
+          onQuestionIndexChange(nextIndex)
+        }
+      }
+    } catch (error) {
+      console.error('Error generating question:', error)
+      // Fallback to demo question
+      const nextIndex = (currentQuestionIndex + 1) % demoQuestions.length
+      if (onQuestionIndexChange) {
+        onQuestionIndexChange(nextIndex)
+      }
+    } finally {
+      setIsGeneratingQuestion(false)
     }
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (chatInput.trim() && activeTagId && currentDataLayerQuestion < 2) {
       const answer = chatInput.trim()
       const questionIndex = currentDataLayerQuestion
       
+      // Get the active tag to retrieve stored questions
+      const activeTag = tags.find(tag => tag.id === activeTagId)
+      const responses = activeTag?.dataLayerResponses
+      
+      // Use stored question if available, otherwise fallback to static
+      const questionText = questionIndex === 0 
+        ? (responses?.question1 || dataLayerQuestions[0])
+        : (responses?.question2 || dataLayerQuestions[1])
+      
       // Store the answer with question text
       if (onDataLayerResponse) {
-        onDataLayerResponse(activeTagId, questionIndex, answer, dataLayerQuestions[questionIndex])
+        onDataLayerResponse(activeTagId, questionIndex, answer, questionText)
       }
       
       // Add user message to chat
@@ -252,7 +558,49 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
       if (currentDataLayerQuestion === 0) {
         // Move to question 2
         setCurrentDataLayerQuestion(1)
-        setChatMessages(prev => [...prev, { type: 'ai', text: dataLayerQuestions[1] }])
+        
+        // Check if Question 2 exists, if not generate it (in AI mode)
+        const updatedTag = tags.find(tag => tag.id === activeTagId)
+        const updatedResponses = updatedTag?.dataLayerResponses
+        
+        if (updatedResponses?.question2) {
+          // Question 2 already exists, show it
+          setChatMessages(prev => [...prev, { type: 'ai', text: updatedResponses.question2 }])
+        } else if (aiMode && apiKey && activeTag?.text) {
+          // Generate Question 2
+          setIsGeneratingConsequencesQuestion(true)
+          
+          try {
+            const context = {
+              imageTitle: aiGeneratedTitle || 'the interface',
+              userFocus: weatherInput || '',
+              functionalAnswer: activeTag.text,
+              question1Answer: answer,
+              customInstructions: aiInstructions
+            }
+            
+            const question2 = await generateConsequencesQuestion(apiKey, selectedModel, context, 2)
+            
+            if (question2) {
+              // Store question in tag responses
+              if (onConsequencesQuestionGenerated) {
+                onConsequencesQuestionGenerated(activeTagId, 2, question2)
+              }
+              setChatMessages(prev => [...prev, { type: 'ai', text: question2 }])
+            } else {
+              // Fallback to static question
+              setChatMessages(prev => [...prev, { type: 'ai', text: dataLayerQuestions[1] }])
+            }
+          } catch (error) {
+            console.error('Error generating consequences question 2:', error)
+            setChatMessages(prev => [...prev, { type: 'ai', text: dataLayerQuestions[1] }])
+          } finally {
+            setIsGeneratingConsequencesQuestion(false)
+          }
+        } else {
+          // Demo mode - use static question
+          setChatMessages(prev => [...prev, { type: 'ai', text: dataLayerQuestions[1] }])
+        }
       } else if (currentDataLayerQuestion === 1) {
         // Mark as completed
         setCurrentDataLayerQuestion(2)
@@ -264,9 +612,16 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
     if (chatInput.trim() && activeTagId && currentValuesLayerQuestion === 0) {
       const answer = chatInput.trim()
       
+      // Get the active tag to retrieve stored question
+      const activeTag = tags.find(tag => tag.id === activeTagId)
+      const responses = activeTag?.valuesLayerResponses
+      
+      // Use stored question if available, otherwise fallback to static
+      const questionText = responses?.question || valuesLayerQuestion
+      
       // Store the answer with question text
       if (onValuesLayerResponse) {
-        onValuesLayerResponse(activeTagId, answer, valuesLayerQuestion)
+        onValuesLayerResponse(activeTagId, answer, questionText)
       }
       
       // Add user message to chat
@@ -499,46 +854,94 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                             </div>
                           ) : (
                             <>
-                              <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
-                                {layer.headline}
-                              </h3>
-                          {index === 0 && (
-                            <button
-                              onClick={() => handleEditHeadline(index)}
-                              className={`p-1 hover:opacity-70 transition-opacity duration-[400ms] ease-out ${!isActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
-                              aria-label="Edit headline"
-                              style={{
-                                transition: 'opacity 400ms ease-out'
-                              }}
-                            >
-                              <Pencil size={16} />
-                            </button>
+                              <div className="flex items-center gap-2">
+                                <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
+                                  {index === 0 && aiMode && aiGeneratedTitle ? aiGeneratedTitle : layer.headline}
+                                </h3>
+                                {index === 0 && isGeneratingTitle && (
+                                  <Loader2 size={16} className="text-gray-400 animate-spin" />
+                                )}
+                                {index === 0 && !isGeneratingTitle && (
+                                  <button
+                                    onClick={() => handleEditHeadline(index)}
+                                    className={`p-1 hover:opacity-70 transition-opacity duration-[400ms] ease-out ${!isActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                                    aria-label="Edit headline"
+                                    style={{
+                                      transition: 'opacity 400ms ease-out'
+                                    }}
+                                  >
+                                    <Pencil size={16} />
+                                  </button>
+                                )}
+                                {index === 1 && (
+                                  <CircleQuestionMark size={20} className="text-[#007AFF]" />
+                                )}
+                                {index === 2 && activeTagId && (
+                                  <>
+                                    {(() => {
+                                      const activeTag = tags.find(tag => tag.id === activeTagId)
+                                      const responses = activeTag?.dataLayerResponses
+                                      const hasAnswer1 = responses?.answer1
+                                      const hasAnswer2 = responses?.answer2
+                                      
+                                      return (
+                                        <>
+                                          {hasAnswer1 ? (
+                                            <CircleCheck size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                          ) : (
+                                            <CircleDotDashed size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                          )}
+                                          {hasAnswer2 ? (
+                                            <CircleCheck size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                          ) : (
+                                            <CircleDotDashed size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                          )}
+                                        </>
+                                      )
+                                    })()}
+                                  </>
+                                )}
+                              </div>
+                            </>
                           )}
-                          {index === 1 && (
-                            <CircleQuestionMark size={20} className="text-[#007AFF]" />
-                          )}
-                        </>
-                      )}
                     </>
                   )}
                 </div>
                 {index === 0 ? (
                   <div className={`${isBackground ? 'pt-10' : 'pt-12'}`}>
-                    <Input
-                      value={weatherInput}
-                      onChange={(e) => setWeatherInput(e.target.value)}
-                      placeholder="Do you want to focus on a specific aspect? "
-                      className={`${colors.text} border ${colors.border}`}
-                    />
+                    {isGeneratingTitle ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>AI is analyzing the image...</span>
+                      </div>
+                    ) : (
+                      <Input
+                        value={weatherInput}
+                        onChange={(e) => setWeatherInput(e.target.value)}
+                        placeholder="Do you want to focus on a specific aspect? "
+                        className={`${colors.text} border ${colors.border}`}
+                      />
+                    )}
                   </div>
                 ) : index === 1 ? (
                   <div className={`flex flex-col ${isBackground ? 'pt-10' : 'pt-12'}`}>
                     {/* Chat bubble aligned to the left */}
                     <div className="flex items-start justify-start mb-4">
                       <div className="bg-white rounded-lg px-4 py-3 max-w-[80%]">
-                        <p className={`text-sm ${colors.text}`}>
-                          {demoQuestions[currentQuestionIndex]}
-                        </p>
+                        {isGeneratingQuestion ? (
+                          <div className="flex items-center gap-2">
+                            <Loader2 size={16} className="text-gray-400 animate-spin" />
+                            <p className={`text-sm ${colors.text}`}>
+                              Generating question...
+                            </p>
+                          </div>
+                        ) : (
+                          <p className={`text-sm ${colors.text}`}>
+                            {aiMode && functionalQuestions.length > 0 && currentQuestionIndex < functionalQuestions.length
+                              ? functionalQuestions[currentQuestionIndex]
+                              : demoQuestions[currentQuestionIndex]}
+                          </p>
+                        )}
                       </div>
                     </div>
                     
@@ -560,14 +963,16 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                         {tagCount === 0 ? (
                           <Button 
                             onClick={handleNextQuestion}
-                            className="px-3 py-1 rounded-[9px] bg-transparent !text-[#007AFF] border-[1.5px] border-[#007AFF] hover:bg-[#007AFF]/10"
+                            disabled={isGeneratingQuestion}
+                            className="px-3 py-1 rounded-[9px] bg-transparent !text-[#007AFF] border-[1.5px] border-[#007AFF] hover:bg-[#007AFF]/10 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Skip Question
                           </Button>
                         ) : (
                           <Button 
                             onClick={handleNextQuestion}
-                            className="px-3 py-1 rounded-[9px] !bg-[#007AFF] !text-white hover:!bg-[#007AFF]/90 border-[1.5px] border-[#007AFF]"
+                            disabled={isGeneratingQuestion}
+                            className="px-3 py-1 rounded-[9px] !bg-[#007AFF] !text-white hover:!bg-[#007AFF]/90 border-[1.5px] border-[#007AFF] disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Next Question
                           </Button>
@@ -580,28 +985,76 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                     {/* Chat Messages - Scrollable area */}
                     <div className="flex-1 overflow-y-auto mb-3 pr-1">
                       <div className="flex flex-col gap-3">
-                        {chatMessages.map((message, msgIndex) => (
-                          <div
-                            key={msgIndex}
-                            className={`flex items-start ${message.type === 'ai' ? 'justify-start' : 'justify-end'}`}
-                          >
-                            <div
-                              className={`rounded-lg px-4 py-3 max-w-[80%] ${
-                                message.type === 'ai'
-                                  ? `bg-[#FDF5E6]`
-                                  : `${colors.border} bg-[#AA8302]`
-                              }`}
-                            >
-                              <p
-                                className={`text-sm ${
-                                  message.type === 'ai' ? colors.text : 'text-white'
-                                }`}
-                              >
-                                {message.text}
-                              </p>
+                        {isGeneratingConsequencesQuestion && chatMessages.length === 0 ? (
+                          <div className="flex items-start justify-start">
+                            <div className="bg-[#FDF5E6] rounded-lg px-4 py-3 max-w-[80%]">
+                              <div className="flex items-center gap-2">
+                                <Loader2 size={16} className="text-gray-400 animate-spin" />
+                                <p className={`text-sm ${colors.text}`}>
+                                  Generating question...
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        ))}
+                        ) : isGeneratingConsequencesQuestion && chatMessages.length > 0 ? (
+                          <>
+                            {chatMessages.map((message, msgIndex) => (
+                              <div
+                                key={msgIndex}
+                                className={`flex items-start ${message.type === 'ai' ? 'justify-start' : 'justify-end'}`}
+                              >
+                                <div
+                                  className={`rounded-lg px-4 py-3 max-w-[80%] ${
+                                    message.type === 'ai'
+                                      ? `bg-[#FDF5E6]`
+                                      : `${colors.border} bg-[#AA8302]`
+                                  }`}
+                                >
+                                  <p
+                                    className={`text-sm ${
+                                      message.type === 'ai' ? colors.text : 'text-white'
+                                    }`}
+                                  >
+                                    {message.text}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                            <div className="flex items-start justify-start">
+                              <div className="bg-[#FDF5E6] rounded-lg px-4 py-3 max-w-[80%]">
+                                <div className="flex items-center gap-2">
+                                  <Loader2 size={16} className="text-gray-400 animate-spin" />
+                                  <p className={`text-sm ${colors.text}`}>
+                                    Generating question...
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          chatMessages.map((message, msgIndex) => (
+                            <div
+                              key={msgIndex}
+                              className={`flex items-start ${message.type === 'ai' ? 'justify-start' : 'justify-end'}`}
+                            >
+                              <div
+                                className={`rounded-lg px-4 py-3 max-w-[80%] ${
+                                  message.type === 'ai'
+                                    ? `bg-[#FDF5E6]`
+                                    : `${colors.border} bg-[#AA8302]`
+                                }`}
+                              >
+                                <p
+                                  className={`text-sm ${
+                                    message.type === 'ai' ? colors.text : 'text-white'
+                                  }`}
+                                >
+                                  {message.text}
+                                </p>
+                              </div>
+                            </div>
+                          ))
+                        )}
                         <div ref={chatMessagesEndRef} />
                       </div>
                     </div>
@@ -620,21 +1073,21 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                             value={chatInput}
                             onChange={(e) => setChatInput(e.target.value)}
                             placeholder="Text"
-                            disabled={!activeTagId || currentDataLayerQuestion === 2}
+                            disabled={!activeTagId || currentDataLayerQuestion === 2 || isGeneratingConsequencesQuestion}
                             className={`${colors.text} border ${colors.border} bg-[#FDF5E6] placeholder:text-[#AA8302]/60 flex-1 ${
-                              !activeTagId || currentDataLayerQuestion === 2 ? 'opacity-50 cursor-not-allowed' : ''
+                              !activeTagId || currentDataLayerQuestion === 2 || isGeneratingConsequencesQuestion ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter' && activeTagId && currentDataLayerQuestion < 2) {
+                              if (e.key === 'Enter' && activeTagId && currentDataLayerQuestion < 2 && !isGeneratingConsequencesQuestion) {
                                 handleSendMessage()
                               }
                             }}
                           />
                           <button
                             onClick={handleSendMessage}
-                            disabled={!activeTagId || !chatInput.trim() || currentDataLayerQuestion === 2}
+                            disabled={!activeTagId || !chatInput.trim() || currentDataLayerQuestion === 2 || isGeneratingConsequencesQuestion}
                             className={`w-10 h-10 flex items-center justify-center rounded-lg ${colors.border} bg-[#AA8302] hover:opacity-90 transition-opacity ${
-                              !activeTagId || !chatInput.trim() || currentDataLayerQuestion === 2 ? 'opacity-50 cursor-not-allowed' : ''
+                              !activeTagId || !chatInput.trim() || currentDataLayerQuestion === 2 || isGeneratingConsequencesQuestion ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                             aria-label="Send message"
                           >
@@ -649,28 +1102,41 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                     {/* Chat Messages - Scrollable area */}
                     <div className="flex-1 overflow-y-auto mb-3 pr-1">
                       <div className="flex flex-col gap-3">
-                        {chatMessages.map((message, msgIndex) => (
-                          <div
-                            key={msgIndex}
-                            className={`flex items-start ${message.type === 'ai' ? 'justify-start' : 'justify-end'}`}
-                          >
-                            <div
-                              className={`rounded-lg px-4 py-3 max-w-[80%] ${
-                                message.type === 'ai'
-                                  ? `bg-[#FDF5E6]`
-                                  : `${colors.border} bg-[#8B5CF6]`
-                              }`}
-                            >
-                              <p
-                                className={`text-sm ${
-                                  message.type === 'ai' ? colors.text : 'text-white'
-                                }`}
-                              >
-                                {message.text}
-                              </p>
+                        {isGeneratingValuesQuestion && chatMessages.length === 0 ? (
+                          <div className="flex items-start justify-start">
+                            <div className="bg-[#FDF5E6] rounded-lg px-4 py-3 max-w-[80%]">
+                              <div className="flex items-center gap-2">
+                                <Loader2 size={16} className="text-gray-400 animate-spin" />
+                                <p className={`text-sm ${colors.text}`}>
+                                  Generating question...
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        ))}
+                        ) : (
+                          chatMessages.map((message, msgIndex) => (
+                            <div
+                              key={msgIndex}
+                              className={`flex items-start ${message.type === 'ai' ? 'justify-start' : 'justify-end'}`}
+                            >
+                              <div
+                                className={`rounded-lg px-4 py-3 max-w-[80%] ${
+                                  message.type === 'ai'
+                                    ? `bg-[#FDF5E6]`
+                                    : `${colors.border} bg-[#8B5CF6]`
+                                }`}
+                              >
+                                <p
+                                  className={`text-sm ${
+                                    message.type === 'ai' ? colors.text : 'text-white'
+                                  }`}
+                                >
+                                  {message.text}
+                                </p>
+                              </div>
+                            </div>
+                          ))
+                        )}
                         <div ref={chatMessagesEndRef} />
                       </div>
                     </div>
@@ -689,21 +1155,21 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                             value={chatInput}
                             onChange={(e) => setChatInput(e.target.value)}
                             placeholder="Text"
-                            disabled={!activeTagId || currentValuesLayerQuestion === 1}
+                            disabled={!activeTagId || currentValuesLayerQuestion === 1 || isGeneratingValuesQuestion}
                             className={`${colors.text} border ${colors.border} bg-[#FDF5E6] placeholder:text-[#8B5CF6]/60 flex-1 ${
-                              !activeTagId || currentValuesLayerQuestion === 1 ? 'opacity-50 cursor-not-allowed' : ''
+                              !activeTagId || currentValuesLayerQuestion === 1 || isGeneratingValuesQuestion ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter' && activeTagId && currentValuesLayerQuestion === 0) {
+                              if (e.key === 'Enter' && activeTagId && currentValuesLayerQuestion === 0 && !isGeneratingValuesQuestion) {
                                 handleValuesSendMessage()
                               }
                             }}
                           />
                           <button
                             onClick={handleValuesSendMessage}
-                            disabled={!activeTagId || !chatInput.trim() || currentValuesLayerQuestion === 1}
+                            disabled={!activeTagId || !chatInput.trim() || currentValuesLayerQuestion === 1 || isGeneratingValuesQuestion}
                             className={`w-10 h-10 flex items-center justify-center rounded-lg ${colors.border} bg-[#8B5CF6] hover:opacity-90 transition-opacity ${
-                              !activeTagId || !chatInput.trim() || currentValuesLayerQuestion === 1 ? 'opacity-50 cursor-not-allowed' : ''
+                              !activeTagId || !chatInput.trim() || currentValuesLayerQuestion === 1 || isGeneratingValuesQuestion ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                             aria-label="Send message"
                           >
@@ -725,7 +1191,7 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
       </div>
 
       {/* Navigation Buttons */}
-      <div className="flex justify-start items-center gap-2 mt-4 ml-[10px] relative z-30">
+      <div className="flex justify-start items-center gap-2 ml-[10px] fixed z-30" style={{ top: '500px' }}>
         <Button 
           onClick={handleNext} 
           disabled={!canMoveToNextLayer() || currentLayerIndex >= initialLayers.length - 1}
