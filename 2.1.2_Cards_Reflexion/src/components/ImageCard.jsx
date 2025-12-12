@@ -47,6 +47,8 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
   const [currentDataLayerQuestion, setCurrentDataLayerQuestion] = useState(0) // 0 = question 1, 1 = question 2, 2 = completed
   const [currentValuesLayerQuestion, setCurrentValuesLayerQuestion] = useState(0) // 0 = question, 1 = completed
   const chatMessagesEndRef = useRef(null)
+  const cardContainerRef = useRef(null)
+  const [navButtonsTop, setNavButtonsTop] = useState(500)
   
   // AI-generated questions state for Functional Layer
   const [functionalQuestions, setFunctionalQuestions] = useState([])
@@ -402,6 +404,30 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
     }
   }, [currentLayerIndex])
 
+  // ResizeObserver to monitor card container size changes
+  useEffect(() => {
+    if (!cardContainerRef.current) return
+    
+    // Initial calculation
+    calculateNavButtonsPosition()
+    
+    const observer = new ResizeObserver(() => {
+      calculateNavButtonsPosition()
+    })
+    
+    observer.observe(cardContainerRef.current)
+    
+    return () => observer.disconnect()
+  }, [])
+
+  // Recalculate position when layer changes
+  useEffect(() => {
+    // Small delay to allow card transition to complete
+    setTimeout(() => {
+      calculateNavButtonsPosition()
+    }, 250) // Slightly longer than transition duration
+  }, [currentLayerIndex])
+
   const handleNext = () => {
     // Check if user can move to next layer based on validation rules
     if (!canMoveToNextLayer()) {
@@ -714,10 +740,19 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
     return true
   }
 
+  // Calculate navigation buttons position based on card container bottom + gap
+  const calculateNavButtonsPosition = () => {
+    if (cardContainerRef.current) {
+      const rect = cardContainerRef.current.getBoundingClientRect()
+      const gap = 14 // 14px gap
+      setNavButtonsTop(rect.bottom + gap)
+    }
+  }
+
   return (
     <div className="space-y-2">
       {/* Card Stack Container */}
-      <div className="relative pb-6" style={{ minHeight: getCardHeight(currentLayerIndex), transition: 'min-height 0.4s ease-out, height 0.4s ease-out' }}>
+      <div ref={cardContainerRef} className="relative pb-6" style={{ minHeight: getCardHeight(currentLayerIndex), transition: 'min-height 0.4s ease-out, height 0.4s ease-out' }}>
         {/* Render all cards and position them based on their state */}
         {layers.length > 0 && layers.map((layer, index) => {
           const isActive = index === currentLayerIndex
@@ -1191,7 +1226,7 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
       </div>
 
       {/* Navigation Buttons */}
-      <div className="flex justify-start items-center gap-2 ml-[10px] fixed z-30" style={{ top: '500px' }}>
+      <div className="flex justify-start items-center gap-2 ml-[10px] fixed z-30" style={{ top: `${navButtonsTop}px`, transition: 'top 0.1s ease-out' }}>
         <Button 
           onClick={handleNext} 
           disabled={!canMoveToNextLayer() || currentLayerIndex >= initialLayers.length - 1}
