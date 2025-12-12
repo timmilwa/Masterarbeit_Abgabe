@@ -3,8 +3,19 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    /* Prevent browser zoom */
+    touch-action: pan-x pan-y;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+  }
+  
   body {
     @apply bg-background text-foreground font-sans;
+    /* Prevent text selection zoom on double-tap (mobile) */
+    touch-action: pan-x pan-y;
+    /* Prevent pinch zoom */
+    overscroll-behavior: none;
   }
 }
 

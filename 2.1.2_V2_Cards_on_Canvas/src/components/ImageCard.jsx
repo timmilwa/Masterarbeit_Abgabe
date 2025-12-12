@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Pencil, Pin, CircleQuestionMark, CircleCheck, CircleDotDashed, ArrowUp, Loader2 } from 'lucide-react'
+import { Pencil, Pin, CircleQuestionMark, CircleCheck, CircleDashed, ArrowUp, Loader2 } from 'lucide-react'
 import Button from './Button'
 import Input from './Input'
 import { generateFunctionalQuestion, generateConsequencesQuestion, generateValuesQuestion } from '../services/geminiService'
@@ -867,7 +867,7 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                               {activeTagId ? (
                                 <CircleCheck size={20} strokeWidth={2} className="text-[#007AFF] flex-shrink-0" />
                               ) : (
-                                <CircleDotDashed size={20} strokeWidth={2} className="text-[#007AFF] flex-shrink-0" />
+                                <CircleDashed size={20} strokeWidth={2} className="text-[#007AFF] flex-shrink-0" />
                               )}
                               <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
                                 {activeTagId ? 'Pin selected' : 'Select a pin on the artefact to get started'}
@@ -879,8 +879,8 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                                 <CircleCheck size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
                               ) : (
                                 <>
-                                  <CircleDotDashed size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
-                                  <CircleDotDashed size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                  <CircleDashed size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                  <CircleDashed size={20} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
                                 </>
                               )}
                               <h3 className={`${isBackground ? 'text-[16px]' : 'text-[20px]'} font-medium`}>
@@ -924,12 +924,12 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                                           {hasAnswer1 ? (
                                             <CircleCheck size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
                                           ) : (
-                                            <CircleDotDashed size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                            <CircleDashed size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
                                           )}
                                           {hasAnswer2 ? (
                                             <CircleCheck size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
                                           ) : (
-                                            <CircleDotDashed size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
+                                            <CircleDashed size={16} strokeWidth={2} className="text-[#AA8302] flex-shrink-0" />
                                           )}
                                         </>
                                       )
@@ -1226,7 +1226,7 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
       </div>
 
       {/* Navigation Buttons */}
-      <div className="flex justify-start items-center gap-2 ml-[10px] fixed z-30" style={{ top: `${navButtonsTop}px`, transition: 'top 0.1s ease-out' }}>
+      <div className="flex justify-start items-center gap-2 ml-[10px] fixed z-30" style={{ top: `${navButtonsTop}px`, transition: 'top 0.4s ease-out' }}>
         <Button 
           onClick={handleNext} 
           disabled={!canMoveToNextLayer() || currentLayerIndex >= initialLayers.length - 1}
