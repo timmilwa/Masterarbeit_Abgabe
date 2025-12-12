@@ -47,6 +47,10 @@
   .animate-slide-to-background {
     animation: slide-to-background 0.4s ease-out;
   }
+
+  .selection-box-no-radius {
+    border-radius: 0 !important;
+  }
 }
 
 

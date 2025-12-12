@@ -13,7 +13,6 @@ function App() {
   const [canvasTransform, setCanvasTransform] = useState({ x: 0, y: 0, scale: 1 })
   const [activeMode, setActiveMode] = useState('reflection') // 'reflection' | 'merge' | 'export'
   const [selectedImageId, setSelectedImageId] = useState(null)
-  const [activeTool, setActiveTool] = useState('select') // 'select' | 'hand'
   
   // Reflection mode is active when activeMode is 'reflection'
   const reflectionMode = activeMode === 'reflection'
@@ -21,13 +20,12 @@ function App() {
   // Images array - each image has its own state
   const [images, setImages] = useState(() => {
     // Initialize with default image if needed
-    // Position will be centered in viewport (approximately center of typical screen)
-    const centerX = typeof window !== 'undefined' ? window.innerWidth / 2 : 600
-    const centerY = typeof window !== 'undefined' ? window.innerHeight / 2 : 400
+    // Position is in canvas coordinates (center-relative, where 0,0 is viewport center)
+    // For initial positioning at viewport center, use 0, 0
     const defaultImage = {
       id: 'default-1',
       url: '/weather-app.png',
-      position: { x: centerX, y: centerY }, // Center of viewport
+      position: { x: 0, y: 0 }, // Center of viewport in canvas coordinates
       tags: [],
       currentQuestionIndex: 0,
       currentLayerIndex: 0,
@@ -99,7 +97,7 @@ function App() {
     const newImage = {
       id: newImageId,
       url: url,
-      position: { x: x || 400, y: y || 300 },
+      position: { x: x || 0, y: y || 0 }, // Default to center (0, 0 in canvas coordinates)
       tags: [],
       currentQuestionIndex: 0,
       currentLayerIndex: 0,
@@ -140,7 +138,8 @@ function App() {
   const handleFileInput = useCallback((event) => {
     const file = event.target.files?.[0]
     if (file) {
-      handleImageUpload(file, 400, 300)
+      // Position at viewport center (0, 0 in canvas coordinates)
+      handleImageUpload(file, 0, 0)
     }
   }, [handleImageUpload])
 
@@ -158,6 +157,19 @@ function App() {
   const handleImagePositionChange = useCallback((imageId, x, y) => {
     setImages(prev => prev.map(img => 
       img.id === imageId ? { ...img, position: { x, y } } : img
+    ))
+  }, [])
+
+  // Image size change (for resize handles)
+  const handleImageSizeChange = useCallback((imageId, width, height, newPosition) => {
+    setImages(prev => prev.map(img => 
+      img.id === imageId 
+        ? { 
+            ...img, 
+            size: { width, height },
+            position: newPosition || img.position
+          } 
+        : img
     ))
   }, [])
 
@@ -450,11 +462,6 @@ function App() {
     }
   }, [reflectionMode])
 
-  // Tool selection handler
-  const handleToolSelect = useCallback((tool) => {
-    setActiveTool(tool)
-    // Selection persists when switching tools
-  }, [])
 
   // Add image handler
   const handleAddImage = useCallback(() => {
@@ -465,10 +472,8 @@ function App() {
   const handleFileInputChange = useCallback((event) => {
     const file = event.target.files?.[0]
     if (file) {
-      // Place image at center of viewport
-      const centerX = 400
-      const centerY = 300
-      handleImageUpload(file, centerX, centerY)
+      // Place image at center of viewport (0, 0 in canvas coordinates)
+      handleImageUpload(file, 0, 0)
     }
     // Reset input so same file can be selected again
     if (fileInputRef.current) {
@@ -649,7 +654,6 @@ function App() {
         onImageUpload={handleImageUpload}
         isReflectionMode={reflectionMode}
         onCanvasClick={() => setSelectedImageId(null)}
-        activeTool={activeTool}
       >
         {/* Render all images */}
         {images.map(image => {
@@ -666,12 +670,14 @@ function App() {
               imageId={image.id}
               imageUrl={image.url}
               position={image.position}
+              size={image.size}
               isSelected={selectedImageId === image.id}
               isReflectionMode={reflectionMode}
               tags={image.tags}
               currentLayerIndex={image.currentLayerIndex}
               activeTagId={image.activeTagId}
               onPositionChange={handleImagePositionChange}
+              onSizeChange={handleImageSizeChange}
               onSelect={handleImageSelect}
               onExitReflection={handleExitReflection}
               onImageClick={handleImageClick}
@@ -682,8 +688,6 @@ function App() {
               onTagHover={handleTagHover}
               onTagHoverEnd={handleTagHoverEnd}
               imageRef={imageRef}
-              canvasTransform={canvasTransform}
-              activeTool={activeTool}
             />
           )
         })}
@@ -729,8 +733,6 @@ function App() {
 
       {/* Bottom Toolbar */}
       <BottomToolbar
-        activeTool={activeTool}
-        onToolSelect={handleToolSelect}
         onAddImage={handleAddImage}
       />
 
