@@ -198,23 +198,32 @@ function App() {
                   className="h-auto max-h-[80vh] object-contain pointer-events-none"
                 />
                 {/* Render tags */}
-                {tags.map(tag => (
-                  <Tag
-                    key={tag.id}
-                    tag={tag}
-                    isActive={activeTagId === tag.id}
-                    isHovered={hoveredTagId === tag.id}
-                    onTextChange={handleTagTextChange}
-                    onSave={handleSaveTag}
-                    onDelete={handleDeleteTag}
-                    onClick={handleTagClick}
-                    onHover={handleTagHover}
-                    onHoverEnd={handleTagHoverEnd}
-                    imageRef={imageRef}
-                    currentLayerIndex={currentLayerIndex}
-                    activeTagId={activeTagId}
-                  />
-                ))}
+                {tags
+                  .filter(tag => {
+                    // When value card is active (layer index 3), only show pins that have both functional and consequence pins
+                    if (currentLayerIndex === 3) {
+                      return tag.dataLayerResponses?.completed === true
+                    }
+                    // Otherwise, show all tags
+                    return true
+                  })
+                  .map(tag => (
+                    <Tag
+                      key={tag.id}
+                      tag={tag}
+                      isActive={activeTagId === tag.id}
+                      isHovered={hoveredTagId === tag.id}
+                      onTextChange={handleTagTextChange}
+                      onSave={handleSaveTag}
+                      onDelete={handleDeleteTag}
+                      onClick={handleTagClick}
+                      onHover={handleTagHover}
+                      onHoverEnd={handleTagHoverEnd}
+                      imageRef={imageRef}
+                      currentLayerIndex={currentLayerIndex}
+                      activeTagId={activeTagId}
+                    />
+                  ))}
               </div>
             </div>
 

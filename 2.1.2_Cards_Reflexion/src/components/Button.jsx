@@ -12,7 +12,15 @@ function Button({ children, onClick, className = '', variant = 'default', ...pro
 
   return (
     <button
-      onClick={onClick}
+      onClick={(e) => {
+        if (props.disabled) {
+          e.preventDefault()
+          return
+        }
+        if (onClick) {
+          onClick(e)
+        }
+      }}
       className={`${baseClasses} ${variantClasses[variant]} ${className}`}
       {...props}
     >

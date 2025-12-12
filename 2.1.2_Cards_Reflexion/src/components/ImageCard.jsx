@@ -25,7 +25,7 @@ const initialLayers = [
 
 // Demo questions for the "Next Question" functionality
 const demoQuestions = [
-  'This is a Comment from an AI',
+  'lorem ipsum',
   'How does the weather data get fetched and displayed?',
   'What are the main functional components of this application?'
 ]
@@ -162,6 +162,11 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
   }, [activeTagId, currentLayerIndex, tags])
 
   const handleNext = () => {
+    // Check if user can move to next layer based on validation rules
+    if (!canMoveToNextLayer()) {
+      return // Prevent navigation if validation fails
+    }
+    
     if (currentLayerIndex < initialLayers.length - 1) {
       setIsTransitioning(true)
       setIsGoingForward(true)
@@ -321,10 +326,43 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
     }
   }
 
+  // Helper function to get card height based on index
+  const getCardHeight = (index) => {
+    if (index === 0) return '150px'
+    if (index === 1) return '209px'
+    if (index === 2 || index === 3) return '270px'
+    return '150px'
+  }
+
+  // Helper function to check if user can move to next layer
+  const canMoveToNextLayer = () => {
+    // Layer 0 (Weather-App) → Layer 1 (Functional Layer): No validation needed
+    if (currentLayerIndex === 0) {
+      return true
+    }
+    
+    // Layer 1 (Functional Layer) → Layer 2 (Consequences): Require at least one saved pin
+    if (currentLayerIndex === 1) {
+      return tags.some(tag => tag.saved === true)
+    }
+    
+    // Layer 2 (Consequences) → Layer 3 (Values): Require at least one pin with completed consequences
+    if (currentLayerIndex === 2) {
+      return tags.some(tag => tag.dataLayerResponses?.completed === true)
+    }
+    
+    // Layer 3 (Values): No next layer, but return true to avoid issues
+    if (currentLayerIndex === 3) {
+      return true
+    }
+    
+    return true
+  }
+
   return (
     <div className="space-y-2">
       {/* Card Stack Container */}
-      <div className="relative min-h-[320px] pb-6">
+      <div className="relative pb-6" style={{ minHeight: getCardHeight(currentLayerIndex), transition: 'min-height 0.4s ease-out, height 0.4s ease-out' }}>
         {/* Render all cards and position them based on their state */}
         {layers.length > 0 && layers.map((layer, index) => {
           const isActive = index === currentLayerIndex
@@ -357,29 +395,34 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
                   transform: 'translateY(100%)',
                   opacity: 0,
                   width: '100%',
-                  minHeight: (index === 2 || index === 3) ? '270px' : '150px',
-                  transition: 'transform 0.4s ease-out, opacity 0.4s ease-out'
+                  minHeight: getCardHeight(index),
+                  height: getCardHeight(index),
+                  transition: 'transform 0.4s ease-out, opacity 0.4s ease-out, height 0.4s ease-out, min-height 0.4s ease-out'
                 } : isActive ? {
                   top: '0',
                   left: '0',
                   transform: 'translateX(0) translateY(0) scale(1)',
                   width: '100%',
-                  minHeight: (index === 2 || index === 3) ? '270px' : '150px',
-                  height: (index === 2 || index === 3) ? '270px' : 'auto',
-                  transition: 'transform 0.4s ease-out, top 0.4s ease-out, left 0.4s ease-out'
+                  ...(index === 1 ? {
+                    height: 'fit-content'
+                  } : {
+                    minHeight: getCardHeight(index),
+                    height: getCardHeight(index)
+                  }),
+                  transition: 'transform 0.4s ease-out, top 0.4s ease-out, left 0.4s ease-out, height 0.4s ease-out, min-height 0.4s ease-out'
                 } : {
                   top: '-30px',
                   left: '50%',
                   transform: 'translateX(-50%) translateY(-20px) scale(0.85)',
                   transformOrigin: 'center',
                   width: '100%',
-                  minHeight: (index === 2 || index === 3) ? '270px' : '150px',
-                  height: (index === 2 || index === 3) ? '270px' : 'auto',
-                  transition: 'transform 0.4s ease-out, top 0.4s ease-out, left 0.4s ease-out'
+                  minHeight: getCardHeight(index),
+                  height: getCardHeight(index),
+                  transition: 'transform 0.4s ease-out, top 0.4s ease-out, left 0.4s ease-out, height 0.4s ease-out, min-height 0.4s ease-out'
                 })
               }}
             >
-              <div className={`p-5 relative ${(index === 2 || index === 3) ? 'flex flex-col' : ''}`} style={(index === 2 || index === 3) ? { height: '100%', minHeight: 0 } : {}}>
+              <div className={`p-5 relative ${(index === 2 || index === 3) ? 'flex flex-col' : ''}`} style={(index === 2 || index === 3) ? { height: '100%', minHeight: 0 } : { height: 'fit-content' }}>
                 <div className={`absolute z-10 flex items-center gap-3 ${colors.text}`}
                 style={{
                   ...(isBackground ? {
@@ -683,7 +726,15 @@ function ImageCard({ tags = [], currentQuestionIndex = 0, onQuestionIndexChange,
 
       {/* Navigation Buttons */}
       <div className="flex justify-start items-center gap-2 mt-4 ml-[10px] relative z-30">
-        <Button onClick={handleNext} className="px-3 py-1 rounded-[9px] bg-black text-white hover:bg-black/90">
+        <Button 
+          onClick={handleNext} 
+          disabled={!canMoveToNextLayer() || currentLayerIndex >= initialLayers.length - 1}
+          className={`px-3 py-1 rounded-[9px] bg-black text-white hover:bg-black/90 ${
+            !canMoveToNextLayer() || currentLayerIndex >= initialLayers.length - 1
+              ? 'opacity-50 cursor-not-allowed hover:bg-black'
+              : ''
+          }`}
+        >
           Next Layer
         </Button>
         {currentLayerIndex > 0 && (
