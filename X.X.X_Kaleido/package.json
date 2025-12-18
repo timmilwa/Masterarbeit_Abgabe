@@ -1,0 +1,19 @@
+{
+  "name": "kaleido-overlay",
+  "version": "1.0.0",
+  "description": "Electron Overlay Canvas App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "chokidar": "^3.5.3"
+  },
+  "dependencies": {}
+}
+
