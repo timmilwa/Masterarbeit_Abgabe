@@ -4,7 +4,6 @@ const { ipcRenderer } = require('electron');
 const overlayContainer = document.getElementById('overlay-container');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const toggleButton = document.getElementById('toggle-button');
 const toolbar = document.getElementById('toolbar');
 const screenshotOverlay = document.getElementById('screenshot-overlay');
 const selectionBox = document.getElementById('selection-box');
@@ -20,7 +19,13 @@ const tintOpacitySlider = document.getElementById('tint-opacity-slider');
 const tintOpacityValue = document.getElementById('tint-opacity-value');
 const saturationSlider = document.getElementById('saturation-slider');
 const saturationValue = document.getElementById('saturation-value');
+const circleSpeedSlider = document.getElementById('circle-speed-slider');
+const circleSpeedValue = document.getElementById('circle-speed-value');
 const reflectionButton = document.getElementById('reflection-button');
+const circleButton = document.getElementById('circle-button');
+const actionSettingsButton = document.getElementById('action-settings-button');
+const actionOpenCanvasButton = document.getElementById('action-open-canvas-button');
+const actionCaptureArtefactButton = document.getElementById('action-capture-artefact-button');
 
 // State
 let isOverlayActive = false;
@@ -87,18 +92,20 @@ setupCanvas();
 function isMouseOverUI(x, y) {
   if (isOverlayActive || isScreenshotMode) return true;
   
-  // Check toggle button position directly
-  const toggleRect = toggleButton.getBoundingClientRect();
-  if (x >= toggleRect.left && x <= toggleRect.right &&
-      y >= toggleRect.top && y <= toggleRect.bottom) {
-    return true;
-  }
-  
   // Check settings button position directly
   const settingsRect = settingsButton.getBoundingClientRect();
   if (x >= settingsRect.left && x <= settingsRect.right &&
       y >= settingsRect.top && y <= settingsRect.bottom) {
     return true;
+  }
+  
+  // Check circle button position directly
+  if (circleButton) {
+    const circleButtonRect = circleButton.getBoundingClientRect();
+    if (x >= circleButtonRect.left && x <= circleButtonRect.right &&
+        y >= circleButtonRect.top && y <= circleButtonRect.bottom) {
+      return true;
+    }
   }
   
   // Check settings popup position
@@ -110,13 +117,37 @@ function isMouseOverUI(x, y) {
     }
   }
   
+  // Check action buttons position
+  if (actionSettingsButton && actionSettingsButton.classList.contains('visible')) {
+    const buttonRect = actionSettingsButton.getBoundingClientRect();
+    if (x >= buttonRect.left && x <= buttonRect.right &&
+        y >= buttonRect.top && y <= buttonRect.bottom) {
+      return true;
+    }
+  }
+  if (actionOpenCanvasButton && actionOpenCanvasButton.classList.contains('visible')) {
+    const buttonRect = actionOpenCanvasButton.getBoundingClientRect();
+    if (x >= buttonRect.left && x <= buttonRect.right &&
+        y >= buttonRect.top && y <= buttonRect.bottom) {
+      return true;
+    }
+  }
+  if (actionCaptureArtefactButton && actionCaptureArtefactButton.classList.contains('visible')) {
+    const buttonRect = actionCaptureArtefactButton.getBoundingClientRect();
+    if (x >= buttonRect.left && x <= buttonRect.right &&
+        y >= buttonRect.top && y <= buttonRect.bottom) {
+      return true;
+    }
+  }
+  
   // Try elementFromPoint as fallback
   try {
     const el = document.elementFromPoint(x, y);
     if (el) {
-      if (el.closest('#toggle-button') ||
-          el.closest('#settings-button') ||
+      if (el.closest('#settings-button') ||
+          el.closest('#circle-button') ||
           el.closest('#settings-popup') ||
+          el.closest('.action-button') ||
           el.closest('button') ||
           el.closest('input')) {
         return true;
@@ -244,6 +275,19 @@ function toggleOverlay() {
     reflectionButton.classList.remove('visible');
     // Reset cursor to default
     canvas.style.cursor = 'default';
+    
+    // Uncollect circles when overlay closes
+    if (isCirclesCollected) {
+      isCirclesCollected = false;
+      // Start rotation animation back to plus
+      startIconRotation = currentIconRotation;
+      iconRotationStartTime = Date.now();
+      targetIconRotation = Math.PI / 4; // Plus icon when not collected
+      // Animate back to moving state
+      hoverAnimationStartTime = Date.now();
+      hoverAnimationProgress = 1; // Start from 1 to animate to 0
+    }
+    
     // Check if mouse is still over UI before enabling click-through
     if (!isMouseOverUI(lastMouseX, lastMouseY)) {
       ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
@@ -251,6 +295,62 @@ function toggleOverlay() {
     // Don't clear images - they should persist
     // Just clear the canvas visually
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+// Toggle Action Buttons
+function toggleActionButtons() {
+  const isVisible = actionSettingsButton.classList.contains('visible');
+  if (isVisible) {
+    // Hide buttons
+    actionSettingsButton.classList.remove('visible');
+    actionOpenCanvasButton.classList.remove('visible');
+    actionCaptureArtefactButton.classList.remove('visible');
+    
+    // Uncollect circles (restore normal state)
+    if (isCirclesCollected) {
+      isCirclesCollected = false;
+      // Start rotation animation back to plus
+      startIconRotation = currentIconRotation;
+      iconRotationStartTime = Date.now();
+      targetIconRotation = Math.PI / 4; // Plus icon when not collected
+      // Animate back to moving state
+      hoverAnimationStartTime = Date.now();
+      hoverAnimationProgress = 1; // Start from 1 to animate to 0
+    }
+    
+    // Re-enable click-through if overlay is not active
+    if (!isOverlayActive && !isScreenshotMode) {
+      if (!isMouseOverUI(lastMouseX, lastMouseY)) {
+        ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      }
+    }
+  } else {
+    // Show buttons
+    actionSettingsButton.classList.add('visible');
+    actionOpenCanvasButton.classList.add('visible');
+    actionCaptureArtefactButton.classList.add('visible');
+    
+    // Collect circles (show X state)
+    if (!isCirclesCollected) {
+      isCirclesCollected = true;
+      // Start rotation animation
+      startIconRotation = currentIconRotation;
+      iconRotationStartTime = Date.now();
+      targetIconRotation = 0; // X icon when collected
+      // Store current circle positions as starting point for animation
+      collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+      // Store actual center as target position
+      const centerX = circleButtonCanvas.width / 2;
+      const centerY = circleButtonCanvas.height / 2;
+      convergedCenterX = centerX;
+      convergedCenterY = centerY;
+      // Animate to collected state
+      hoverAnimationStartTime = Date.now();
+      hoverAnimationProgress = 0; // Start from 0 to animate to 1
+    }
+    
+    ipcRenderer.send('set-ignore-mouse-events', false);
   }
 }
 
@@ -265,8 +365,22 @@ window.addEventListener('mousemove', (e) => {
   
   if (overUI) {
     ipcRenderer.send('set-ignore-mouse-events', false);
+    // Set pointer cursor when over circle button
+    if (circleButton) {
+      const circleButtonRect = circleButton.getBoundingClientRect();
+      if (e.clientX >= circleButtonRect.left && e.clientX <= circleButtonRect.right &&
+          e.clientY >= circleButtonRect.top && e.clientY <= circleButtonRect.bottom) {
+        document.body.style.cursor = 'pointer';
+        circleButton.style.cursor = 'pointer';
+        if (circleButtonCanvas) {
+          circleButtonCanvas.style.cursor = 'pointer';
+        }
+      }
+    }
   } else {
     ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    // Reset cursor when not over UI
+    document.body.style.cursor = 'default';
   }
 });
 
@@ -957,20 +1071,6 @@ function getResizeHandleAt(x, y, img) {
 }
 
 // Event Listeners
-toggleButton.addEventListener('click', toggleOverlay);
-
-// Ensure toggle button is always clickable
-toggleButton.addEventListener('mouseenter', () => {
-  if (!isOverlayActive && !isScreenshotMode) {
-    ipcRenderer.send('set-ignore-mouse-events', false);
-  }
-});
-
-toggleButton.addEventListener('mouseleave', () => {
-  if (!isOverlayActive && !isScreenshotMode) {
-    ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
-  }
-});
 
 // Keyboard shortcuts
 window.addEventListener('keydown', (e) => {
@@ -1650,6 +1750,52 @@ settingsButton.addEventListener('click', (e) => {
   }
 });
 
+// Helper function to hide buttons and uncollect circles
+function hideActionButtons() {
+  actionSettingsButton.classList.remove('visible');
+  actionOpenCanvasButton.classList.remove('visible');
+  actionCaptureArtefactButton.classList.remove('visible');
+  
+  if (isCirclesCollected) {
+    isCirclesCollected = false;
+    // Start rotation animation back to plus
+    startIconRotation = currentIconRotation;
+    iconRotationStartTime = Date.now();
+    targetIconRotation = Math.PI / 4; // Plus icon when not collected
+    // Animate back to moving state
+    hoverAnimationStartTime = Date.now();
+    hoverAnimationProgress = 1; // Start from 1 to animate to 0
+  }
+}
+
+// Action button handlers
+actionSettingsButton.addEventListener('click', (e) => {
+  e.stopPropagation();
+  // Hide action buttons and uncollect circles
+  hideActionButtons();
+  // Open settings popup (same as clicking settings button)
+  settingsPopup.classList.add('visible');
+  ipcRenderer.send('set-ignore-mouse-events', false);
+});
+
+actionOpenCanvasButton.addEventListener('click', (e) => {
+  e.stopPropagation();
+  // Hide action buttons and uncollect circles
+  hideActionButtons();
+  // Open overlay (toggleOverlay handles click-through)
+  if (!isOverlayActive) {
+    toggleOverlay();
+  }
+});
+
+actionCaptureArtefactButton.addEventListener('click', (e) => {
+  e.stopPropagation();
+  // Hide action buttons and uncollect circles
+  hideActionButtons();
+  // Start screenshot mode
+  startScreenshotMode();
+});
+
 // Update tint color
 function updateTintColor(hex) {
   // Remove # if present for validation
@@ -1705,11 +1851,42 @@ saturationSlider.addEventListener('input', (e) => {
 // Initialize saturation value display
 saturationValue.textContent = saturationSlider.value + '%';
 
-// Close settings popup when clicking outside
+// Handle circle speed slider
+circleSpeedSlider.addEventListener('input', (e) => {
+  const speedPercent = parseInt(e.target.value);
+  circleSpeedMultiplier = speedPercent / 100; // Convert 0-200% to 0.0-2.0 multiplier
+  circleSpeedValue.textContent = speedPercent + '%';
+});
+
+// Initialize circle speed value display
+circleSpeedValue.textContent = circleSpeedSlider.value + '%';
+
+// Close settings popup and action buttons when clicking outside
 document.addEventListener('click', (e) => {
   if (settingsPopup.classList.contains('visible')) {
     if (!settingsPopup.contains(e.target) && !settingsButton.contains(e.target)) {
       settingsPopup.classList.remove('visible');
+      if (!isOverlayActive && !isScreenshotMode) {
+        if (!isMouseOverUI(lastMouseX, lastMouseY)) {
+          ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+        }
+      }
+    }
+  }
+  
+  const isAnyActionButtonVisible = actionSettingsButton.classList.contains('visible') ||
+                                   actionOpenCanvasButton.classList.contains('visible') ||
+                                   actionCaptureArtefactButton.classList.contains('visible');
+  
+  if (isAnyActionButtonVisible) {
+    const isClickOnActionButton = actionSettingsButton.contains(e.target) ||
+                                  actionOpenCanvasButton.contains(e.target) ||
+                                  actionCaptureArtefactButton.contains(e.target);
+    
+    if (!isClickOnActionButton && !circleButton.contains(e.target)) {
+      // Hide buttons and uncollect circles
+      hideActionButtons();
+      
       if (!isOverlayActive && !isScreenshotMode) {
         if (!isMouseOverUI(lastMouseX, lastMouseY)) {
           ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
@@ -1731,6 +1908,664 @@ settingsButton.addEventListener('mouseleave', () => {
     ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
   }
 });
+
+// Ensure action buttons are always clickable
+[actionSettingsButton, actionOpenCanvasButton, actionCaptureArtefactButton].forEach(button => {
+  button.addEventListener('mouseenter', () => {
+    if (!isOverlayActive && !isScreenshotMode) {
+      ipcRenderer.send('set-ignore-mouse-events', false);
+    }
+  });
+
+  button.addEventListener('mouseleave', () => {
+    if (!isOverlayActive && !isScreenshotMode) {
+      const isAnyActionButtonVisible = actionSettingsButton.classList.contains('visible') ||
+                                       actionOpenCanvasButton.classList.contains('visible') ||
+                                       actionCaptureArtefactButton.classList.contains('visible');
+      if (!isAnyActionButtonVisible) {
+        if (!isMouseOverUI(lastMouseX, lastMouseY)) {
+          ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+        }
+      }
+    }
+  });
+});
+
+// Circle Button Implementation
+const circleButtonCanvas = document.getElementById('circle-button-canvas');
+let circleButtonCtx = null;
+let circles = [];
+let isCircleButtonHovered = false;
+let circleAnimationFrameId = null;
+let animationTime = 0;
+let lastFrameTime = Date.now();
+let circleSpeedMultiplier = 0.72; // Default speed (72% of base speed)
+let hoverAnimationProgress = 0; // 0 = not hovered, 1 = fully hovered
+let hoverAnimationStartTime = 0;
+const hoverAnimationDuration = 400; // milliseconds
+let circleButtonMouseX = 0; // Mouse X position relative to circle button
+let circleButtonMouseY = 0; // Mouse Y position relative to circle button
+let targetMouseX = 0; // Target position for smooth following
+let targetMouseY = 0; // Target position for smooth following
+let storedPatternPositions = []; // Store pattern positions when hover starts for smooth return
+let convergedCenterX = 0; // Store converged center position when hover ends
+let convergedCenterY = 0; // Store converged center position when hover ends
+let collectedStartPositions = []; // Store circle positions when toggling to collected state
+let currentHoverCenterX = 0; // Current hover center X (follows mouse)
+let currentHoverCenterY = 0; // Current hover center Y (follows mouse)
+let isBackgroundLight = false; // Whether background behind circles is light
+let backgroundCheckInterval = null; // Interval for checking background
+let isCheckingBackground = false; // Flag to prevent multiple simultaneous checks
+let lastBackgroundCheck = 0; // Timestamp of last check
+const BACKGROUND_CHECK_COOLDOWN = 3000; // Minimum 3 seconds between checks
+let isCirclesCollected = false; // Toggle state: true = collected, false = moving
+let currentIconRotation = Math.PI / 4; // Current rotation angle of X icon (default: 45° = plus)
+let targetIconRotation = Math.PI / 4; // Target rotation angle of X icon (default: 45° = plus)
+let startIconRotation = Math.PI / 4; // Starting rotation angle when animation begins
+let iconRotationStartTime = 0; // Start time for rotation animation
+const iconRotationDuration = 300; // Rotation animation duration in milliseconds
+
+// Bounce easing function (ease-out-back with bounce)
+function easeOutBounce(t) {
+  if (t < 1 / 2.75) {
+    return 7.5625 * t * t;
+  } else if (t < 2 / 2.75) {
+    return 7.5625 * (t -= 1.5 / 2.75) * t + 0.75;
+  } else if (t < 2.5 / 2.75) {
+    return 7.5625 * (t -= 2.25 / 2.75) * t + 0.9375;
+  } else {
+    return 7.5625 * (t -= 2.625 / 2.75) * t + 0.984375;
+  }
+}
+
+// Ease-out-back for bouncy effect
+function easeOutBack(t) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+// Initialize circle button
+function initCircleButton() {
+  if (!circleButtonCanvas) return;
+  
+  circleButtonCtx = circleButtonCanvas.getContext('2d');
+  circleButtonCanvas.width = 120;
+  circleButtonCanvas.height = 120;
+  
+  // Initialize three circles with different patterns
+  const centerX = circleButtonCanvas.width / 2;
+  const centerY = circleButtonCanvas.height / 2;
+  
+  // Initialize mouse follow target to center
+  targetMouseX = centerX;
+  targetMouseY = centerY;
+  const wanderRadius = 35; // Smaller wander area
+  
+  // Circle 1: Orbital pattern
+  circles.push({
+    x: centerX,
+    y: centerY,
+    baseX: centerX,
+    baseY: centerY,
+    angle: Math.random() * Math.PI * 2,
+    angleSpeed: 0.002 + Math.random() * 0.002, // 0.002-0.004 radians per frame (even slower)
+    targetAngleSpeed: 0.002 + Math.random() * 0.002, // Target for smooth transitions
+    radius: 30, // Fixed size for all circles
+    orbitRadius: 8 + Math.random() * 7, // 8-15px (smaller movements)
+    patternType: 'orbital',
+    phase: Math.random() * Math.PI * 2,
+    timeOffset: Math.random() * 1000,
+    freq1: 0.08 + Math.random() * 0.05, // 0.08-0.13 Hz (even slower)
+    freq2: 0.12 + Math.random() * 0.05, // 0.12-0.17 Hz (even slower)
+    targetFreq1: 0.08 + Math.random() * 0.05,
+    targetFreq2: 0.12 + Math.random() * 0.05,
+    freqChangeTime: Date.now() + 3000 + Math.random() * 2000,
+  });
+  
+  // Circle 2: Figure-8 pattern
+  circles.push({
+    x: centerX,
+    y: centerY,
+    baseX: centerX,
+    baseY: centerY,
+    angle: Math.random() * Math.PI * 2,
+    angleSpeed: 0.0025 + Math.random() * 0.0025, // 0.0025-0.005 radians per frame (even slower)
+    targetAngleSpeed: 0.0025 + Math.random() * 0.0025,
+    radius: 30, // Fixed size for all circles
+    orbitRadius: 10 + Math.random() * 8, // 10-18px (smaller amplitude)
+    patternType: 'figure8',
+    phase: Math.random() * Math.PI * 2,
+    timeOffset: Math.random() * 1000,
+    freq1: 0.1 + Math.random() * 0.05, // 0.1-0.15 Hz (even slower)
+    freq2: 0.15 + Math.random() * 0.05, // 0.15-0.2 Hz (even slower)
+    targetFreq1: 0.1 + Math.random() * 0.05,
+    targetFreq2: 0.15 + Math.random() * 0.05,
+    freqChangeTime: Date.now() + 3000 + Math.random() * 2000,
+  });
+  
+  // Circle 3: Rhythmic random walk
+  circles.push({
+    x: centerX,
+    y: centerY,
+    baseX: centerX,
+    baseY: centerY,
+    angle: Math.random() * Math.PI * 2,
+    angleSpeed: 0.002 + Math.random() * 0.002, // Even slower
+    targetAngleSpeed: 0.002 + Math.random() * 0.002,
+    radius: 30, // Fixed size for all circles
+    orbitRadius: 0,
+    patternType: 'rhythmic',
+    phase: Math.random() * Math.PI * 2,
+    timeOffset: Math.random() * 1000,
+    freq1: 0.09 + Math.random() * 0.04, // 0.09-0.13 Hz (even slower)
+    freq2: 0.14 + Math.random() * 0.04, // 0.14-0.18 Hz (even slower)
+    targetFreq1: 0.09 + Math.random() * 0.04,
+    targetFreq2: 0.14 + Math.random() * 0.04,
+    freqChangeTime: Date.now() + 3000 + Math.random() * 2000,
+    randomOffsetX: 0,
+    randomOffsetY: 0,
+    randomTargetX: (Math.random() - 0.5) * 10, // 10px instead of 20px (smaller)
+    randomTargetY: (Math.random() - 0.5) * 10, // 10px instead of 20px (smaller)
+    randomChangeTime: Date.now() + 2000 + Math.random() * 2000,
+    prevRandomTargetX: (Math.random() - 0.5) * 10,
+    prevRandomTargetY: (Math.random() - 0.5) * 10,
+    randomTransitionProgress: 1, // 0 to 1, starts at 1 (fully at new target)
+  });
+  
+  // Start animation
+  drawCircles();
+  
+  // Check background color periodically (less frequently to avoid rapid changes)
+  checkBackgroundColor(); // Initial check
+  backgroundCheckInterval = setInterval(checkBackgroundColor, 5000); // Check every 5 seconds
+  
+  // Event handlers
+  circleButton.addEventListener('mouseenter', () => {
+    isCircleButtonHovered = true;
+    hoverAnimationStartTime = Date.now();
+    // Set pointer cursor
+    circleButton.style.cursor = 'pointer';
+    circleButtonCanvas.style.cursor = 'pointer';
+    // Store current pattern positions for smooth return animation
+    storedPatternPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+    if (!isOverlayActive && !isScreenshotMode) {
+      ipcRenderer.send('set-ignore-mouse-events', false);
+    }
+  });
+  
+  circleButton.addEventListener('mouseleave', () => {
+    isCircleButtonHovered = false;
+    
+    // Only animate away if not collected (toggled)
+    if (!isCirclesCollected) {
+      hoverAnimationStartTime = Date.now();
+      // Store the converged center position where all circles are currently
+      // This will be the starting point for the spread-apart animation
+      if (circles.length > 0) {
+        convergedCenterX = circles[0].x; // All circles should be at same position when converged
+        convergedCenterY = circles[0].y;
+      } else {
+        convergedCenterX = circleButtonCanvas.width / 2;
+        convergedCenterY = circleButtonCanvas.height / 2;
+      }
+      // Reset mouse follow target to center when leaving
+      targetMouseX = circleButtonCanvas.width / 2;
+      targetMouseY = circleButtonCanvas.height / 2;
+    }
+    
+    if (!isOverlayActive && !isScreenshotMode) {
+      if (!isMouseOverUI(lastMouseX, lastMouseY)) {
+        ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      }
+    }
+  });
+  
+  // Track mouse movement for sticky effect
+  circleButton.addEventListener('mousemove', (e) => {
+    const rect = circleButtonCanvas.getBoundingClientRect();
+    circleButtonMouseX = e.clientX - rect.left;
+    circleButtonMouseY = e.clientY - rect.top;
+    // Ensure pointer cursor is set
+    circleButton.style.cursor = 'pointer';
+    circleButtonCanvas.style.cursor = 'pointer';
+  });
+  
+  circleButton.addEventListener('click', (e) => {
+    // Toggle action buttons visibility
+    toggleActionButtons();
+  });
+}
+
+// Update circle positions based on patterns
+function updateCirclePositions() {
+  const currentTime = Date.now();
+  const deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
+  lastFrameTime = currentTime;
+  
+  animationTime += deltaTime;
+  
+  const centerX = circleButtonCanvas.width / 2;
+  const centerY = circleButtonCanvas.height / 2;
+  const wanderRadius = 35; // Smaller wander area
+  
+  // Update hover animation progress
+  if (isCirclesCollected) {
+    // When collected (toggled), animate to fully converged
+    if (hoverAnimationProgress < 1) {
+      const elapsed = currentTime - hoverAnimationStartTime;
+      hoverAnimationProgress = Math.min(1, elapsed / hoverAnimationDuration);
+    } else {
+      hoverAnimationProgress = 1; // Keep at 1 when collected
+    }
+  } else if (isCircleButtonHovered && hoverAnimationProgress < 1) {
+    // Normal hover: converge
+    const elapsed = currentTime - hoverAnimationStartTime;
+    hoverAnimationProgress = Math.min(1, elapsed / hoverAnimationDuration);
+  } else if (!isCircleButtonHovered && hoverAnimationProgress > 0 && !isCirclesCollected) {
+    // Normal hover end: spread apart (only if not collected)
+    const elapsed = currentTime - hoverAnimationStartTime;
+    hoverAnimationProgress = Math.max(0, 1 - (elapsed / hoverAnimationDuration));
+  }
+  
+  // Apply bounce easing only when converging (hovering), smooth easing when leaving
+  const easedHoverProgress = isCircleButtonHovered 
+    ? easeOutBack(hoverAnimationProgress)  // Bouncy when converging
+    : hoverAnimationProgress;  // Smooth linear when separating (no bounce)
+  
+  // Update target mouse position for sticky effect (smooth following)
+  // Only follow mouse when hovering (not when collected)
+  if (isCircleButtonHovered && hoverAnimationProgress > 0.5 && !isCirclesCollected) {
+    // Follow mouse when mostly converged from hover (not when collected)
+    const mouseLerp = 0.15; // Sticky factor - how much to follow mouse
+    targetMouseX += (circleButtonMouseX - targetMouseX) * mouseLerp;
+    targetMouseY += (circleButtonMouseY - targetMouseY) * mouseLerp;
+  } else {
+    // Return to center when not hovered or when collected
+    const centerLerp = 0.1;
+    targetMouseX += (centerX - targetMouseX) * centerLerp;
+    targetMouseY += (centerY - targetMouseY) * centerLerp;
+  }
+  
+  // Calculate offset from center based on mouse position (only when converged and not collected)
+  const mouseFollowStrength = Math.max(0, (hoverAnimationProgress - 0.5) * 2); // 0 to 1 when >50% converged
+  // When collected, don't follow mouse (no stickiness)
+  const effectiveMouseFollowStrength = isCirclesCollected ? 0 : mouseFollowStrength;
+  const mouseOffsetX = (targetMouseX - centerX) * effectiveMouseFollowStrength * 0.12; // 12% of mouse offset (less sticky)
+  const mouseOffsetY = (targetMouseY - centerY) * effectiveMouseFollowStrength * 0.12; // 12% of mouse offset (less sticky)
+  // When collected, use stored converged center; otherwise use regular center
+  const baseCenterX = isCirclesCollected && hoverAnimationProgress > 0.5 ? convergedCenterX : centerX;
+  const baseCenterY = isCirclesCollected && hoverAnimationProgress > 0.5 ? convergedCenterY : centerY;
+  const hoverCenterX = baseCenterX + mouseOffsetX;
+  const hoverCenterY = baseCenterY + mouseOffsetY;
+  
+  // Store hover center for X icon positioning
+  currentHoverCenterX = hoverCenterX;
+  currentHoverCenterY = hoverCenterY;
+  
+  circles.forEach((circle, index) => {
+    // Calculate pattern position first
+    let patternX = centerX;
+    let patternY = centerY;
+    
+    // Normal pattern movement
+    const t = animationTime + circle.timeOffset / 1000;
+    
+    // Smoothly transition angle speed and frequencies (only when not hovered to avoid bouncing)
+    if (hoverAnimationProgress === 0) {
+      // In default state, make transitions very smooth and slow
+      if (circle.targetAngleSpeed !== undefined) {
+        const speedLerp = 0.005; // Much slower transition
+        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerp;
+      }
+      
+      // Smoothly transition frequencies (very slowly)
+      if (circle.targetFreq1 !== undefined && currentTime > circle.freqChangeTime) {
+        const freqLerp = 0.003; // Much slower transition
+        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerp;
+        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerp;
+        
+        // Periodically set new target frequencies (less frequently)
+        if (Math.abs(circle.freq1 - circle.targetFreq1) < 0.0001) {
+          circle.targetFreq1 = 0.08 + Math.random() * 0.05;
+          circle.targetFreq2 = 0.12 + Math.random() * 0.05;
+          circle.freqChangeTime = currentTime + 5000 + Math.random() * 3000; // Less frequent changes
+        }
+      }
+    } else {
+      // When hovered, keep original smooth transitions
+      if (circle.targetAngleSpeed !== undefined) {
+        const speedLerp = 0.02;
+        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerp;
+      }
+      
+      if (circle.targetFreq1 !== undefined && currentTime > circle.freqChangeTime) {
+        const freqLerp = 0.01;
+        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerp;
+        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerp;
+        
+        if (Math.abs(circle.freq1 - circle.targetFreq1) < 0.001) {
+          circle.targetFreq1 = 0.08 + Math.random() * 0.05;
+          circle.targetFreq2 = 0.12 + Math.random() * 0.05;
+          circle.freqChangeTime = currentTime + 3000 + Math.random() * 2000;
+        }
+      }
+    }
+    
+    if (circle.patternType === 'orbital') {
+      // Orbital: base point drifts, circle orbits around it
+      const baseDriftX = Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * 8; // Apply speed multiplier
+      const baseDriftY = Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * 8; // Apply speed multiplier
+      circle.baseX = centerX + baseDriftX;
+      circle.baseY = centerY + baseDriftY;
+      
+      circle.angle += circle.angleSpeed * circleSpeedMultiplier; // Apply speed multiplier
+      const orbitX = Math.cos(circle.angle + circle.phase) * circle.orbitRadius;
+      const orbitY = Math.sin(circle.angle + circle.phase) * circle.orbitRadius;
+      
+      patternX = circle.baseX + orbitX;
+      patternY = circle.baseY + orbitY;
+    } else if (circle.patternType === 'figure8') {
+      // Figure-8: parametric lemniscate
+      circle.angle += circle.angleSpeed * circleSpeedMultiplier; // Apply speed multiplier
+      const a = circle.orbitRadius;
+      const tParam = circle.angle + circle.phase;
+      // Lemniscate of Bernoulli: x = a*sin(t), y = a*sin(t)*cos(t)
+      const figure8X = a * Math.sin(tParam);
+      const figure8Y = a * Math.sin(tParam) * Math.cos(tParam);
+      
+      // Add slow drift to base
+      const baseDriftX = Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * 6; // Apply speed multiplier
+      const baseDriftY = Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * 6; // Apply speed multiplier
+      
+      patternX = centerX + figure8X + baseDriftX;
+      patternY = centerY + figure8Y + baseDriftY;
+    } else if (circle.patternType === 'rhythmic') {
+      // Rhythmic random walk: sine wave base with random walk
+      const baseX = centerX + Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * 10; // Apply speed multiplier
+      const baseY = centerY + Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * 10; // Apply speed multiplier
+      
+      // Update random walk target periodically with smooth transition
+      if (currentTime > circle.randomChangeTime) {
+        circle.prevRandomTargetX = circle.randomTargetX;
+        circle.prevRandomTargetY = circle.randomTargetY;
+        circle.randomTargetX = (Math.random() - 0.5) * 10;
+        circle.randomTargetY = (Math.random() - 0.5) * 10;
+        circle.randomChangeTime = currentTime + 2000 + Math.random() * 2000;
+        circle.randomTransitionProgress = 0; // Start transition
+      }
+      
+      // Smoothly transition between old and new random targets (slower in default state)
+      const transitionSpeed = hoverAnimationProgress === 0 ? 0.01 : 0.02; // Slower when not hovered
+      const randomLerpSpeed = hoverAnimationProgress === 0 ? 0.01 * circleSpeedMultiplier : 0.02 * circleSpeedMultiplier;
+      
+      if (circle.randomTransitionProgress < 1) {
+        circle.randomTransitionProgress = Math.min(1, circle.randomTransitionProgress + transitionSpeed);
+        const smoothProgress = circle.randomTransitionProgress * circle.randomTransitionProgress * (3 - 2 * circle.randomTransitionProgress); // Smoothstep
+        const currentTargetX = circle.prevRandomTargetX + (circle.randomTargetX - circle.prevRandomTargetX) * smoothProgress;
+        const currentTargetY = circle.prevRandomTargetY + (circle.randomTargetY - circle.prevRandomTargetY) * smoothProgress;
+        
+        // Smoothly move toward current target
+        circle.randomOffsetX += (currentTargetX - circle.randomOffsetX) * randomLerpSpeed;
+        circle.randomOffsetY += (currentTargetY - circle.randomOffsetY) * randomLerpSpeed;
+      } else {
+        // Smoothly move toward random target (speed multiplier affects lerp speed)
+        circle.randomOffsetX += (circle.randomTargetX - circle.randomOffsetX) * randomLerpSpeed;
+        circle.randomOffsetY += (circle.randomTargetY - circle.randomOffsetY) * randomLerpSpeed;
+      }
+      
+      patternX = baseX + circle.randomOffsetX;
+      patternY = baseY + circle.randomOffsetY;
+    }
+    
+    // Constrain pattern position within wander area
+    const dx = patternX - centerX;
+    const dy = patternY - centerY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance > wanderRadius) {
+      const angle = Math.atan2(dy, dx);
+      patternX = centerX + Math.cos(angle) * wanderRadius;
+      patternY = centerY + Math.sin(angle) * wanderRadius;
+    }
+    
+    // Handle position based on collected state and hover
+    if (isCirclesCollected && hoverAnimationProgress > 0) {
+      // When collected (toggled), animate from stored start position to center
+      if (collectedStartPositions.length > index) {
+        const startX = collectedStartPositions[index].x;
+        const startY = collectedStartPositions[index].y;
+        circle.x = startX + (hoverCenterX - startX) * easedHoverProgress;
+        circle.y = startY + (hoverCenterY - startY) * easedHoverProgress;
+      } else {
+        // Fallback: lerp from pattern to center
+        circle.x = patternX + (hoverCenterX - patternX) * easedHoverProgress;
+        circle.y = patternY + (hoverCenterY - patternY) * easedHoverProgress;
+      }
+    } else if (!isCircleButtonHovered && hoverAnimationProgress > 0 && !isCirclesCollected) {
+      // When leaving hover (and not collected), bouncy spread apart from converged center to pattern positions
+      const returnProgress = 1 - hoverAnimationProgress; // 0 to 1 as we spread apart
+      // Use bounce easing for spreading apart (bouncy effect)
+      const easedReturnProgress = easeOutBack(returnProgress);
+      circle.x = convergedCenterX + (patternX - convergedCenterX) * easedReturnProgress;
+      circle.y = convergedCenterY + (patternY - convergedCenterY) * easedReturnProgress;
+    } else if (hoverAnimationProgress > 0) {
+      // When hovering, lerp between pattern and hover center
+      circle.x = patternX + (hoverCenterX - patternX) * easedHoverProgress;
+      circle.y = patternY + (hoverCenterY - patternY) * easedHoverProgress;
+    } else {
+      // Default state - use pattern position directly with no transformations or easing
+      // This ensures smooth, non-bouncy movement
+      circle.x = patternX;
+      circle.y = patternY;
+    }
+  });
+}
+
+// Draw circles
+function drawCircles() {
+  if (!circleButtonCtx || !circleButtonCanvas) return;
+  
+  // Clear canvas
+  circleButtonCtx.clearRect(0, 0, circleButtonCanvas.width, circleButtonCanvas.height);
+  
+  // Update positions
+  updateCirclePositions();
+  
+  // Draw each circle (color depends on background)
+  const circleColor = isBackgroundLight ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)'; // Black if light bg, white if dark bg
+  circles.forEach(circle => {
+    circleButtonCtx.beginPath();
+    circleButtonCtx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+    circleButtonCtx.fillStyle = circleColor; // 30% opacity
+    circleButtonCtx.fill();
+  });
+  
+  // Draw X icon when hovered or collected (fades in/out with hover animation, follows mouse)
+  if (hoverAnimationProgress > 0 || isCirclesCollected) {
+    const iconSize = 14; // Smaller size for the X icon
+    const iconOpacity = isCirclesCollected ? 1 : hoverAnimationProgress; // Full opacity when collected, fade when hovering
+    
+    // Use hover center position (which follows mouse) for icon position
+    // When collected, use the converged center; otherwise use current hover center
+    const centerX = circleButtonCanvas.width / 2;
+    const centerY = circleButtonCanvas.height / 2;
+    const iconX = isCirclesCollected && hoverAnimationProgress > 0.5 
+      ? (convergedCenterX || centerX) 
+      : currentHoverCenterX;
+    const iconY = isCirclesCollected && hoverAnimationProgress > 0.5 
+      ? (convergedCenterY || centerY) 
+      : currentHoverCenterY;
+    
+    circleButtonCtx.save();
+    circleButtonCtx.globalAlpha = iconOpacity;
+    // X color: white if light background, black if dark background
+    circleButtonCtx.strokeStyle = isBackgroundLight ? '#FFFFFF' : '#000000';
+    circleButtonCtx.lineWidth = 2;
+    circleButtonCtx.lineCap = 'round';
+    
+    // Animate rotation smoothly
+    const rotationElapsed = Date.now() - iconRotationStartTime;
+    const rotationProgress = Math.min(1, rotationElapsed / iconRotationDuration);
+    const easedRotationProgress = rotationProgress * rotationProgress * (3 - 2 * rotationProgress); // Smoothstep easing
+    
+    // Interpolate between start and target rotation
+    if (rotationProgress < 1) {
+      currentIconRotation = startIconRotation + (targetIconRotation - startIconRotation) * easedRotationProgress;
+    } else {
+      currentIconRotation = targetIconRotation; // Ensure we end at exact target
+    }
+    
+    // Apply rotation around the icon center
+    circleButtonCtx.translate(iconX, iconY);
+    circleButtonCtx.rotate(currentIconRotation);
+    circleButtonCtx.translate(-iconX, -iconY);
+    
+    // Draw X icon (Lucide X icon - two diagonal lines)
+    const offset = iconSize / 2;
+    circleButtonCtx.beginPath();
+    // First diagonal line (top-left to bottom-right)
+    circleButtonCtx.moveTo(iconX - offset, iconY - offset);
+    circleButtonCtx.lineTo(iconX + offset, iconY + offset);
+    // Second diagonal line (top-right to bottom-left)
+    circleButtonCtx.moveTo(iconX + offset, iconY - offset);
+    circleButtonCtx.lineTo(iconX - offset, iconY + offset);
+    circleButtonCtx.stroke();
+    
+    circleButtonCtx.restore();
+  }
+  
+  // Continue animation
+  circleAnimationFrameId = requestAnimationFrame(drawCircles);
+}
+
+// Check background color behind circle button
+async function checkBackgroundColor() {
+  // Prevent multiple simultaneous checks and respect cooldown
+  const now = Date.now();
+  if (isCheckingBackground || (now - lastBackgroundCheck) < BACKGROUND_CHECK_COOLDOWN) {
+    return;
+  }
+  
+  isCheckingBackground = true;
+  lastBackgroundCheck = now;
+  
+  try {
+    const buttonRect = circleButton.getBoundingClientRect();
+    const centerX = Math.floor(buttonRect.left + buttonRect.width / 2);
+    const centerY = Math.floor(buttonRect.top + buttonRect.height / 2);
+    
+    // Sample a larger area (40x40px) around the center, but avoid the circle area itself
+    // Sample from corners to avoid the circles
+    const sampleSize = 15;
+    const offset = 25; // Offset from center to avoid sampling the circles
+    const sampleAreas = [
+      { x: centerX - offset, y: centerY - offset }, // Top-left
+      { x: centerX + offset, y: centerY - offset }, // Top-right
+      { x: centerX - offset, y: centerY + offset }, // Bottom-left
+      { x: centerX + offset, y: centerY + offset }  // Bottom-right
+    ];
+    
+    const sources = await ipcRenderer.invoke('get-sources');
+    if (sources.length === 0) return;
+    
+    const source = sources[0];
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: source.id,
+          minWidth: window.innerWidth,
+          maxWidth: window.innerWidth * 2,
+          minHeight: window.innerHeight,
+          maxHeight: window.innerHeight * 2
+        }
+      }
+    });
+    
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.play();
+    
+    await new Promise((resolve) => {
+      video.onloadedmetadata = () => {
+        setTimeout(() => {
+          const scaleX = video.videoWidth / window.innerWidth;
+          const scaleY = video.videoHeight / window.innerHeight;
+          
+          // Create temporary canvas to sample the area
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = sampleSize;
+          tempCanvas.height = sampleSize;
+          const tempCtx = tempCanvas.getContext('2d');
+          
+          // Sample from multiple corner areas to avoid the circles
+          let totalLuminance = 0;
+          let totalSamples = 0;
+          
+          for (const area of sampleAreas) {
+            const sampleX = area.x;
+            const sampleY = area.y;
+            
+            // Draw the sampled area
+            tempCtx.clearRect(0, 0, sampleSize, sampleSize);
+            tempCtx.drawImage(
+              video,
+              sampleX * scaleX, sampleY * scaleY, sampleSize * scaleX, sampleSize * scaleY,
+              0, 0, sampleSize, sampleSize
+            );
+            
+            // Get image data and calculate average luminance for this area
+            const imageData = tempCtx.getImageData(0, 0, sampleSize, sampleSize);
+            const data = imageData.data;
+            
+            let areaLuminance = 0;
+            let areaPixelCount = 0;
+            
+            // Calculate luminance for each pixel (sample every 4th pixel)
+            for (let i = 0; i < data.length; i += 16) {
+              const r = data[i];
+              const g = data[i + 1];
+              const b = data[i + 2];
+              // Relative luminance formula (ITU-R BT.709)
+              const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+              areaLuminance += luminance;
+              areaPixelCount++;
+            }
+            
+            if (areaPixelCount > 0) {
+              totalLuminance += areaLuminance / areaPixelCount;
+              totalSamples++;
+            }
+          }
+          
+          const avgLuminance = totalLuminance / totalSamples;
+          // Use hysteresis to prevent rapid switching
+          // Only switch to dark mode (black circles) when background is very light (white/very light gray)
+          // Threshold: >85% for light (to switch to dark mode), <80% for dark (to switch back to light mode)
+          const threshold = isBackgroundLight ? 0.80 : 0.85;
+          isBackgroundLight = avgLuminance > threshold;
+          
+          stream.getTracks().forEach(track => track.stop());
+          isCheckingBackground = false;
+          resolve();
+        }, 100);
+      };
+    });
+  } catch (error) {
+    console.error('Error checking background color:', error);
+    // Default to dark if check fails
+    isBackgroundLight = false;
+    isCheckingBackground = false;
+  }
+}
+
+// Initialize circle button when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initCircleButton);
+} else {
+  initCircleButton();
+}
 
 // Initial draw
 draw();

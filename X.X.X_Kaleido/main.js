@@ -21,6 +21,7 @@ function createWindow() {
     x: x, // Start at display origin (usually 0, 0)
     y: y, // Start at display origin to cover menu bar
     transparent: true,
+    backgroundColor: '#00000000',
     frame: false,
     fullscreen: false,
     resizable: false, // Prevent resizing
