@@ -63,6 +63,10 @@ let backgroundFadeOpacity = 0; // Background fade-in opacity (0 to 1)
 let isBackgroundFading = false; // Track if background is currently fading in
 let backgroundFadeStartTime = 0;
 let backgroundFadeDuration = 500; // Fade duration in milliseconds
+let screenshotHandlers = null; // Store screenshot event handlers for cleanup
+let savedCanvasScale = null; // Saved canvas scale when overlay is closed
+let savedCanvasTranslateX = null; // Saved canvas translate X when overlay is closed
+let savedCanvasTranslateY = null; // Saved canvas translate Y when overlay is closed
 
 // Canvas setup
 function setupCanvas() {
@@ -148,15 +152,27 @@ function toggleOverlay() {
   isOverlayActive = !isOverlayActive;
   
   if (isOverlayActive) {
+    // Hide selection box when overlay becomes active (in case it's still visible)
+    selectionBox.style.display = 'none';
+    selectionBox.style.width = '0px';
+    selectionBox.style.height = '0px';
+    
     overlayContainer.classList.add('active');
     ipcRenderer.send('set-ignore-mouse-events', false);
     // Ensure canvas is properly sized
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    // Reset zoom and position to defaults when opening overlay
-    canvasScale = 0.5; // Further out zoom
-    canvasTranslateX = 0;
-    canvasTranslateY = 0;
+    // Restore saved canvas position, or use defaults if first time opening
+    if (savedCanvasScale !== null && savedCanvasTranslateX !== null && savedCanvasTranslateY !== null) {
+      canvasScale = savedCanvasScale;
+      canvasTranslateX = savedCanvasTranslateX;
+      canvasTranslateY = savedCanvasTranslateY;
+    } else {
+      // First time opening - use defaults
+      canvasScale = 0.5; // Further out zoom
+      canvasTranslateX = 0;
+      canvasTranslateY = 0;
+    }
     
     // Set custom cursor when canvas is visible
     canvas.style.cursor = createCustomCursor();
@@ -185,6 +201,43 @@ function toggleOverlay() {
       });
     }
   } else {
+    // Exit reflection mode if active (without animation since we're closing)
+    if (isReflectionMode) {
+      // Get the image that was in reflection mode
+      const reflectionImg = reflectionImageIndex >= 0 && reflectionImageIndex < images.length 
+        ? images[reflectionImageIndex] 
+        : null;
+      
+      // If the image has a finalPosition (from screenshot overlap avoidance), move it there
+      if (reflectionImg && reflectionImg.finalPosition) {
+        reflectionImg.x = reflectionImg.finalPosition.x;
+        reflectionImg.y = reflectionImg.finalPosition.y;
+        reflectionImg.finalPosition = null; // Clear it after moving
+      }
+      
+      // Show all images again when exiting reflection mode
+      images.forEach((img) => {
+        img.hidden = false;
+      });
+      
+      // Exit reflection mode without animation
+      isReflectionMode = false;
+      reflectionImageIndex = -1;
+    }
+    
+    // Show all images when closing overlay (in case any were hidden)
+    images.forEach((img) => {
+      img.hidden = false;
+    });
+    
+    // Deselect any selected image
+    selectedImageIndex = -1;
+    
+    // Save current canvas position before closing
+    savedCanvasScale = canvasScale;
+    savedCanvasTranslateX = canvasTranslateX;
+    savedCanvasTranslateY = canvasTranslateY;
+    
     overlayContainer.classList.remove('active');
     toolbar.classList.remove('visible');
     // Hide reflection button when overlay is closed
@@ -344,15 +397,49 @@ function draw() {
   // Draw images
   if (isReflectionMode && reflectionImageIndex >= 0) {
     // In reflection mode, only draw the reflection image
-    drawImage(images[reflectionImageIndex], reflectionImageIndex === selectedImageIndex);
-  } else {
-    // Normal mode - draw all images
+    const reflectionImg = images[reflectionImageIndex];
+    drawImage(reflectionImg, reflectionImageIndex === selectedImageIndex);
+    
+    // Animate fade-out of other images during reflection mode transition
+    const currentTime = Date.now();
     images.forEach((img, index) => {
-      drawImage(img, index === selectedImageIndex);
+      if (index !== reflectionImageIndex && img.fadeStartTime !== undefined) {
+        const fadeElapsed = currentTime - img.fadeStartTime;
+        const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
+        img.opacity = 1.0 - fadeProgress; // Fade from 1.0 to 0.0
+        if (fadeProgress < 1) {
+          // Continue drawing during fade
+          drawImage(img, false);
+        }
+      }
+    });
+  } else {
+    // Normal mode - draw all images that are not hidden
+    // Animate fade-in if images are fading in
+    const currentTime = Date.now();
+    images.forEach((img, index) => {
+      if (!img.hidden) {
+        // Update opacity if fading in
+        if (img.fadeStartTime !== undefined) {
+          const fadeElapsed = currentTime - img.fadeStartTime;
+          const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
+          img.opacity = fadeProgress; // Fade from 0.0 to 1.0
+          if (fadeProgress >= 1) {
+            img.opacity = 1.0;
+            img.fadeStartTime = undefined; // Clear fade animation
+          }
+        }
+        drawImage(img, index === selectedImageIndex);
+      }
     });
   }
 
   ctx.restore();
+
+  // Draw red control panel in reflection mode (after transform is restored for screen coordinates)
+  if (isReflectionMode && reflectionImageIndex >= 0) {
+    drawReflectionControlPanel(images[reflectionImageIndex]);
+  }
 
   // Draw reflection button if an image is selected (after transform is restored for fixed size)
   if (selectedImageIndex >= 0 && selectedImageIndex < images.length) {
@@ -394,15 +481,20 @@ function drawGrid() {
 function drawImage(img, isSelected) {
   if (!img.element) return;
 
+  // Use image opacity (defaults to 1.0 if not set)
+  const opacity = img.opacity !== undefined ? img.opacity : 1.0;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  
   ctx.drawImage(img.element, img.x, img.y, img.width, img.height);
+  
+  ctx.restore();
 
   if (isSelected) {
     // Draw selection border
     ctx.strokeStyle = '#3b82f6';
     ctx.lineWidth = 2 / canvasScale;
-    ctx.setLineDash([5 / canvasScale, 5 / canvasScale]);
     ctx.strokeRect(img.x, img.y, img.width, img.height);
-    ctx.setLineDash([]);
 
     // Draw resize handles
     const handleSize = 8 / canvasScale;
@@ -418,6 +510,31 @@ function drawImage(img, isSelected) {
       ctx.fillRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize);
     });
   }
+}
+
+// Draw red control panel in reflection mode
+function drawReflectionControlPanel(img) {
+  if (!img || !isReflectionMode) return;
+  
+  // Control panel dimensions (in screen coordinates)
+  const panelWidth = 500; // Fixed 500px width
+  const spacing = 40; // Responsive spacing between image and panel
+  
+  // Get image position and dimensions in screen coordinates
+  const imageTopLeft = canvasToScreen(img.x, img.y);
+  const imageBottomLeft = canvasToScreen(img.x, img.y + img.height);
+  const imageTopRight = canvasToScreen(img.x + img.width, img.y);
+  
+  // Panel height matches image height
+  const panelHeight = imageBottomLeft.y - imageTopLeft.y;
+  
+  // Calculate panel position (to the right of the image, aligned with top)
+  const panelX = imageTopRight.x + spacing;
+  const panelY = imageTopLeft.y; // Align with top of image
+  
+  // Draw red control panel (already in screen coordinates since transform is restored)
+  ctx.fillStyle = '#ef4444'; // Red background
+  ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
 }
 
 // Draw reflection button on canvas (at fixed screen size)
@@ -458,7 +575,8 @@ function drawReflectionButton(img) {
   };
   
   // Draw button background with rounded corners (fixed pixel size)
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  // Red background for "Exit reflection", blue for "Enter reflection" (same as selection frame)
+  ctx.fillStyle = isReflectionMode ? 'rgba(239, 68, 68, 0.95)' : 'rgba(59, 130, 246, 0.95)';
   const cornerRadius = 8; // Fixed pixel corner radius
   const buttonLeft = buttonScreenX - buttonWidth / 2;
   
@@ -482,7 +600,8 @@ function drawReflectionButton(img) {
   ctx.stroke();
   
   // Draw button text
-  ctx.fillStyle = 'oklch(0.145 0 0)';
+  // White text for both buttons
+  ctx.fillStyle = 'rgba(255, 255, 255, 1)';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(buttonText, buttonScreenX, buttonScreenY + buttonHeight / 2);
@@ -493,6 +612,44 @@ function drawReflectionButton(img) {
 // Easing function for smooth animation (ease-in-out)
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// Check if an image is visible in the current viewport
+function isImageVisible(img) {
+  // Convert image bounds to screen coordinates
+  const topLeft = canvasToScreen(img.x, img.y);
+  const bottomRight = canvasToScreen(img.x + img.width, img.y + img.height);
+  
+  // Check if any part of the image is visible
+  return !(
+    bottomRight.x < 0 ||
+    topLeft.x > canvas.width ||
+    bottomRight.y < 0 ||
+    topLeft.y > canvas.height
+  );
+}
+
+// Immediately position canvas to show a specific image (no animation)
+function positionCanvasToShowImage(img) {
+  // Calculate image center in canvas coordinates
+  const imageCenterX = img.x + img.width / 2;
+  const imageCenterY = img.y + img.height / 2;
+  
+  // Keep current scale (or use a reasonable scale if too zoomed in/out)
+  // This preserves the user's zoom level while centering the new image
+  const targetScale = Math.max(0.3, Math.min(1.0, canvasScale));
+  
+  // Calculate target position to center image in viewport
+  const targetTranslateX = canvas.width / 2 - imageCenterX * targetScale;
+  const targetTranslateY = canvas.height / 2 - imageCenterY * targetScale;
+  
+  // Immediately set canvas position (no animation)
+  canvasScale = targetScale;
+  canvasTranslateX = targetTranslateX;
+  canvasTranslateY = targetTranslateY;
+  
+  // Redraw with new position
+  draw();
 }
 
 // Animate canvas transform
@@ -509,10 +666,37 @@ function animateCanvasTransform() {
   canvasTranslateX = animationStartTranslateX + (animationEndTranslateX - animationStartTranslateX) * easedProgress;
   canvasTranslateY = animationStartTranslateY + (animationEndTranslateY - animationStartTranslateY) * easedProgress;
   
+  // Animate image opacity fade during transition
+  if (isReflectionMode && reflectionImageIndex >= 0) {
+    // Fade out other images
+    const currentTime = Date.now();
+    images.forEach((img, index) => {
+      if (index !== reflectionImageIndex && img.fadeStartTime !== undefined) {
+        const fadeElapsed = currentTime - img.fadeStartTime;
+        const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
+        img.opacity = 1.0 - fadeProgress;
+      }
+    });
+  } else if (!isReflectionMode) {
+    // Fade in images when exiting reflection mode
+    const currentTime = Date.now();
+    images.forEach((img) => {
+      if (img.fadeStartTime !== undefined) {
+        const fadeElapsed = currentTime - img.fadeStartTime;
+        const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
+        img.opacity = fadeProgress; // Fade from 0.0 to 1.0
+        if (fadeProgress >= 1) {
+          img.opacity = 1.0;
+          img.fadeStartTime = undefined; // Clear fade animation
+        }
+      }
+    });
+  }
+  
   // Redraw during animation
   draw();
   
-  if (progress < 1) {
+ if (progress < 1) {
     // Continue animation
     requestAnimationFrame(animateCanvasTransform);
   } else {
@@ -523,11 +707,37 @@ function animateCanvasTransform() {
     canvasTranslateX = animationEndTranslateX;
     canvasTranslateY = animationEndTranslateY;
     draw();
+    
+    // Continue fade-in animation if images are still fading in (after exiting reflection mode)
+    if (!isReflectionMode) {
+      const checkFade = () => {
+        let stillFading = false;
+        const currentTime = Date.now();
+        images.forEach((img) => {
+          if (img.fadeStartTime !== undefined) {
+            const fadeElapsed = currentTime - img.fadeStartTime;
+            const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
+            img.opacity = fadeProgress;
+            if (fadeProgress < 1) {
+              stillFading = true;
+            } else {
+              img.opacity = 1.0;
+              img.fadeStartTime = undefined;
+            }
+          }
+        });
+        if (stillFading) {
+          draw();
+          requestAnimationFrame(checkFade);
+        }
+      };
+      checkFade();
+    }
   }
 }
 
 // Enter reflection mode
-function enterReflectionMode() {
+function enterReflectionMode(fromScreenshot = false) {
   if (selectedImageIndex < 0 || selectedImageIndex >= images.length) return;
   
   // Store current canvas state
@@ -537,17 +747,33 @@ function enterReflectionMode() {
   
   const img = images[selectedImageIndex];
   
-  // Calculate zoom to fit image in viewport (with 90% padding)
-  const scaleX = (canvas.width * 0.9) / img.width;
+  // Control panel dimensions (in screen coordinates)
+  const panelWidth = 500; // Fixed 500px width
+  const spacing = 40; // Responsive spacing between image and panel
+  
+  // Calculate zoom to fit image + control panel in viewport (with 90% padding)
+  // Account for control panel width and spacing
+  const availableWidth = (canvas.width * 0.9) - panelWidth - spacing;
+  const scaleX = availableWidth / img.width;
   const scaleY = (canvas.height * 0.9) / img.height;
   const fitScale = Math.min(scaleX, scaleY);
+  
+  // Calculate total width of image + spacing + panel in screen coordinates
+  const imageScreenWidth = img.width * fitScale;
+  const totalGroupWidth = imageScreenWidth + spacing + panelWidth;
   
   // Calculate image center in canvas coordinates
   const imageCenterX = img.x + img.width / 2;
   const imageCenterY = img.y + img.height / 2;
   
-  // Calculate target position (center image in viewport)
-  const targetTranslateX = canvas.width / 2 - imageCenterX * fitScale;
+  // Calculate target position to center the group (image + spacing + panel) horizontally
+  // The group should be centered, so the left edge of the image in screen coordinates should be at:
+  // (canvas.width - totalGroupWidth) / 2
+  const groupLeftScreenX = (canvas.width - totalGroupWidth) / 2;
+  
+  // Convert to canvas coordinates: screenX = canvasX * scale + translateX
+  // So: translateX = screenX - canvasX * scale
+  const targetTranslateX = groupLeftScreenX - img.x * fitScale;
   const targetTranslateY = canvas.height / 2 - imageCenterY * fitScale;
   
   // Set animation start values (current state)
@@ -563,6 +789,25 @@ function enterReflectionMode() {
   // Set reflection mode state
   isReflectionMode = true;
   reflectionImageIndex = selectedImageIndex;
+  
+  // Handle opacity of other images
+  images.forEach((image, index) => {
+    if (index !== selectedImageIndex) {
+      if (fromScreenshot) {
+        // For screenshots, immediately hide other images (no fade)
+        image.opacity = 0.0;
+        image.fadeStartTime = undefined; // No fade animation
+      } else {
+        // For button click, start fade-out animation
+        image.opacity = 1.0;
+        image.fadeStartTime = Date.now();
+        image.fadeDuration = animationDuration; // Use same duration as canvas animation
+      }
+    } else {
+      // Keep reflection image fully visible
+      image.opacity = 1.0;
+    }
+  });
   
   // Hide toolbar and HTML button (we're drawing on canvas now)
   toolbar.classList.remove('visible');
@@ -580,6 +825,32 @@ function exitReflectionMode() {
   animationStartScale = canvasScale;
   animationStartTranslateX = canvasTranslateX;
   animationStartTranslateY = canvasTranslateY;
+  
+  // Get the image that was in reflection mode
+  const reflectionImg = reflectionImageIndex >= 0 && reflectionImageIndex < images.length 
+    ? images[reflectionImageIndex] 
+    : null;
+  
+  // If the image has a finalPosition (from screenshot overlap avoidance), move it there
+  if (reflectionImg && reflectionImg.finalPosition) {
+    reflectionImg.x = reflectionImg.finalPosition.x;
+    reflectionImg.y = reflectionImg.finalPosition.y;
+    reflectionImg.finalPosition = null; // Clear it after moving
+  }
+  
+  // Fade in all images when exiting reflection mode
+  images.forEach((img, index) => {
+    img.hidden = false;
+    if (index !== reflectionImageIndex) {
+      // Start fade-in animation
+      img.opacity = 0.0;
+      img.fadeStartTime = Date.now();
+      img.fadeDuration = animationDuration;
+    } else {
+      // Keep reflection image fully visible
+      img.opacity = 1.0;
+    }
+  });
   
   // Set animation end values (previous state)
   animationEndScale = previousCanvasScale;
@@ -618,63 +889,6 @@ function canvasToScreen(x, y) {
     x: x * canvasScale + canvasTranslateX,
     y: y * canvasScale + canvasTranslateY
   };
-}
-
-// Check if an image is visible in the current viewport
-function isImageVisible(img) {
-  const viewportLeft = -canvasTranslateX / canvasScale;
-  const viewportRight = (-canvasTranslateX + canvas.width) / canvasScale;
-  const viewportTop = -canvasTranslateY / canvasScale;
-  const viewportBottom = (-canvasTranslateY + canvas.height) / canvasScale;
-  
-  const imgRight = img.x + img.width;
-  const imgBottom = img.y + img.height;
-  
-  // Check if image overlaps with viewport (with some padding)
-  const padding = 50 / canvasScale; // 50 pixels padding in screen space
-  return !(
-    imgRight + padding < viewportLeft ||
-    img.x - padding > viewportRight ||
-    imgBottom + padding < viewportTop ||
-    img.y - padding > viewportBottom
-  );
-}
-
-// Pan canvas to show an image (centered or at least visible)
-function panToShowImage(img) {
-  // Don't animate if already animating
-  if (isAnimating) return;
-  
-  // Check if image is already visible
-  if (isImageVisible(img)) {
-    return;
-  }
-  
-  // Calculate image center in canvas coordinates
-  const imageCenterX = img.x + img.width / 2;
-  const imageCenterY = img.y + img.height / 2;
-  
-  // Calculate target transform to center the image in viewport
-  // Formula: screenX = canvasX * scale + translateX
-  // To center: canvas.width/2 = imageCenterX * scale + translateX
-  // So: translateX = canvas.width/2 - imageCenterX * scale
-  const targetTranslateX = canvas.width / 2 - imageCenterX * canvasScale;
-  const targetTranslateY = canvas.height / 2 - imageCenterY * canvasScale;
-  
-  // Set animation start values (current state)
-  animationStartScale = canvasScale;
-  animationStartTranslateX = canvasTranslateX;
-  animationStartTranslateY = canvasTranslateY;
-  
-  // Set animation end values (target state)
-  animationEndScale = canvasScale; // Keep same scale
-  animationEndTranslateX = targetTranslateX;
-  animationEndTranslateY = targetTranslateY;
-  
-  // Start animation
-  isAnimating = true;
-  animationStartTime = Date.now();
-  animateCanvasTransform();
 }
 
 // Handle selection changes
@@ -1106,29 +1320,38 @@ function startScreenshotMode() {
       if (backgroundCapturePromise) {
         await backgroundCapturePromise;
       }
-      // Hide selection box before capturing screenshot to avoid capturing it
-      selectionBox.style.display = 'none';
-      // Small delay to ensure the box is hidden before capture
+      // Keep selection box visible - it will be hidden right before screenshot capture
+      // Small delay before capture
       await new Promise(resolve => setTimeout(resolve, 50));
       await captureScreenshot(rect);
+    } else {
+      // If selection was too small, hide selection box and end screenshot mode
+      selectionBox.style.display = 'none';
+      selectionBox.style.width = '0px';
+      selectionBox.style.height = '0px';
+      
+      screenshotOverlay.classList.remove('active');
+      screenshotIndicator.classList.remove('visible');
+      isScreenshotMode = false;
+      screenshotOverlay.removeEventListener('mousedown', handleMouseDown);
+      screenshotOverlay.removeEventListener('mousemove', handleMouseMove);
+      screenshotOverlay.removeEventListener('mouseup', handleMouseUp);
+      
+      // Clear stored handlers
+      screenshotHandlers = null;
     }
-
-    // Hide selection box when screenshot mode ends (if not already hidden)
-    selectionBox.style.display = 'none';
-    selectionBox.style.width = '0px';
-    selectionBox.style.height = '0px';
-    
-    screenshotOverlay.classList.remove('active');
-    screenshotIndicator.classList.remove('visible');
-    isScreenshotMode = false;
-    screenshotOverlay.removeEventListener('mousedown', handleMouseDown);
-    screenshotOverlay.removeEventListener('mousemove', handleMouseMove);
-    screenshotOverlay.removeEventListener('mouseup', handleMouseUp);
   };
 
   screenshotOverlay.addEventListener('mousedown', handleMouseDown);
   screenshotOverlay.addEventListener('mousemove', handleMouseMove);
   screenshotOverlay.addEventListener('mouseup', handleMouseUp);
+  
+  // Store handlers for cleanup
+  screenshotHandlers = {
+    mousedown: handleMouseDown,
+    mousemove: handleMouseMove,
+    mouseup: handleMouseUp
+  };
 }
 
 // Capture screenshot
@@ -1159,39 +1382,62 @@ async function captureScreenshot(rect) {
     await new Promise((resolve) => {
       video.onloadedmetadata = () => {
         setTimeout(() => {
-          const scaleX = video.videoWidth / window.innerWidth;
-          const scaleY = video.videoHeight / window.innerHeight;
+          // Hide selection box right before capturing screenshot to avoid capturing it
+          selectionBox.style.display = 'none';
           
-          const outputWidth = rect.width * scaleX;
-          const outputHeight = rect.height * scaleY;
-          
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = outputWidth;
-          tempCanvas.height = outputHeight;
-          const tempCtx = tempCanvas.getContext('2d');
-          
-          tempCtx.drawImage(
-            video,
-            rect.left * scaleX, rect.top * scaleY, outputWidth, outputHeight,
-            0, 0, outputWidth, outputHeight
-          );
-          
-          const dataURL = tempCanvas.toDataURL('image/png');
-          
-          stream.getTracks().forEach(track => track.stop());
-          
-          // Pass the screenshot position to addImageToCanvas
-          // Calculate the center of the screenshot rect in screen coordinates
-          const screenshotCenterX = rect.left + rect.width / 2;
-          const screenshotCenterY = rect.top + rect.height / 2;
-          
-          addImageToCanvas(dataURL, screenshotCenterX, screenshotCenterY);
-          
-          if (!isOverlayActive) {
-            toggleOverlay();
-          }
-          
-          resolve();
+          // Small additional delay to ensure the box is fully hidden before capture
+          setTimeout(() => {
+            const scaleX = video.videoWidth / window.innerWidth;
+            const scaleY = video.videoHeight / window.innerHeight;
+            
+            const outputWidth = rect.width * scaleX;
+            const outputHeight = rect.height * scaleY;
+            
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = outputWidth;
+            tempCanvas.height = outputHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            tempCtx.drawImage(
+              video,
+              rect.left * scaleX, rect.top * scaleY, outputWidth, outputHeight,
+              0, 0, outputWidth, outputHeight
+            );
+            
+            const dataURL = tempCanvas.toDataURL('image/png');
+            
+            stream.getTracks().forEach(track => track.stop());
+            
+            // Pass the screenshot position to addImageToCanvas
+            // Calculate the center of the screenshot rect in screen coordinates
+            const screenshotCenterX = rect.left + rect.width / 2;
+            const screenshotCenterY = rect.top + rect.height / 2;
+            
+            addImageToCanvas(dataURL, screenshotCenterX, screenshotCenterY);
+            
+            // Selection box is already hidden, just reset dimensions
+            selectionBox.style.width = '0px';
+            selectionBox.style.height = '0px';
+            
+            // End screenshot mode and clean up event listeners
+            screenshotOverlay.classList.remove('active');
+            screenshotIndicator.classList.remove('visible');
+            isScreenshotMode = false;
+            
+            // Remove event listeners
+            if (screenshotHandlers) {
+              screenshotOverlay.removeEventListener('mousedown', screenshotHandlers.mousedown);
+              screenshotOverlay.removeEventListener('mousemove', screenshotHandlers.mousemove);
+              screenshotOverlay.removeEventListener('mouseup', screenshotHandlers.mouseup);
+              screenshotHandlers = null;
+            }
+            
+            if (!isOverlayActive) {
+              toggleOverlay();
+            }
+            
+            resolve();
+          }, 50); // Small delay to ensure selection box is hidden
         }, 300);
       };
     });
@@ -1201,7 +1447,7 @@ async function captureScreenshot(rect) {
 }
 
 // Check if two rectangles overlap
-function doRectanglesOverlap(rect1, rect2, padding = 20) {
+function doRectanglesOverlap(rect1, rect2, padding = 60) {
   // Add padding to prevent images from being too close
   return !(
     rect1.x + rect1.width + padding < rect2.x ||
@@ -1240,7 +1486,8 @@ function findNonOverlappingPosition(intendedX, intendedY, imgWidth, imgHeight) {
     return { x: intendedX, y: intendedY };
   }
   
-  // Find the rightmost image
+  // Always place new screenshots to the right of the rightmost image, aligned at the top
+  // This creates a horizontal row of screenshots
   let rightmostX = -Infinity;
   let rightmostImage = null;
   for (const img of images) {
@@ -1251,83 +1498,15 @@ function findNonOverlappingPosition(intendedX, intendedY, imgWidth, imgHeight) {
     }
   }
   
-  // Try placing to the right of the rightmost image
   if (rightmostImage) {
-    const spacing = 20; // Padding between images
+    const spacing = 60; // Padding between images
     const newX = rightmostImage.x + rightmostImage.width + spacing;
     const newY = rightmostImage.y; // Align top edges
     
-    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
-      return { x: newX, y: newY };
-    }
+    return { x: newX, y: newY };
   }
   
-  // If right side doesn't work, try below the rightmost image
-  if (rightmostImage) {
-    const spacing = 20;
-    const newX = rightmostImage.x;
-    const newY = rightmostImage.y + rightmostImage.height + spacing;
-    
-    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
-      return { x: newX, y: newY };
-    }
-  }
-  
-  // If that doesn't work, find the bottommost image
-  let bottommostY = -Infinity;
-  let bottommostImage = null;
-  for (const img of images) {
-    const bottomEdge = img.y + img.height;
-    if (bottomEdge > bottommostY) {
-      bottommostY = bottomEdge;
-      bottommostImage = img;
-    }
-  }
-  
-  // Try placing below the bottommost image
-  if (bottommostImage) {
-    const spacing = 20;
-    const newX = bottommostImage.x;
-    const newY = bottommostImage.y + bottommostImage.height + spacing;
-    
-    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
-      return { x: newX, y: newY };
-    }
-  }
-  
-  // If all else fails, try to the right of the bottommost image
-  if (bottommostImage) {
-    const spacing = 20;
-    const newX = bottommostImage.x + bottommostImage.width + spacing;
-    const newY = bottommostImage.y;
-    
-    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
-      return { x: newX, y: newY };
-    }
-  }
-  
-  // Last resort: place it at a diagonal offset from the rightmost/bottommost point
-  let maxRight = Math.max(...images.map(img => img.x + img.width), 0);
-  let maxBottom = Math.max(...images.map(img => img.y + img.height), 0);
-  const spacing = 20;
-  
-  // Try diagonal position
-  let attempts = 0;
-  while (attempts < 10) {
-    const newX = maxRight + spacing;
-    const newY = maxBottom + spacing;
-    
-    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
-      return { x: newX, y: newY };
-    }
-    
-    // Try with more spacing
-    maxRight += spacing;
-    maxBottom += spacing;
-    attempts++;
-  }
-  
-  // Final fallback: use intended position even if it overlaps
+  // Fallback: use intended position even if it overlaps
   return { x: intendedX, y: intendedY };
 }
 
@@ -1351,8 +1530,19 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null) {
       intendedY = visibleCenterY - img.height / 2;
     }
     
-    // Find a non-overlapping position
-    const position = findNonOverlappingPosition(intendedX, intendedY, img.width, img.height);
+    // For screenshots, use the intended position (where it was taken) for the animation
+    // After exiting reflection mode, it will be repositioned to avoid overlap
+    let position;
+    let useIntendedPositionForScreenshot = false;
+    
+    if (screenX !== null && screenY !== null) {
+      // For screenshots, use intended position initially (for smooth animation)
+      position = { x: intendedX, y: intendedY };
+      useIntendedPositionForScreenshot = true;
+    } else {
+      // For uploaded images, use overlap avoidance
+      position = findNonOverlappingPosition(intendedX, intendedY, img.width, img.height);
+    }
     
     const imageObj = {
       element: img,
@@ -1360,20 +1550,67 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null) {
       y: position.y,
       width: img.width,
       height: img.height,
-      aspectRatio: img.width / img.height // Store original aspect ratio
+      aspectRatio: img.width / img.height, // Store original aspect ratio
+      finalPosition: null // Will store final position after reflection mode (for overlap avoidance)
     };
+    
+    // Calculate final position (for after reflection mode) if this is a screenshot
+    if (useIntendedPositionForScreenshot) {
+      const finalPos = findNonOverlappingPosition(intendedX, intendedY, img.width, img.height);
+      imageObj.finalPosition = finalPos;
+    }
     
     images.push(imageObj);
     selectedImageIndex = images.length - 1;
     handleSelectionChange(selectedImageIndex);
     
-    // Pan to show the new image if it's not visible
-    // Only do this if overlay is active (to avoid panning when overlay is closed)
-    if (isOverlayActive) {
-      panToShowImage(imageObj);
+    // For screenshots, hide all other images for smooth transition to reflection mode
+    if (screenX !== null && screenY !== null) {
+      // Hide all other images and set opacity to 0 immediately
+      images.forEach((img, index) => {
+        if (index !== selectedImageIndex) {
+          img.hidden = true;
+          img.opacity = 0.0; // Immediately invisible
+          img.fadeStartTime = undefined; // No fade animation
+        }
+      });
     }
     
-    draw();
+    // For screenshots, position canvas so image appears at the screen position where it was captured
+    // Then animate directly to reflection mode
+    if (screenX !== null && screenY !== null) {
+      // Position canvas so the image center appears at the screen position where screenshot was taken
+      // Use a reasonable initial scale
+      const initialScale = 0.5;
+      const imageCenterX = imageObj.x + imageObj.width / 2;
+      const imageCenterY = imageObj.y + imageObj.height / 2;
+      
+      // Calculate translate to position image center at screen position
+      // screenX = imageCenterX * scale + translateX
+      // So: translateX = screenX - imageCenterX * scale
+      canvasScale = initialScale;
+      canvasTranslateX = screenX - imageCenterX * initialScale;
+      canvasTranslateY = screenY - imageCenterY * initialScale;
+      
+      draw();
+      
+      // Automatically enter reflection mode after screenshot is added
+      // Small delay to ensure image is fully rendered, then animate to reflection mode
+      setTimeout(() => {
+        if (selectedImageIndex >= 0 && selectedImageIndex < images.length && !isReflectionMode) {
+          enterReflectionMode(true); // Pass true to indicate it's from a screenshot
+        }
+      }, 100);
+    } else {
+      // For uploaded images (not screenshots), use normal positioning
+      if (images.length > 1) {
+        // Immediately position canvas (no animation)
+        positionCanvasToShowImage(imageObj);
+      } else {
+        // First image - just draw normally
+        draw();
+      }
+    }
   };
   img.src = dataURL;
 }
