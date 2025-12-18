@@ -1,0 +1,96 @@
+# Custom Design Instructions: "Clean Minimalist Interactive"
+
+Diese Datei definiert das visuelle Designsystem. 
+Sie darf niemals verändert, erweitert oder automatisch optimiert werden.
+
+## 1. Design-Philosophie
+Das Design ist **minimalistisch, sauber und funktional**. Es verlässt sich auf subtile Graustufen, klare Konturen und bewusste Farbakzente für Interaktionen. Es wirkt "premium" durch feine Rahmen, Weichzeichner-Schatten und sanfte Übergänge.
+
+---
+
+## 2. Typografie
+*   **Font-Family**: System Sans-Serif Stack (`ui-sans-serif`, `system-ui`, `-apple-system`, `BlinkMacSystemFont`, "Segoe UI", ...).
+    *   *Mac*: San Francisco (SF Pro).
+    *   *Windows*: Segoe UI.
+*   **Gewichte**:
+    *   **Regular (400)**: Fließtext.
+    *   **Medium (500)**: Buttons, Labels, Überschriften.
+*   **Größen**:
+    *   `text-sm` (14px): Standard für Buttons und dichte UI-Elemente.
+    *   `text-base` (16px): Standard für Eingabefelder und Text.
+
+---
+
+## 3. Farbpalette (Theming)
+Verwendung von `oklch` und Hex-Werten für eine moderne Farbwiedergabe.
+
+### Basis
+*   **Background**: `#ffffff` (Reinweiß).
+*   **Foreground (Text)**: `oklch(0.145 0 0)` (Fast schwarz, sehr dunkles Grau).
+*   **Muted Backgrounds**: `#f3f3f5` (Sehr helles Grau für Inputs/Hintergründe).
+*   **Border**: `rgba(0, 0, 0, 0.1)` (Subtile, transparente schwarze Linie).
+
+### Interaktion & Akzente
+*   **Primary (Action)**: `#030213` (Tiefschwarz/Blau).
+    *   *Foreground*: `oklch(1 0 0)` (Reinweiß).
+*   **Secondary**: `oklch(0.95 0.0058 264.53)` (Helles Blaugrau).
+*   **Accent (Hover)**: `#e9ebef` (Helles Grau für Hover-States).
+*   **Destructive**: `#d4183d` (Dunkles Rot).
+*   **Selection / Focus**: `oklch(0.623 .214 259.815)` (Vibrantes Blau/Lila, z.B. für Auswahlrahmen).
+
+---
+
+## 4. UI-Komponenten Styling
+
+### Buttons (`Button`)
+*   **Form**: `rounded-md` (ca. 8px Radius).
+*   **Typografie**: `text-sm`, `font-medium`.
+*   **Layout**: `inline-flex`, `items-center`, `justify-center`, `gap-2`.
+*   **Transition**: `transition-all` (alles animiert sanft).
+*   **Focus State**: `focus-visible:ring-ring/50`, `focus-visible:ring-[3px]` (dicker, halb-transparenter Ring).
+*   **Varianten**:
+    *   *Default*: Volle Fläche Primary Color (`bg-primary`, Text `text-primary-foreground`). Hover: `hover:bg-primary/90`.
+    *   *Ghost*: Kein Hintergrund, nur Hover-Effekt (`hover:bg-accent`, `hover:text-accent-foreground`).
+    *   *Outline*: Subtiler Border, weißer Hintergrund (`border bg-background`). Hover: `bg-accent`.
+    *   *Icon Only*: Quadratisch oder flexibel (`size-9` oder `h-9 w-9`).
+
+
+
+### Inputs & Felder
+*   **Basis**: `bg-transparent` oder leichtes Grau (`#f3f3f5`), keine harten schwarzen Rahmen standardmäßig, sondern Fokus auf Content.
+*   **Radius**: Konsistent `rounded-md`.
+
+---
+
+## 5. Selektion 
+*   **Selektions-Status (Selected)**:
+    *   **Rahmen**: `border-2`, `border-dashed` (gestrichelt), Farbe Blau (`#3b82f6` / `blue-500`).
+
+---
+
+## 6. Interaktionen & Animationen
+*   **Hover**:
+    *   Farbauswahl-Buttons skalieren leicht: `hover:scale-110`.
+    *   Bilder/Cards skalieren subtil: `hover:scale-[1.02]`.
+    *   Generelle Dauer: `duration-200`.
+*   **Feedback**: Sofortiges visuelles Feedback durch Hintergrundänderung (`bg-accent`) oder Opacity-Wechsel.
+
+---
+
+## 7. Iconography
+* **Library:** EXCLUSIVELY use `lucide-react`. Do not use `react-icons`, `heroicons` or raw SVGs.
+* **Import Style:** Use named imports.
+    * *Correct:* `import { Home, Settings, User } from 'lucide-react';`
+    * *Incorrect:* `import Home from 'lucide-react/dist/esm/icons/home';`
+* **Styling:**
+    * Size should typically be `16` or `20` depending on the container.
+* **Icon Selection:** Choose icons that are semantically accurate. If an exact match isn't clear, prioritize the most generic, geometric option available in Lucide.
+
+---
+
+## 8. Funktionalitäten
+*   **AI-Funktionen**: Nutze immer Google Gemini als Modell für AI-Funktionalitäten.
+
+
+
+Nutze **Shadows** sparsam aber gezielt für Floating Elements (`shadow-lg`), und nutze **Borders** primär zur subtilen Abgrenzung (`border-gray-200` oder opacity-basiert).
