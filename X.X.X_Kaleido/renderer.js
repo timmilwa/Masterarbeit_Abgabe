@@ -59,6 +59,10 @@ let animationStartTranslateY = 0;
 let animationEndScale = 0.5;
 let animationEndTranslateX = 0;
 let animationEndTranslateY = 0;
+let backgroundFadeOpacity = 0; // Background fade-in opacity (0 to 1)
+let isBackgroundFading = false; // Track if background is currently fading in
+let backgroundFadeStartTime = 0;
+let backgroundFadeDuration = 500; // Fade duration in milliseconds
 
 // Canvas setup
 function setupCanvas() {
@@ -159,6 +163,10 @@ function toggleOverlay() {
     
     // If background is already captured (e.g., from screenshot mode), use it immediately
     if (backgroundImage && backgroundImage.complete) {
+      // Start fade-in animation for existing background
+      backgroundFadeOpacity = 0;
+      isBackgroundFading = true;
+      backgroundFadeStartTime = Date.now();
       // Show toolbar unless in reflection mode
       if (!isReflectionMode) {
         toolbar.classList.add('visible');
@@ -251,6 +259,10 @@ async function captureBackground() {
           backgroundImage.src = tempCanvas.toDataURL('image/png');
           backgroundImage.onload = () => {
             stream.getTracks().forEach(track => track.stop());
+            // Start fade-in animation
+            backgroundFadeOpacity = 0;
+            isBackgroundFading = true;
+            backgroundFadeStartTime = Date.now();
             // Show toolbar only after background image is loaded (unless in reflection mode)
             if (!isReflectionMode) {
               toolbar.classList.add('visible');
@@ -279,7 +291,21 @@ function draw() {
   // Draw background with blur - fully opaque, black and white, light gray tint
   if (backgroundImage) {
     ctx.save();
-    ctx.globalAlpha = 1.0; // Fully opaque (non-transparent)
+    
+    // Update fade-in opacity if fading
+    if (isBackgroundFading) {
+      const currentTime = Date.now();
+      const elapsed = currentTime - backgroundFadeStartTime;
+      const progress = Math.min(elapsed / backgroundFadeDuration, 1);
+      backgroundFadeOpacity = progress;
+      
+      if (progress >= 1) {
+        isBackgroundFading = false;
+        backgroundFadeOpacity = 1;
+      }
+    }
+    
+    ctx.globalAlpha = backgroundFadeOpacity; // Use fade opacity
     // Apply blur and saturation filters
     ctx.filter = `blur(20px) saturate(${backgroundSaturation}%)`;
     // Scale image to fit canvas
@@ -297,10 +323,15 @@ function draw() {
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${backgroundTintOpacity})`;
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${backgroundTintOpacity * backgroundFadeOpacity})`;
     ctx.fillRect(x, y, scaledWidth, scaledHeight);
     
     ctx.restore();
+    
+    // Continue animation if fading
+    if (isBackgroundFading) {
+      requestAnimationFrame(() => draw());
+    }
   }
 
   // Apply transform
@@ -587,6 +618,63 @@ function canvasToScreen(x, y) {
     x: x * canvasScale + canvasTranslateX,
     y: y * canvasScale + canvasTranslateY
   };
+}
+
+// Check if an image is visible in the current viewport
+function isImageVisible(img) {
+  const viewportLeft = -canvasTranslateX / canvasScale;
+  const viewportRight = (-canvasTranslateX + canvas.width) / canvasScale;
+  const viewportTop = -canvasTranslateY / canvasScale;
+  const viewportBottom = (-canvasTranslateY + canvas.height) / canvasScale;
+  
+  const imgRight = img.x + img.width;
+  const imgBottom = img.y + img.height;
+  
+  // Check if image overlaps with viewport (with some padding)
+  const padding = 50 / canvasScale; // 50 pixels padding in screen space
+  return !(
+    imgRight + padding < viewportLeft ||
+    img.x - padding > viewportRight ||
+    imgBottom + padding < viewportTop ||
+    img.y - padding > viewportBottom
+  );
+}
+
+// Pan canvas to show an image (centered or at least visible)
+function panToShowImage(img) {
+  // Don't animate if already animating
+  if (isAnimating) return;
+  
+  // Check if image is already visible
+  if (isImageVisible(img)) {
+    return;
+  }
+  
+  // Calculate image center in canvas coordinates
+  const imageCenterX = img.x + img.width / 2;
+  const imageCenterY = img.y + img.height / 2;
+  
+  // Calculate target transform to center the image in viewport
+  // Formula: screenX = canvasX * scale + translateX
+  // To center: canvas.width/2 = imageCenterX * scale + translateX
+  // So: translateX = canvas.width/2 - imageCenterX * scale
+  const targetTranslateX = canvas.width / 2 - imageCenterX * canvasScale;
+  const targetTranslateY = canvas.height / 2 - imageCenterY * canvasScale;
+  
+  // Set animation start values (current state)
+  animationStartScale = canvasScale;
+  animationStartTranslateX = canvasTranslateX;
+  animationStartTranslateY = canvasTranslateY;
+  
+  // Set animation end values (target state)
+  animationEndScale = canvasScale; // Keep same scale
+  animationEndTranslateX = targetTranslateX;
+  animationEndTranslateY = targetTranslateY;
+  
+  // Start animation
+  isAnimating = true;
+  animationStartTime = Date.now();
+  animateCanvasTransform();
 }
 
 // Handle selection changes
@@ -1092,7 +1180,12 @@ async function captureScreenshot(rect) {
           
           stream.getTracks().forEach(track => track.stop());
           
-          addImageToCanvas(dataURL);
+          // Pass the screenshot position to addImageToCanvas
+          // Calculate the center of the screenshot rect in screen coordinates
+          const screenshotCenterX = rect.left + rect.width / 2;
+          const screenshotCenterY = rect.top + rect.height / 2;
+          
+          addImageToCanvas(dataURL, screenshotCenterX, screenshotCenterY);
           
           if (!isOverlayActive) {
             toggleOverlay();
@@ -1107,18 +1200,164 @@ async function captureScreenshot(rect) {
   }
 }
 
+// Check if two rectangles overlap
+function doRectanglesOverlap(rect1, rect2, padding = 20) {
+  // Add padding to prevent images from being too close
+  return !(
+    rect1.x + rect1.width + padding < rect2.x ||
+    rect2.x + rect2.width + padding < rect1.x ||
+    rect1.y + rect1.height + padding < rect2.y ||
+    rect2.y + rect2.height + padding < rect1.y
+  );
+}
+
+// Check if a position would overlap with any existing image
+function wouldOverlap(x, y, width, height) {
+  const newRect = { x, y, width, height };
+  for (const existingImg of images) {
+    const existingRect = {
+      x: existingImg.x,
+      y: existingImg.y,
+      width: existingImg.width,
+      height: existingImg.height
+    };
+    if (doRectanglesOverlap(newRect, existingRect)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Find a non-overlapping position for a new image
+function findNonOverlappingPosition(intendedX, intendedY, imgWidth, imgHeight) {
+  // If no existing images, use intended position
+  if (images.length === 0) {
+    return { x: intendedX, y: intendedY };
+  }
+  
+  // Check if intended position is free
+  if (!wouldOverlap(intendedX, intendedY, imgWidth, imgHeight)) {
+    return { x: intendedX, y: intendedY };
+  }
+  
+  // Find the rightmost image
+  let rightmostX = -Infinity;
+  let rightmostImage = null;
+  for (const img of images) {
+    const rightEdge = img.x + img.width;
+    if (rightEdge > rightmostX) {
+      rightmostX = rightEdge;
+      rightmostImage = img;
+    }
+  }
+  
+  // Try placing to the right of the rightmost image
+  if (rightmostImage) {
+    const spacing = 20; // Padding between images
+    const newX = rightmostImage.x + rightmostImage.width + spacing;
+    const newY = rightmostImage.y; // Align top edges
+    
+    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
+      return { x: newX, y: newY };
+    }
+  }
+  
+  // If right side doesn't work, try below the rightmost image
+  if (rightmostImage) {
+    const spacing = 20;
+    const newX = rightmostImage.x;
+    const newY = rightmostImage.y + rightmostImage.height + spacing;
+    
+    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
+      return { x: newX, y: newY };
+    }
+  }
+  
+  // If that doesn't work, find the bottommost image
+  let bottommostY = -Infinity;
+  let bottommostImage = null;
+  for (const img of images) {
+    const bottomEdge = img.y + img.height;
+    if (bottomEdge > bottommostY) {
+      bottommostY = bottomEdge;
+      bottommostImage = img;
+    }
+  }
+  
+  // Try placing below the bottommost image
+  if (bottommostImage) {
+    const spacing = 20;
+    const newX = bottommostImage.x;
+    const newY = bottommostImage.y + bottommostImage.height + spacing;
+    
+    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
+      return { x: newX, y: newY };
+    }
+  }
+  
+  // If all else fails, try to the right of the bottommost image
+  if (bottommostImage) {
+    const spacing = 20;
+    const newX = bottommostImage.x + bottommostImage.width + spacing;
+    const newY = bottommostImage.y;
+    
+    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
+      return { x: newX, y: newY };
+    }
+  }
+  
+  // Last resort: place it at a diagonal offset from the rightmost/bottommost point
+  let maxRight = Math.max(...images.map(img => img.x + img.width), 0);
+  let maxBottom = Math.max(...images.map(img => img.y + img.height), 0);
+  const spacing = 20;
+  
+  // Try diagonal position
+  let attempts = 0;
+  while (attempts < 10) {
+    const newX = maxRight + spacing;
+    const newY = maxBottom + spacing;
+    
+    if (!wouldOverlap(newX, newY, imgWidth, imgHeight)) {
+      return { x: newX, y: newY };
+    }
+    
+    // Try with more spacing
+    maxRight += spacing;
+    maxBottom += spacing;
+    attempts++;
+  }
+  
+  // Final fallback: use intended position even if it overlaps
+  return { x: intendedX, y: intendedY };
+}
+
 // Add image to canvas
-function addImageToCanvas(dataURL) {
+function addImageToCanvas(dataURL, screenX = null, screenY = null) {
   const img = new Image();
   img.onload = () => {
-    // Calculate center position of visible canvas area
-    const visibleCenterX = -canvasTranslateX / canvasScale + (canvas.width / canvasScale) / 2;
-    const visibleCenterY = -canvasTranslateY / canvasScale + (canvas.height / canvasScale) / 2;
+    let intendedX, intendedY;
+    
+    if (screenX !== null && screenY !== null) {
+      // Convert screen coordinates to canvas coordinates
+      // This places the image at the same position in the viewport where it was captured
+      const canvasPos = screenToCanvas(screenX, screenY);
+      intendedX = canvasPos.x - img.width / 2;
+      intendedY = canvasPos.y - img.height / 2;
+    } else {
+      // Fallback: Calculate center position of visible canvas area (for uploaded images)
+      const visibleCenterX = -canvasTranslateX / canvasScale + (canvas.width / canvasScale) / 2;
+      const visibleCenterY = -canvasTranslateY / canvasScale + (canvas.height / canvasScale) / 2;
+      intendedX = visibleCenterX - img.width / 2;
+      intendedY = visibleCenterY - img.height / 2;
+    }
+    
+    // Find a non-overlapping position
+    const position = findNonOverlappingPosition(intendedX, intendedY, img.width, img.height);
     
     const imageObj = {
       element: img,
-      x: visibleCenterX - img.width / 2,
-      y: visibleCenterY - img.height / 2,
+      x: position.x,
+      y: position.y,
       width: img.width,
       height: img.height,
       aspectRatio: img.width / img.height // Store original aspect ratio
@@ -1127,6 +1366,13 @@ function addImageToCanvas(dataURL) {
     images.push(imageObj);
     selectedImageIndex = images.length - 1;
     handleSelectionChange(selectedImageIndex);
+    
+    // Pan to show the new image if it's not visible
+    // Only do this if overlay is active (to avoid panning when overlay is closed)
+    if (isOverlayActive) {
+      panToShowImage(imageObj);
+    }
+    
     draw();
   };
   img.src = dataURL;
