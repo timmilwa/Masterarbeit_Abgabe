@@ -123,27 +123,6 @@
             pointer-events: none;
         }
 
-        /* Screenshot Mode Indicator */
-        #screenshot-indicator {
-            display: none;
-            position: fixed;
-            bottom: 80px;
-            right: 20px;
-            width: 48px;
-            height: 48px;
-            border-radius: 8px;
-            background-color: #3b82f6;
-            color: white;
-            border: 1px solid white;
-            align-items: center;
-            justify-content: center;
-            z-index: 3001;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-
-        #screenshot-indicator.visible {
-            display: inline-flex;
-        }
 
         /* Hidden file input */
         #file-input {
@@ -296,7 +275,7 @@
             width: 120px;
             height: 120px;
             cursor: pointer !important;
-            z-index: 2000;
+            z-index: 2002;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -316,11 +295,11 @@
             position: fixed;
             right: 40px;
             padding: 14px 16px;
-            background: rgba(240, 240, 240, 0.7);
+            background: rgba(255, 255, 255, 0.25);
             border: 1px solid rgba(255, 255, 255, 0.4);
             border-radius: 12px;
             cursor: pointer;
-            z-index: 2001;
+            z-index: 2002;
             box-shadow: 
                 0 8px 32px rgba(0, 0, 0, 0.12),
                 0 0 0 1px rgba(255, 255, 255, 0.1) inset,
@@ -333,14 +312,47 @@
             justify-content: flex-end;
             flex-direction: row;
             white-space: nowrap;
+            opacity: 0;
+            transform: scale(0.9);
+            will-change: transform, opacity, bottom; /* Optimize for animation */
+        }
+
+        .action-button.animating {
+            bottom: 60px !important; /* Start position - stacked near circle button */
         }
 
         .action-button.visible {
             display: flex;
+            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+
+        @keyframes actionButtonUnfold {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes actionButtonFold {
+            from {
+                opacity: 1;
+                transform: scale(1);
+            }
+            to {
+                opacity: 0;
+                transform: scale(0.9);
+            }
         }
 
         .action-button:hover {
-            background: rgba(250, 250, 250, 0.8);
+            background: rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(25px) saturate(180%);
+            -webkit-backdrop-filter: blur(25px) saturate(180%);
             box-shadow: 
                 0 8px 32px rgba(0, 0, 0, 0.15),
                 0 0 0 1px rgba(255, 255, 255, 0.2) inset,
@@ -355,12 +367,96 @@
             bottom: 300px;
         }
 
+        #action-settings-button.visible {
+            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+                       actionButtonSlideUp1 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        #action-settings-button:not(.visible) {
+            animation: actionButtonFold 0.3s cubic-bezier(0.4, 0, 1, 1) forwards,
+                       actionButtonSlideDown1 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+        }
+
         #action-open-canvas-button {
             bottom: 220px;
         }
 
+        #action-open-canvas-button.visible {
+            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+                       actionButtonSlideUp2 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        #action-open-canvas-button:not(.visible) {
+            animation: actionButtonFold 0.3s cubic-bezier(0.4, 0, 1, 1) forwards,
+                       actionButtonSlideDown2 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+        }
+
         #action-capture-artefact-button {
             bottom: 140px;
+        }
+
+        #action-capture-artefact-button.visible {
+            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+                       actionButtonSlideUp3 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        #action-capture-artefact-button:not(.visible) {
+            animation: actionButtonFold 0.3s cubic-bezier(0.4, 0, 1, 1) forwards,
+                       actionButtonSlideDown3 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+        }
+
+        @keyframes actionButtonSlideUp1 {
+            from {
+                bottom: 60px;
+            }
+            to {
+                bottom: 300px;
+            }
+        }
+
+        @keyframes actionButtonSlideUp2 {
+            from {
+                bottom: 60px;
+            }
+            to {
+                bottom: 220px;
+            }
+        }
+
+        @keyframes actionButtonSlideUp3 {
+            from {
+                bottom: 60px;
+            }
+            to {
+                bottom: 140px;
+            }
+        }
+
+        @keyframes actionButtonSlideDown1 {
+            from {
+                bottom: 300px;
+            }
+            to {
+                bottom: 60px;
+            }
+        }
+
+        @keyframes actionButtonSlideDown2 {
+            from {
+                bottom: 220px;
+            }
+            to {
+                bottom: 60px;
+            }
+        }
+
+        @keyframes actionButtonSlideDown3 {
+            from {
+                bottom: 140px;
+            }
+            to {
+                bottom: 60px;
+            }
         }
 
         .action-button-label {
@@ -428,15 +524,6 @@
     <!-- Screenshot Selection Overlay -->
     <div id="screenshot-overlay">
         <div id="selection-box"></div>
-    </div>
-
-    <!-- Screenshot Mode Indicator -->
-    <div id="screenshot-indicator" title="Screenshot Mode Active">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <circle cx="8.5" cy="8.5" r="1.5"></circle>
-            <polyline points="21 15 16 10 5 21"></polyline>
-        </svg>
     </div>
 
     <!-- Hidden file input -->

@@ -7,7 +7,6 @@ const ctx = canvas.getContext('2d');
 const toolbar = document.getElementById('toolbar');
 const screenshotOverlay = document.getElementById('screenshot-overlay');
 const selectionBox = document.getElementById('selection-box');
-const screenshotIndicator = document.getElementById('screenshot-indicator');
 const fileInput = document.getElementById('file-input');
 const selectTool = document.getElementById('select-tool');
 const uploadTool = document.getElementById('upload-tool');
@@ -208,6 +207,25 @@ function toggleOverlay() {
     // Set custom cursor when canvas is visible
     canvas.style.cursor = createCustomCursor();
     
+    // Collect circles when overlay opens (show X icon with all circles on top of each other)
+    if (!isCirclesCollected) {
+      isCirclesCollected = true;
+      // Start rotation animation to X icon
+      startIconRotation = currentIconRotation;
+      iconRotationStartTime = Date.now();
+      targetIconRotation = 0; // X icon when collected
+      // Store current circle positions as starting point for animation
+      collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+      // Store actual center as target position
+      const centerX = circleButtonCanvas.width / 2;
+      const centerY = circleButtonCanvas.height / 2;
+      convergedCenterX = centerX;
+      convergedCenterY = centerY;
+      // Animate to collected state
+      hoverAnimationStartTime = Date.now();
+      hoverAnimationProgress = 0; // Start from 0 to animate to 1
+    }
+    
     // If background is already captured (e.g., from screenshot mode), use it immediately
     if (backgroundImage && backgroundImage.complete) {
       // Start fade-in animation for existing background
@@ -302,10 +320,30 @@ function toggleOverlay() {
 function toggleActionButtons() {
   const isVisible = actionSettingsButton.classList.contains('visible');
   if (isVisible) {
-    // Hide buttons
+    // Hide buttons with animation (fold back down)
+    // Remove in reverse order (top to bottom) for smooth fold
     actionSettingsButton.classList.remove('visible');
-    actionOpenCanvasButton.classList.remove('visible');
-    actionCaptureArtefactButton.classList.remove('visible');
+    
+    setTimeout(() => {
+      actionOpenCanvasButton.classList.remove('visible');
+    }, 50);
+    
+    setTimeout(() => {
+      actionCaptureArtefactButton.classList.remove('visible');
+    }, 100);
+    
+    // Wait for animation to complete before hiding
+    setTimeout(() => {
+      if (!actionSettingsButton.classList.contains('visible')) {
+        actionSettingsButton.style.display = 'none';
+        actionOpenCanvasButton.style.display = 'none';
+        actionCaptureArtefactButton.style.display = 'none';
+        // Reset bottom positions for next time
+        actionSettingsButton.style.bottom = '';
+        actionOpenCanvasButton.style.bottom = '';
+        actionCaptureArtefactButton.style.bottom = '';
+      }
+    }, 400); // Match animation duration
     
     // Uncollect circles (restore normal state)
     if (isCirclesCollected) {
@@ -326,10 +364,48 @@ function toggleActionButtons() {
       }
     }
   } else {
-    // Show buttons
-    actionSettingsButton.classList.add('visible');
-    actionOpenCanvasButton.classList.add('visible');
-    actionCaptureArtefactButton.classList.add('visible');
+    // Show buttons with staggered animation
+    // Remove any existing animation classes first
+    actionSettingsButton.classList.remove('visible');
+    actionOpenCanvasButton.classList.remove('visible');
+    actionCaptureArtefactButton.classList.remove('visible');
+    
+    // Force reflow to reset animation
+    void actionSettingsButton.offsetHeight;
+    
+    // Reset display and initial position before adding visible class
+    // All buttons start at the same stacked position (60px from bottom)
+    actionSettingsButton.style.display = 'flex';
+    actionOpenCanvasButton.style.display = 'flex';
+    actionCaptureArtefactButton.style.display = 'flex';
+    
+    // Add animating class to set initial position
+    actionSettingsButton.classList.add('animating');
+    actionOpenCanvasButton.classList.add('animating');
+    actionCaptureArtefactButton.classList.add('animating');
+    
+    // Use requestAnimationFrame to ensure styles are applied
+    requestAnimationFrame(() => {
+      // Force reflow
+      void actionSettingsButton.offsetHeight;
+      
+      // Remove animating class and add visible class with staggered delays
+      // Start from bottom (capture artefact) and unfold upward
+      setTimeout(() => {
+        actionCaptureArtefactButton.classList.remove('animating');
+        actionCaptureArtefactButton.classList.add('visible');
+      }, 0);
+      
+      setTimeout(() => {
+        actionOpenCanvasButton.classList.remove('animating');
+        actionOpenCanvasButton.classList.add('visible');
+      }, 80); // 80ms delay for second button
+      
+      setTimeout(() => {
+        actionSettingsButton.classList.remove('animating');
+        actionSettingsButton.classList.add('visible');
+      }, 160); // 160ms delay for top button
+    });
     
     // Collect circles (show X state)
     if (!isCirclesCollected) {
@@ -1360,12 +1436,58 @@ ipcRenderer.on('toggle-screenshot', () => {
   startScreenshotMode();
 });
 
+// End screenshot mode
+function endScreenshotMode() {
+  screenshotOverlay.classList.remove('active');
+  isScreenshotMode = false;
+  
+  // Uncollect circles when screenshot mode ends
+  if (isCirclesCollected) {
+    isCirclesCollected = false;
+    // Start rotation animation back to plus
+    startIconRotation = currentIconRotation;
+    iconRotationStartTime = Date.now();
+    targetIconRotation = Math.PI / 4; // Plus icon when not collected
+    // Animate back to moving state
+    hoverAnimationStartTime = Date.now();
+    hoverAnimationProgress = 1; // Start from 1 to animate to 0
+  }
+  
+  // Re-enable click-through if overlay is not active
+  if (!isOverlayActive) {
+    if (!isMouseOverUI(lastMouseX, lastMouseY)) {
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+    }
+  }
+}
+
 // Screenshot mode
 function startScreenshotMode() {
   isScreenshotMode = true;
   screenshotOverlay.classList.add('active');
-  screenshotIndicator.classList.add('visible');
   ipcRenderer.send('set-ignore-mouse-events', false);
+  
+  // Collect circles when screenshot mode starts (show X icon with all circles on top of each other)
+  if (!isCirclesCollected) {
+    isCirclesCollected = true;
+    // Start rotation animation to X icon
+    startIconRotation = currentIconRotation;
+    iconRotationStartTime = Date.now();
+    targetIconRotation = 0; // X icon when collected
+    // Store current circle positions as starting point for animation
+    collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+    // Store actual center as target position
+    const centerX = circleButtonCanvas.width / 2;
+    const centerY = circleButtonCanvas.height / 2;
+    convergedCenterX = centerX;
+    convergedCenterY = centerY;
+    // Initialize mouse tracking for sticky behavior
+    targetMouseX = centerX;
+    targetMouseY = centerY;
+    // Animate to collected state
+    hoverAnimationStartTime = Date.now();
+    hoverAnimationProgress = 0; // Start from 0 to animate to 1
+  }
   
   // Reset selection box to ensure it's hidden when starting a new screenshot
   selectionBox.style.display = 'none';
@@ -1430,9 +1552,7 @@ function startScreenshotMode() {
       selectionBox.style.width = '0px';
       selectionBox.style.height = '0px';
       
-      screenshotOverlay.classList.remove('active');
-      screenshotIndicator.classList.remove('visible');
-      isScreenshotMode = false;
+      endScreenshotMode();
       screenshotOverlay.removeEventListener('mousedown', handleMouseDown);
       screenshotOverlay.removeEventListener('mousemove', handleMouseMove);
       screenshotOverlay.removeEventListener('mouseup', handleMouseUp);
@@ -1520,9 +1640,7 @@ async function captureScreenshot(rect) {
             selectionBox.style.height = '0px';
             
             // End screenshot mode and clean up event listeners
-            screenshotOverlay.classList.remove('active');
-            screenshotIndicator.classList.remove('visible');
-            isScreenshotMode = false;
+            endScreenshotMode();
             
             // Remove event listeners
             if (screenshotHandlers) {
@@ -1752,9 +1870,29 @@ settingsButton.addEventListener('click', (e) => {
 
 // Helper function to hide buttons and uncollect circles
 function hideActionButtons() {
+  // Remove visible class to trigger fold animation (in reverse order)
   actionSettingsButton.classList.remove('visible');
-  actionOpenCanvasButton.classList.remove('visible');
-  actionCaptureArtefactButton.classList.remove('visible');
+  
+  setTimeout(() => {
+    actionOpenCanvasButton.classList.remove('visible');
+  }, 50);
+  
+  setTimeout(() => {
+    actionCaptureArtefactButton.classList.remove('visible');
+  }, 100);
+  
+  // Wait for animation to complete before hiding
+  setTimeout(() => {
+    if (!actionSettingsButton.classList.contains('visible')) {
+      actionSettingsButton.style.display = 'none';
+      actionOpenCanvasButton.style.display = 'none';
+      actionCaptureArtefactButton.style.display = 'none';
+      // Reset bottom positions for next time
+      actionSettingsButton.style.bottom = '';
+      actionOpenCanvasButton.style.bottom = '';
+      actionCaptureArtefactButton.style.bottom = '';
+    }
+  }, 400); // Match animation duration
   
   if (isCirclesCollected) {
     isCirclesCollected = false;
@@ -2084,9 +2222,10 @@ function initCircleButton() {
   circleButton.addEventListener('mouseenter', () => {
     isCircleButtonHovered = true;
     hoverAnimationStartTime = Date.now();
-    // Set pointer cursor
+    // Set pointer cursor (always, including in screenshot mode)
     circleButton.style.cursor = 'pointer';
     circleButtonCanvas.style.cursor = 'pointer';
+    document.body.style.cursor = 'pointer';
     // Store current pattern positions for smooth return animation
     storedPatternPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
     if (!isOverlayActive && !isScreenshotMode) {
@@ -2096,6 +2235,15 @@ function initCircleButton() {
   
   circleButton.addEventListener('mouseleave', () => {
     isCircleButtonHovered = false;
+    
+    // Reset cursor when leaving button (restore default for screenshot mode, or custom cursor for overlay)
+    if (isScreenshotMode) {
+      document.body.style.cursor = 'default';
+    } else if (isOverlayActive) {
+      document.body.style.cursor = createCustomCursor();
+    } else {
+      document.body.style.cursor = 'default';
+    }
     
     // Only animate away if not collected (toggled)
     if (!isCirclesCollected) {
@@ -2126,13 +2274,24 @@ function initCircleButton() {
     const rect = circleButtonCanvas.getBoundingClientRect();
     circleButtonMouseX = e.clientX - rect.left;
     circleButtonMouseY = e.clientY - rect.top;
-    // Ensure pointer cursor is set
+    // Ensure pointer cursor is set (always, including in screenshot mode)
     circleButton.style.cursor = 'pointer';
     circleButtonCanvas.style.cursor = 'pointer';
+    document.body.style.cursor = 'pointer';
   });
   
   circleButton.addEventListener('click', (e) => {
-    // Toggle action buttons visibility
+    // If overlay is active, close it when clicking the X icon
+    if (isOverlayActive && isCirclesCollected) {
+      toggleOverlay();
+      return;
+    }
+    // If screenshot mode is active, close it when clicking the X icon
+    if (isScreenshotMode && isCirclesCollected) {
+      endScreenshotMode();
+      return;
+    }
+    // Otherwise, toggle action buttons visibility
     toggleActionButtons();
   });
 }
@@ -2168,32 +2327,39 @@ function updateCirclePositions() {
     hoverAnimationProgress = Math.max(0, 1 - (elapsed / hoverAnimationDuration));
   }
   
-  // Apply bounce easing only when converging (hovering), smooth easing when leaving
-  const easedHoverProgress = isCircleButtonHovered 
-    ? easeOutBack(hoverAnimationProgress)  // Bouncy when converging
-    : hoverAnimationProgress;  // Smooth linear when separating (no bounce)
+  // Use smooth easing for all transitions (no bouncing)
+  // Use easeInOutCubic for smooth, non-bouncy animations
+  const easedHoverProgress = easeInOutCubic(hoverAnimationProgress);
   
   // Update target mouse position for sticky effect (smooth following)
-  // Only follow mouse when hovering (not when collected)
-  if (isCircleButtonHovered && hoverAnimationProgress > 0.5 && !isCirclesCollected) {
-    // Follow mouse when mostly converged from hover (not when collected)
+  // Follow mouse when hovering or when collected (X state)
+  // When collected, always follow mouse if hovering (don't require hoverAnimationProgress > 0.5)
+  if (isCirclesCollected && isCircleButtonHovered) {
+    // When collected (X state), follow mouse immediately when hovering
+    const mouseLerp = 0.15; // Sticky factor - how much to follow mouse
+    targetMouseX += (circleButtonMouseX - targetMouseX) * mouseLerp;
+    targetMouseY += (circleButtonMouseY - targetMouseY) * mouseLerp;
+  } else if (isCircleButtonHovered && hoverAnimationProgress > 0.5) {
+    // When not collected, follow mouse when mostly converged from hover
     const mouseLerp = 0.15; // Sticky factor - how much to follow mouse
     targetMouseX += (circleButtonMouseX - targetMouseX) * mouseLerp;
     targetMouseY += (circleButtonMouseY - targetMouseY) * mouseLerp;
   } else {
-    // Return to center when not hovered or when collected
+    // Return to center when not hovered
     const centerLerp = 0.1;
     targetMouseX += (centerX - targetMouseX) * centerLerp;
     targetMouseY += (centerY - targetMouseY) * centerLerp;
   }
   
-  // Calculate offset from center based on mouse position (only when converged and not collected)
-  const mouseFollowStrength = Math.max(0, (hoverAnimationProgress - 0.5) * 2); // 0 to 1 when >50% converged
-  // When collected, don't follow mouse (no stickiness)
-  const effectiveMouseFollowStrength = isCirclesCollected ? 0 : mouseFollowStrength;
+  // Calculate offset from center based on mouse position
+  const mouseFollowStrength = isCirclesCollected 
+    ? 1.0 // Full strength when collected (X state) for sticky behavior
+    : Math.max(0, (hoverAnimationProgress - 0.5) * 2); // 0 to 1 when >50% converged during hover
+  const effectiveMouseFollowStrength = mouseFollowStrength;
   const mouseOffsetX = (targetMouseX - centerX) * effectiveMouseFollowStrength * 0.12; // 12% of mouse offset (less sticky)
   const mouseOffsetY = (targetMouseY - centerY) * effectiveMouseFollowStrength * 0.12; // 12% of mouse offset (less sticky)
-  // When collected, use stored converged center; otherwise use regular center
+  // When collected, use stored converged center as base (if animation is complete), otherwise use regular center
+  // For sticky behavior, we want to use the center as base and add the mouse offset
   const baseCenterX = isCirclesCollected && hoverAnimationProgress > 0.5 ? convergedCenterX : centerX;
   const baseCenterY = isCirclesCollected && hoverAnimationProgress > 0.5 ? convergedCenterY : centerY;
   const hoverCenterX = baseCenterX + mouseOffsetX;
@@ -2342,10 +2508,10 @@ function updateCirclePositions() {
         circle.y = patternY + (hoverCenterY - patternY) * easedHoverProgress;
       }
     } else if (!isCircleButtonHovered && hoverAnimationProgress > 0 && !isCirclesCollected) {
-      // When leaving hover (and not collected), bouncy spread apart from converged center to pattern positions
+      // When leaving hover (and not collected), smooth spread apart from converged center to pattern positions
       const returnProgress = 1 - hoverAnimationProgress; // 0 to 1 as we spread apart
-      // Use bounce easing for spreading apart (bouncy effect)
-      const easedReturnProgress = easeOutBack(returnProgress);
+      // Use smooth easing for spreading apart (no bounce)
+      const easedReturnProgress = easeInOutCubic(returnProgress);
       circle.x = convergedCenterX + (patternX - convergedCenterX) * easedReturnProgress;
       circle.y = convergedCenterY + (patternY - convergedCenterY) * easedReturnProgress;
     } else if (hoverAnimationProgress > 0) {
@@ -2371,12 +2537,17 @@ function drawCircles() {
   // Update positions
   updateCirclePositions();
   
-  // Draw each circle (color depends on background)
-  const circleColor = isBackgroundLight ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)'; // Black if light bg, white if dark bg
+  // Draw each circle (color depends on background, or blue when screenshot mode is active)
+  let circleColor;
+  if (isScreenshotMode) {
+    circleColor = 'rgba(59, 130, 246, 0.5)'; // Blue when screenshot mode is active (50% opacity)
+  } else {
+    circleColor = isBackgroundLight ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)'; // Black if light bg, white if dark bg
+  }
   circles.forEach(circle => {
     circleButtonCtx.beginPath();
     circleButtonCtx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
-    circleButtonCtx.fillStyle = circleColor; // 30% opacity
+    circleButtonCtx.fillStyle = circleColor;
     circleButtonCtx.fill();
   });
   
@@ -2386,20 +2557,15 @@ function drawCircles() {
     const iconOpacity = isCirclesCollected ? 1 : hoverAnimationProgress; // Full opacity when collected, fade when hovering
     
     // Use hover center position (which follows mouse) for icon position
-    // When collected, use the converged center; otherwise use current hover center
-    const centerX = circleButtonCanvas.width / 2;
-    const centerY = circleButtonCanvas.height / 2;
-    const iconX = isCirclesCollected && hoverAnimationProgress > 0.5 
-      ? (convergedCenterX || centerX) 
-      : currentHoverCenterX;
-    const iconY = isCirclesCollected && hoverAnimationProgress > 0.5 
-      ? (convergedCenterY || centerY) 
-      : currentHoverCenterY;
+    // Always use currentHoverCenterX/Y which includes sticky behavior
+    const iconX = currentHoverCenterX;
+    const iconY = currentHoverCenterY;
     
     circleButtonCtx.save();
     circleButtonCtx.globalAlpha = iconOpacity;
-    // X color: white if light background, black if dark background
-    circleButtonCtx.strokeStyle = isBackgroundLight ? '#FFFFFF' : '#000000';
+    // X color: white when screenshot mode, white if light background, black if dark background
+    const iconColor = isScreenshotMode ? '#FFFFFF' : (isBackgroundLight ? '#FFFFFF' : '#000000');
+    circleButtonCtx.strokeStyle = iconColor;
     circleButtonCtx.lineWidth = 2;
     circleButtonCtx.lineCap = 'round';
     
