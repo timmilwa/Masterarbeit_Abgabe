@@ -20,6 +20,7 @@ const saturationSlider = document.getElementById('saturation-slider');
 const saturationValue = document.getElementById('saturation-value');
 const circleSpeedSlider = document.getElementById('circle-speed-slider');
 const circleSpeedValue = document.getElementById('circle-speed-value');
+const circuitBlendModeSelect = document.getElementById('circuit-blend-mode-select');
 const reflectionButton = document.getElementById('reflection-button');
 const circleButton = document.getElementById('circle-button');
 const actionSettingsButton = document.getElementById('action-settings-button');
@@ -37,6 +38,7 @@ let panStartX = 0;
 let panStartY = 0;
 let lastMouseX = 0;
 let lastMouseY = 0;
+let mouseDistanceToCircleButton = Infinity; // Distance from mouse to circle button center
 let backgroundImage = null;
 let images = [];
 let selectedImageIndex = -1;
@@ -167,9 +169,16 @@ function createCustomCursor() {
     return `url(${customCursorURL}) 1 1, auto`;
   }
   
-  // SVG from cursor_Vector.svg
+  // SVG from cursor_Vector 1.svg
   const svg = `<svg width="19" height="19" viewBox="0 0 19 19" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M1.04081 1.69181C1.00134 1.60072 0.990168 1.49988 1.00875 1.40236C1.02732 1.30485 1.07479 1.21517 1.14498 1.14498C1.21517 1.07479 1.30485 1.02732 1.40236 1.00875C1.49988 0.990168 1.60072 1.00134 1.69181 1.04081L17.6918 7.54081C17.7891 7.58044 17.8714 7.64971 17.9271 7.73879C17.9828 7.82787 18.009 7.93222 18.0021 8.03704C17.9951 8.14186 17.9553 8.24182 17.8883 8.32274C17.8213 8.40365 17.7305 8.46141 17.6288 8.48781L11.5048 10.0678C11.1588 10.1568 10.8429 10.3368 10.59 10.5891C10.3372 10.8415 10.1565 11.157 10.0668 11.5028L8.48781 17.6288C8.46141 17.7305 8.40365 17.8213 8.32274 17.8883C8.24182 17.9553 8.14186 17.9951 8.03704 18.0021C7.93222 18.009 7.82787 17.9828 7.73879 17.9271C7.64971 17.8714 7.58044 17.7891 7.54081 17.6918L1.04081 1.69181Z" fill="white" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<g clip-path="url(#clip0_453_10617)">
+<path d="M1.04081 1.69181C1.00134 1.60072 0.990166 1.49988 1.00875 1.40236C1.02732 1.30485 1.07479 1.21517 1.14498 1.14498C1.21517 1.07479 1.30485 1.02732 1.40236 1.00875C1.49988 0.990166 1.60072 1.00134 1.69181 1.04081L17.6918 7.54081C17.7891 7.58044 17.8714 7.64971 17.9271 7.73879C17.9828 7.82787 18.009 7.93222 18.0021 8.03704C17.9951 8.14186 17.9553 8.24182 17.8883 8.32274C17.8213 8.40365 17.7305 8.46141 17.6288 8.48781L11.5048 10.0678C11.1588 10.1568 10.8429 10.3368 10.59 10.5891C10.3372 10.8415 10.1565 11.157 10.0668 11.5028L8.48781 17.6288C8.46141 17.7305 8.40365 17.8213 8.32274 17.8883C8.24182 17.9553 8.14186 17.9951 8.03704 18.0021C7.93222 18.009 7.82787 17.9828 7.73879 17.9271C7.64971 17.8714 7.58044 17.7891 7.54081 17.6918L1.04081 1.69181Z" fill="black" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<defs>
+<clipPath id="clip0_453_10617">
+<rect width="19" height="19" fill="white"/>
+</clipPath>
+</defs>
 </svg>`;
   const blob = new Blob([svg], { type: 'image/svg+xml' });
   customCursorURL = URL.createObjectURL(blob);
@@ -345,19 +354,45 @@ function toggleActionButtons() {
         actionSettingsButton.style.bottom = '';
         actionOpenCanvasButton.style.bottom = '';
         actionCaptureArtefactButton.style.bottom = '';
+        
+        // After animation completes, ensure circles stay converged if mouse is still hovering
+        // This prevents the jump that occurs when animation finishes
+        if (isCircleButtonHovered && hoverAnimationProgress < 1) {
+          // Mouse is still hovering, ensure circles stay converged
+          hoverAnimationProgress = 1;
+          hoverAnimationStartTime = Date.now();
+        }
       }
     }, 400); // Match animation duration
     
-    // Uncollect circles (restore normal state)
+    // Uncollect circles (restore normal state) only if mouse is not hovering
+    // If mouse is still hovering, keep circles collected via hover state
     if (isCirclesCollected) {
       isCirclesCollected = false;
       // Start rotation animation back to plus
       startIconRotation = currentIconRotation;
       iconRotationStartTime = Date.now();
       targetIconRotation = Math.PI / 4; // Plus icon when not collected
-      // Animate back to moving state
-      hoverAnimationStartTime = Date.now();
-      hoverAnimationProgress = 1; // Start from 1 to animate to 0
+      
+      // If mouse is hovering, keep circles converged (don't spread)
+      // This ensures circles stay collected when mouse is still over the button
+      if (isCircleButtonHovered) {
+        // If already converged, keep it at 1 to prevent jumping
+        // Otherwise, ensure it animates to converged state
+        if (hoverAnimationProgress >= 0.5) {
+          // Already mostly converged, keep it converged
+          hoverAnimationProgress = 1;
+          hoverAnimationStartTime = Date.now();
+        } else {
+          // Not converged yet, animate to converged
+          hoverAnimationStartTime = Date.now();
+          hoverAnimationProgress = 0; // Start from 0 to animate to 1 (converge)
+        }
+      } else {
+        // Animate back to moving state (spread apart)
+        hoverAnimationStartTime = Date.now();
+        hoverAnimationProgress = 1; // Start from 1 to animate to 0
+      }
     }
     
     // Re-enable click-through if overlay is not active
@@ -441,6 +476,16 @@ function toggleActionButtons() {
 window.addEventListener('mousemove', (e) => {
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
+  
+  // Calculate distance from mouse to circle button center for blend intensity
+  if (circleButton) {
+    const buttonRect = circleButton.getBoundingClientRect();
+    const buttonCenterX = buttonRect.left + buttonRect.width / 2;
+    const buttonCenterY = buttonRect.top + buttonRect.height / 2;
+    const dx = e.clientX - buttonCenterX;
+    const dy = e.clientY - buttonCenterY;
+    mouseDistanceToCircleButton = Math.sqrt(dx * dx + dy * dy);
+  }
   
   if (isOverlayActive || isScreenshotMode) return;
   
@@ -1898,6 +1943,14 @@ function hideActionButtons() {
       actionSettingsButton.style.bottom = '';
       actionOpenCanvasButton.style.bottom = '';
       actionCaptureArtefactButton.style.bottom = '';
+      
+      // After animation completes, ensure circles stay converged if mouse is still hovering
+      // This prevents the jump that occurs when animation finishes
+      if (isCircleButtonHovered && hoverAnimationProgress < 1) {
+        // Mouse is still hovering, ensure circles stay converged
+        hoverAnimationProgress = 1;
+        hoverAnimationStartTime = Date.now();
+      }
     }
   }, 400); // Match animation duration
   
@@ -1907,9 +1960,26 @@ function hideActionButtons() {
     startIconRotation = currentIconRotation;
     iconRotationStartTime = Date.now();
     targetIconRotation = Math.PI / 4; // Plus icon when not collected
-    // Animate back to moving state
-    hoverAnimationStartTime = Date.now();
-    hoverAnimationProgress = 1; // Start from 1 to animate to 0
+    
+    // If mouse is hovering, keep circles converged (don't spread)
+    // This ensures circles stay collected when mouse is still over the button
+    if (isCircleButtonHovered) {
+      // If already converged, keep it at 1 to prevent jumping
+      // Otherwise, ensure it animates to converged state
+      if (hoverAnimationProgress >= 0.5) {
+        // Already mostly converged, keep it converged
+        hoverAnimationProgress = 1;
+        hoverAnimationStartTime = Date.now();
+      } else {
+        // Not converged yet, animate to converged
+        hoverAnimationStartTime = Date.now();
+        hoverAnimationProgress = 0; // Start from 0 to animate to 1 (converge)
+      }
+    } else {
+      // Animate back to moving state (spread apart) only if not hovering
+      hoverAnimationStartTime = Date.now();
+      hoverAnimationProgress = 1; // Start from 1 to animate to 0
+    }
   }
 }
 
@@ -2006,6 +2076,66 @@ circleSpeedSlider.addEventListener('input', (e) => {
 // Initialize circle speed value display
 circleSpeedValue.textContent = circleSpeedSlider.value + '%';
 
+// Handle circuit blend mode select
+circuitBlendModeSelect.addEventListener('change', (e) => {
+  circuitBlendMode = e.target.value;
+  // The blend mode will be applied in the next drawCircles call
+});
+
+// Handle keyboard icon scaling for Command and Option keys
+let isMetaKeyPressed = false;
+let isAltKeyPressed = false;
+
+function updateKeyIcons() {
+  const metaIcons = document.querySelectorAll('.key-icon[data-key="meta"]');
+  const altIcons = document.querySelectorAll('.key-icon[data-key="alt"]');
+  
+  metaIcons.forEach(icon => {
+    if (isMetaKeyPressed) {
+      icon.classList.add('pressed');
+    } else {
+      icon.classList.remove('pressed');
+    }
+  });
+  
+  altIcons.forEach(icon => {
+    if (isAltKeyPressed) {
+      icon.classList.add('pressed');
+    } else {
+      icon.classList.remove('pressed');
+    }
+  });
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.metaKey && !isMetaKeyPressed) {
+    isMetaKeyPressed = true;
+    updateKeyIcons();
+  }
+  if (e.altKey && !isAltKeyPressed) {
+    isAltKeyPressed = true;
+    updateKeyIcons();
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (!e.metaKey && isMetaKeyPressed) {
+    isMetaKeyPressed = false;
+    updateKeyIcons();
+  }
+  if (!e.altKey && isAltKeyPressed) {
+    isAltKeyPressed = false;
+    updateKeyIcons();
+  }
+});
+
+// Also handle when window loses focus to reset key states
+window.addEventListener('blur', () => {
+  isMetaKeyPressed = false;
+  isAltKeyPressed = false;
+  updateKeyIcons();
+});
+
 // Close settings popup and action buttons when clicking outside
 document.addEventListener('click', (e) => {
   if (settingsPopup.classList.contains('visible')) {
@@ -2081,10 +2211,12 @@ const circleButtonCanvas = document.getElementById('circle-button-canvas');
 let circleButtonCtx = null;
 let circles = [];
 let isCircleButtonHovered = false;
+let isCircleButtonPressed = false; // Track if mouse button is pressed down on circle button
 let circleAnimationFrameId = null;
 let animationTime = 0;
 let lastFrameTime = Date.now();
 let circleSpeedMultiplier = 0.72; // Default speed (72% of base speed)
+let circuitBlendMode = 'lighter'; // Default blend mode for circuits (additive)
 let hoverAnimationProgress = 0; // 0 = not hovered, 1 = fully hovered
 let hoverAnimationStartTime = 0;
 const hoverAnimationDuration = 400; // milliseconds
@@ -2252,8 +2384,9 @@ function initCircleButton() {
       document.body.style.cursor = 'default';
     }
     
-    // Only animate away if not collected (toggled)
-    if (!isCirclesCollected) {
+    // Only animate away if not collected (toggled) and not pressed
+    // Keep circles collected when button is pressed, even if mouse leaves
+    if (!isCirclesCollected && !isCircleButtonPressed) {
       hoverAnimationStartTime = Date.now();
       // Store the converged center position where all circles are currently
       // This will be the starting point for the spread-apart animation
@@ -2287,6 +2420,38 @@ function initCircleButton() {
     document.body.style.cursor = 'pointer';
   });
   
+  // Track mouse button press to keep circles collected during click
+  circleButton.addEventListener('mousedown', (e) => {
+    isCircleButtonPressed = true;
+    // When button is pressed, ensure circles stay collected if they're already collected
+    // or if hovering, trigger collection animation
+    if (!isCirclesCollected && isCircleButtonHovered) {
+      // Start collection animation
+      isCirclesCollected = true;
+      hoverAnimationStartTime = Date.now();
+      collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+      const centerX = circleButtonCanvas.width / 2;
+      const centerY = circleButtonCanvas.height / 2;
+      convergedCenterX = centerX;
+      convergedCenterY = centerY;
+      startIconRotation = currentIconRotation;
+      iconRotationStartTime = Date.now();
+      targetIconRotation = 0; // X icon when collected
+    }
+  });
+  
+  // Track mouse button release
+  circleButton.addEventListener('mouseup', (e) => {
+    isCircleButtonPressed = false;
+  });
+  
+  // Also handle mouseup outside the button (in case user drags outside)
+  document.addEventListener('mouseup', (e) => {
+    if (!circleButton.contains(e.target)) {
+      isCircleButtonPressed = false;
+    }
+  });
+  
   circleButton.addEventListener('click', (e) => {
     // If overlay is active, close it when clicking the X icon
     if (isOverlayActive && isCirclesCollected) {
@@ -2306,8 +2471,12 @@ function initCircleButton() {
 // Update circle positions based on patterns
 function updateCirclePositions() {
   const currentTime = Date.now();
-  const deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
+  let deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
   lastFrameTime = currentTime;
+  
+  // Clamp deltaTime to prevent large jumps (e.g., when tab becomes active after being inactive)
+  // Max 1/30 second (30 FPS minimum) to ensure smooth, constant speed
+  deltaTime = Math.min(deltaTime, 1 / 30);
   
   animationTime += deltaTime;
   
@@ -2316,20 +2485,23 @@ function updateCirclePositions() {
   const wanderRadius = 35; // Smaller wander area
   
   // Update hover animation progress
-  if (isCirclesCollected) {
-    // When collected (toggled), animate to fully converged
+  // Keep circles collected if button is pressed, even if hover state changes
+  const shouldKeepCollected = isCirclesCollected || isCircleButtonPressed;
+  
+  if (shouldKeepCollected) {
+    // When collected (toggled) or pressed, animate to fully converged
     if (hoverAnimationProgress < 1) {
       const elapsed = currentTime - hoverAnimationStartTime;
       hoverAnimationProgress = Math.min(1, elapsed / hoverAnimationDuration);
     } else {
-      hoverAnimationProgress = 1; // Keep at 1 when collected
+      hoverAnimationProgress = 1; // Keep at 1 when collected or pressed
     }
   } else if (isCircleButtonHovered && hoverAnimationProgress < 1) {
     // Normal hover: converge
     const elapsed = currentTime - hoverAnimationStartTime;
     hoverAnimationProgress = Math.min(1, elapsed / hoverAnimationDuration);
   } else if (!isCircleButtonHovered && hoverAnimationProgress > 0 && !isCirclesCollected) {
-    // Normal hover end: spread apart (only if not collected)
+    // Normal hover end: spread apart (only if not collected and not pressed)
     const elapsed = currentTime - hoverAnimationStartTime;
     hoverAnimationProgress = Math.max(0, 1 - (elapsed / hoverAnimationDuration));
   }
@@ -2338,37 +2510,37 @@ function updateCirclePositions() {
   // Use easeInOutCubic for smooth, non-bouncy animations
   const easedHoverProgress = easeInOutCubic(hoverAnimationProgress);
   
-  // Update target mouse position for sticky effect (smooth following)
-  // Follow mouse when hovering or when collected (X state)
-  // When collected, always follow mouse if hovering (don't require hoverAnimationProgress > 0.5)
-  if (isCirclesCollected && isCircleButtonHovered) {
-    // When collected (X state), follow mouse immediately when hovering
-    const mouseLerp = 0.15; // Sticky factor - how much to follow mouse
-    targetMouseX += (circleButtonMouseX - targetMouseX) * mouseLerp;
-    targetMouseY += (circleButtonMouseY - targetMouseY) * mouseLerp;
+  // Update target mouse position for sticky effect (time-based for constant speed)
+  // Follow mouse when hovering or when collected (X state) or when pressed
+  // When collected or pressed, always follow mouse if hovering (don't require hoverAnimationProgress > 0.5)
+  if ((isCirclesCollected || isCircleButtonPressed) && isCircleButtonHovered) {
+    // When collected (X state) or pressed, follow mouse immediately when hovering
+    const mouseLerpPerSecond = 8.0; // Lerp rate per second (time-based)
+    targetMouseX += (circleButtonMouseX - targetMouseX) * mouseLerpPerSecond * deltaTime;
+    targetMouseY += (circleButtonMouseY - targetMouseY) * mouseLerpPerSecond * deltaTime;
   } else if (isCircleButtonHovered && hoverAnimationProgress > 0.5) {
     // When not collected, follow mouse when mostly converged from hover
-    const mouseLerp = 0.15; // Sticky factor - how much to follow mouse
-    targetMouseX += (circleButtonMouseX - targetMouseX) * mouseLerp;
-    targetMouseY += (circleButtonMouseY - targetMouseY) * mouseLerp;
+    const mouseLerpPerSecond = 8.0; // Lerp rate per second (time-based)
+    targetMouseX += (circleButtonMouseX - targetMouseX) * mouseLerpPerSecond * deltaTime;
+    targetMouseY += (circleButtonMouseY - targetMouseY) * mouseLerpPerSecond * deltaTime;
   } else {
-    // Return to center when not hovered
-    const centerLerp = 0.1;
-    targetMouseX += (centerX - targetMouseX) * centerLerp;
-    targetMouseY += (centerY - targetMouseY) * centerLerp;
+    // Return to center when not hovered (time-based)
+    const centerLerpPerSecond = 5.0; // Lerp rate per second (time-based)
+    targetMouseX += (centerX - targetMouseX) * centerLerpPerSecond * deltaTime;
+    targetMouseY += (centerY - targetMouseY) * centerLerpPerSecond * deltaTime;
   }
   
   // Calculate offset from center based on mouse position
-  const mouseFollowStrength = isCirclesCollected 
-    ? 1.0 // Full strength when collected (X state) for sticky behavior
+  const mouseFollowStrength = (isCirclesCollected || isCircleButtonPressed)
+    ? 1.0 // Full strength when collected (X state) or pressed for sticky behavior
     : Math.max(0, (hoverAnimationProgress - 0.5) * 2); // 0 to 1 when >50% converged during hover
   const effectiveMouseFollowStrength = mouseFollowStrength;
-  const mouseOffsetX = (targetMouseX - centerX) * effectiveMouseFollowStrength * 0.12; // 12% of mouse offset (less sticky)
-  const mouseOffsetY = (targetMouseY - centerY) * effectiveMouseFollowStrength * 0.12; // 12% of mouse offset (less sticky)
-  // When collected, use stored converged center as base (if animation is complete), otherwise use regular center
+  const mouseOffsetX = (targetMouseX - centerX) * effectiveMouseFollowStrength * 0.08; // Reduced to 8% for smoother, less dramatic movement
+  const mouseOffsetY = (targetMouseY - centerY) * effectiveMouseFollowStrength * 0.08; // Reduced to 8% for smoother, less dramatic movement
+  // When collected or pressed, use stored converged center as base (if animation is complete), otherwise use regular center
   // For sticky behavior, we want to use the center as base and add the mouse offset
-  const baseCenterX = isCirclesCollected && hoverAnimationProgress > 0.5 ? convergedCenterX : centerX;
-  const baseCenterY = isCirclesCollected && hoverAnimationProgress > 0.5 ? convergedCenterY : centerY;
+  const baseCenterX = (isCirclesCollected || isCircleButtonPressed) && hoverAnimationProgress > 0.5 ? convergedCenterX : centerX;
+  const baseCenterY = (isCirclesCollected || isCircleButtonPressed) && hoverAnimationProgress > 0.5 ? convergedCenterY : centerY;
   const hoverCenterX = baseCenterX + mouseOffsetX;
   const hoverCenterY = baseCenterY + mouseOffsetY;
   
@@ -2384,19 +2556,19 @@ function updateCirclePositions() {
     // Normal pattern movement
     const t = animationTime + circle.timeOffset / 1000;
     
-    // Smoothly transition angle speed and frequencies (only when not hovered to avoid bouncing)
+    // Smoothly transition angle speed and frequencies (time-based for constant speed)
     if (hoverAnimationProgress === 0) {
       // In default state, make transitions very smooth and slow
       if (circle.targetAngleSpeed !== undefined) {
-        const speedLerp = 0.005; // Much slower transition
-        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerp;
+        const speedLerpPerSecond = 0.5; // Lerp rate per second
+        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerpPerSecond * deltaTime;
       }
       
-      // Smoothly transition frequencies (very slowly)
+      // Smoothly transition frequencies (very slowly, time-based)
       if (circle.targetFreq1 !== undefined && currentTime > circle.freqChangeTime) {
-        const freqLerp = 0.003; // Much slower transition
-        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerp;
-        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerp;
+        const freqLerpPerSecond = 0.3; // Lerp rate per second
+        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerpPerSecond * deltaTime;
+        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerpPerSecond * deltaTime;
         
         // Periodically set new target frequencies (less frequently)
         if (Math.abs(circle.freq1 - circle.targetFreq1) < 0.0001) {
@@ -2406,21 +2578,21 @@ function updateCirclePositions() {
         }
       }
     } else {
-      // When hovered, keep original smooth transitions
+      // When hovered, use slower smooth transitions to avoid bouncing (time-based)
       if (circle.targetAngleSpeed !== undefined) {
-        const speedLerp = 0.02;
-        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerp;
+        const speedLerpPerSecond = 0.8; // Lerp rate per second
+        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerpPerSecond * deltaTime;
       }
       
       if (circle.targetFreq1 !== undefined && currentTime > circle.freqChangeTime) {
-        const freqLerp = 0.01;
-        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerp;
-        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerp;
+        const freqLerpPerSecond = 0.5; // Lerp rate per second
+        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerpPerSecond * deltaTime;
+        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerpPerSecond * deltaTime;
         
         if (Math.abs(circle.freq1 - circle.targetFreq1) < 0.001) {
           circle.targetFreq1 = 0.08 + Math.random() * 0.05;
           circle.targetFreq2 = 0.12 + Math.random() * 0.05;
-          circle.freqChangeTime = currentTime + 3000 + Math.random() * 2000;
+          circle.freqChangeTime = currentTime + 5000 + Math.random() * 3000; // Less frequent changes
         }
       }
     }
@@ -2432,7 +2604,7 @@ function updateCirclePositions() {
       circle.baseX = centerX + baseDriftX;
       circle.baseY = centerY + baseDriftY;
       
-      circle.angle += circle.angleSpeed * circleSpeedMultiplier; // Apply speed multiplier
+      circle.angle += circle.angleSpeed * circleSpeedMultiplier * deltaTime; // Time-based: apply speed multiplier and deltaTime
       const orbitX = Math.cos(circle.angle + circle.phase) * circle.orbitRadius;
       const orbitY = Math.sin(circle.angle + circle.phase) * circle.orbitRadius;
       
@@ -2440,7 +2612,7 @@ function updateCirclePositions() {
       patternY = circle.baseY + orbitY;
     } else if (circle.patternType === 'figure8') {
       // Figure-8: parametric lemniscate
-      circle.angle += circle.angleSpeed * circleSpeedMultiplier; // Apply speed multiplier
+      circle.angle += circle.angleSpeed * circleSpeedMultiplier * deltaTime; // Time-based: apply speed multiplier and deltaTime
       const a = circle.orbitRadius;
       const tParam = circle.angle + circle.phase;
       // Lemniscate of Bernoulli: x = a*sin(t), y = a*sin(t)*cos(t)
@@ -2468,42 +2640,46 @@ function updateCirclePositions() {
         circle.randomTransitionProgress = 0; // Start transition
       }
       
-      // Smoothly transition between old and new random targets (slower in default state)
-      const transitionSpeed = hoverAnimationProgress === 0 ? 0.01 : 0.02; // Slower when not hovered
-      const randomLerpSpeed = hoverAnimationProgress === 0 ? 0.01 * circleSpeedMultiplier : 0.02 * circleSpeedMultiplier;
+      // Smoothly transition between old and new random targets (time-based for constant speed)
+      const transitionSpeedPerSecond = 1.0; // Progress per second
+      const randomLerpPerSecond = 1.0 * circleSpeedMultiplier; // Lerp rate per second
       
       if (circle.randomTransitionProgress < 1) {
-        circle.randomTransitionProgress = Math.min(1, circle.randomTransitionProgress + transitionSpeed);
+        circle.randomTransitionProgress = Math.min(1, circle.randomTransitionProgress + transitionSpeedPerSecond * deltaTime);
         const smoothProgress = circle.randomTransitionProgress * circle.randomTransitionProgress * (3 - 2 * circle.randomTransitionProgress); // Smoothstep
         const currentTargetX = circle.prevRandomTargetX + (circle.randomTargetX - circle.prevRandomTargetX) * smoothProgress;
         const currentTargetY = circle.prevRandomTargetY + (circle.randomTargetY - circle.prevRandomTargetY) * smoothProgress;
         
-        // Smoothly move toward current target
-        circle.randomOffsetX += (currentTargetX - circle.randomOffsetX) * randomLerpSpeed;
-        circle.randomOffsetY += (currentTargetY - circle.randomOffsetY) * randomLerpSpeed;
+        // Smoothly move toward current target (time-based)
+        circle.randomOffsetX += (currentTargetX - circle.randomOffsetX) * randomLerpPerSecond * deltaTime;
+        circle.randomOffsetY += (currentTargetY - circle.randomOffsetY) * randomLerpPerSecond * deltaTime;
       } else {
-        // Smoothly move toward random target (speed multiplier affects lerp speed)
-        circle.randomOffsetX += (circle.randomTargetX - circle.randomOffsetX) * randomLerpSpeed;
-        circle.randomOffsetY += (circle.randomTargetY - circle.randomOffsetY) * randomLerpSpeed;
+        // Smoothly move toward random target (time-based)
+        circle.randomOffsetX += (circle.randomTargetX - circle.randomOffsetX) * randomLerpPerSecond * deltaTime;
+        circle.randomOffsetY += (circle.randomTargetY - circle.randomOffsetY) * randomLerpPerSecond * deltaTime;
       }
       
       patternX = baseX + circle.randomOffsetX;
       patternY = baseY + circle.randomOffsetY;
     }
     
-    // Constrain pattern position within wander area
+    // Constrain pattern position within wander area (time-based smooth constraint)
     const dx = patternX - centerX;
     const dy = patternY - centerY;
     const distance = Math.sqrt(dx * dx + dy * dy);
     if (distance > wanderRadius) {
-      const angle = Math.atan2(dy, dx);
-      patternX = centerX + Math.cos(angle) * wanderRadius;
-      patternY = centerY + Math.sin(angle) * wanderRadius;
+      // Smoothly constrain instead of snapping (time-based)
+      const constraintLerpPerSecond = 10.0; // Lerp rate per second
+      const targetX = centerX + (dx / distance) * wanderRadius;
+      const targetY = centerY + (dy / distance) * wanderRadius;
+      patternX += (targetX - patternX) * constraintLerpPerSecond * deltaTime;
+      patternY += (targetY - patternY) * constraintLerpPerSecond * deltaTime;
     }
     
     // Handle position based on collected state and hover
-    if (isCirclesCollected && hoverAnimationProgress > 0) {
-      // When collected (toggled), animate from stored start position to center
+    // Keep circles collected when button is pressed
+    if ((isCirclesCollected || isCircleButtonPressed) && hoverAnimationProgress > 0) {
+      // When collected (toggled) or pressed, animate from stored start position to center
       if (collectedStartPositions.length > index) {
         const startX = collectedStartPositions[index].x;
         const startY = collectedStartPositions[index].y;
@@ -2514,8 +2690,8 @@ function updateCirclePositions() {
         circle.x = patternX + (hoverCenterX - patternX) * easedHoverProgress;
         circle.y = patternY + (hoverCenterY - patternY) * easedHoverProgress;
       }
-    } else if (!isCircleButtonHovered && hoverAnimationProgress > 0 && !isCirclesCollected) {
-      // When leaving hover (and not collected), smooth spread apart from converged center to pattern positions
+    } else if (!isCircleButtonHovered && hoverAnimationProgress > 0 && !isCirclesCollected && !isCircleButtonPressed) {
+      // When leaving hover (and not collected and not pressed), smooth spread apart from converged center to pattern positions
       const returnProgress = 1 - hoverAnimationProgress; // 0 to 1 as we spread apart
       // Use smooth easing for spreading apart (no bounce)
       const easedReturnProgress = easeInOutCubic(returnProgress);
@@ -2548,8 +2724,27 @@ function drawCircles() {
   let circleColor;
   if (isScreenshotMode) {
     circleColor = 'rgba(59, 130, 246, 0.5)'; // Blue when screenshot mode is active (50% opacity)
+    // Use normal blending for screenshot mode
+    circleButtonCtx.globalCompositeOperation = 'source-over';
   } else {
-    circleColor = isBackgroundLight ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.3)'; // Black if light bg, white if dark bg
+    // Calculate opacity based on mouse distance to circle button
+    // Closer mouse = higher opacity (more intense blending)
+    // Further mouse = lower opacity (lighter blending)
+    const maxDistance = 350; // Distance at which opacity is at minimum
+    const minOpacity = 0.15; // Minimum opacity when far away (very light)
+    const maxOpacity = 0.5; // Maximum opacity when close (more intense)
+    
+    // Clamp distance and calculate opacity
+    const clampedDistance = Math.min(mouseDistanceToCircleButton, maxDistance);
+    const distanceRatio = clampedDistance / maxDistance; // 0 = close, 1 = far
+    const dynamicOpacity = maxOpacity - (maxOpacity - minOpacity) * distanceRatio;
+    
+    circleColor = `rgba(255, 255, 255, ${dynamicOpacity})`; // Dynamic opacity based on mouse distance
+    // Use selected blend mode so overlapping circles can create different visual effects
+    // 'screen' makes overlapping areas appear brighter and more solid
+    // 'lighter' adds the colors together for additive blending
+    // 'lighten' takes the lighter of the two colors
+    circleButtonCtx.globalCompositeOperation = circuitBlendMode;
   }
   circles.forEach(circle => {
     circleButtonCtx.beginPath();
@@ -2557,11 +2752,13 @@ function drawCircles() {
     circleButtonCtx.fillStyle = circleColor;
     circleButtonCtx.fill();
   });
+  // Reset to default blend mode after drawing circles
+  circleButtonCtx.globalCompositeOperation = 'source-over';
   
-  // Draw X icon when hovered or collected (fades in/out with hover animation, follows mouse)
-  if (hoverAnimationProgress > 0 || isCirclesCollected) {
+  // Draw X icon when hovered, collected, or pressed (fades in/out with hover animation, follows mouse)
+  if (hoverAnimationProgress > 0 || isCirclesCollected || isCircleButtonPressed) {
     const iconSize = 14; // Smaller size for the X icon
-    const iconOpacity = isCirclesCollected ? 1 : hoverAnimationProgress; // Full opacity when collected, fade when hovering
+    const iconOpacity = (isCirclesCollected || isCircleButtonPressed) ? 1 : hoverAnimationProgress; // Full opacity when collected or pressed, fade when hovering
     
     // Use hover center position (which follows mouse) for icon position
     // Always use currentHoverCenterX/Y which includes sticky behavior

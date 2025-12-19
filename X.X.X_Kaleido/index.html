@@ -275,7 +275,7 @@
             width: 120px;
             height: 120px;
             cursor: pointer !important;
-            z-index: 2002;
+            z-index: 2003;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -304,7 +304,7 @@
                 0 8px 32px rgba(0, 0, 0, 0.12),
                 0 0 0 1px rgba(255, 255, 255, 0.1) inset,
                 0 1px 0 rgba(255, 255, 255, 0.2) inset;
-            transition: background-color 0.2s, box-shadow 0.2s;
+            transition: background-color 0.2s ease-out, box-shadow 0.2s ease-out, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             font-size: 17px;
             color: rgba(255, 255, 255, 1);
@@ -314,6 +314,7 @@
             white-space: nowrap;
             opacity: 0;
             transform: scale(0.9);
+            transform-origin: center center;
             will-change: transform, opacity, bottom; /* Optimize for animation */
         }
 
@@ -324,6 +325,7 @@
 
         .action-button.visible {
             display: flex;
+            transform: scale(1);
         }
 
         @keyframes actionButtonFold {
@@ -337,7 +339,8 @@
             }
         }
 
-        .action-button:hover {
+        .action-button:hover,
+        .action-button.visible:hover {
             background: rgba(255, 255, 255, 0.3);
             backdrop-filter: blur(25px) saturate(180%);
             -webkit-backdrop-filter: blur(25px) saturate(180%);
@@ -345,6 +348,7 @@
                 0 8px 32px rgba(0, 0, 0, 0.15),
                 0 0 0 1px rgba(255, 255, 255, 0.2) inset,
                 0 1px 0 rgba(255, 255, 255, 0.3) inset;
+            transform: scale(1.01) !important;
         }
 
         .action-button:active {
@@ -463,12 +467,28 @@
         .action-button-shortcut {
             margin-left: 10px;
             padding: 4px 8px;
-            background-color: rgba(255, 255, 255, 1);
+            background-color: rgba(255, 255, 255, 0.8);
             border: 1px solid rgba(0, 0, 0, 0.1);
             border-radius: 6px;
             font-size: 13px;
             font-family: ui-monospace, monospace;
             color: rgba(60, 60, 60, 1);
+        }
+
+        .key-icon {
+            display: inline-block;
+            transition: transform 0.15s ease-out;
+            font-size: 16px; /* Make icons bigger by default */
+            line-height: 1;
+        }
+
+        .key-icon.pressed {
+            transform: scale(1.3);
+        }
+
+        /* Add spacing between Option and Command icons in "Open canvas" button */
+        #action-open-canvas-button .key-icon[data-key="alt"] {
+            margin-right: 4px;
         }
     </style>
 </head>
@@ -481,15 +501,15 @@
     <!-- Action Buttons -->
     <button class="action-button" id="action-settings-button">
         <span class="action-button-label">Settings</span>
-        <span class="action-button-shortcut">⌘,</span>
+        <span class="action-button-shortcut"><span class="key-icon" data-key="meta">⌘</span>,</span>
     </button>
     <button class="action-button" id="action-open-canvas-button">
         <span class="action-button-label">Open canvas</span>
-        <span class="action-button-shortcut">⌥⌘</span>
+        <span class="action-button-shortcut"><span class="key-icon" data-key="alt">⌥</span><span class="key-icon" data-key="meta">⌘</span></span>
     </button>
     <button class="action-button" id="action-capture-artefact-button">
         <span class="action-button-label">Capture artefact</span>
-        <span class="action-button-shortcut">Left ⌘ + Right ⌘</span>
+        <span class="action-button-shortcut">Left <span class="key-icon" data-key="meta">⌘</span> + Right <span class="key-icon" data-key="meta">⌘</span></span>
     </button>
 
     <!-- Overlay Container -->
@@ -561,6 +581,21 @@
             <div class="settings-slider-value">
                 <span id="circle-speed-value">72%</span>
             </div>
+        </div>
+        <div class="settings-section">
+            <label class="settings-label" for="circuit-blend-mode-select">Circuit Blend Mode</label>
+            <select id="circuit-blend-mode-select" class="settings-input">
+                <option value="source-over">Normal (source-over)</option>
+                <option value="screen">Screen</option>
+                <option value="lighten">Lighten</option>
+                <option value="lighter" selected>Lighter (Additive)</option>
+                <option value="color-dodge">Color Dodge</option>
+                <option value="overlay">Overlay</option>
+                <option value="soft-light">Soft Light</option>
+                <option value="hard-light">Hard Light</option>
+                <option value="multiply">Multiply</option>
+                <option value="difference">Difference</option>
+            </select>
         </div>
     </div>
 
