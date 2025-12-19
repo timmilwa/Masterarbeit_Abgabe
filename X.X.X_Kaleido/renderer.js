@@ -1198,13 +1198,33 @@ function getResizeHandleAt(x, y, img) {
 
 // Keyboard shortcuts
 window.addEventListener('keydown', (e) => {
-  if (!isOverlayActive) return;
-  
-  // Escape key - close overlay
+  // Escape key - exit screenshot mode or close overlay
   if (e.key === 'Escape') {
-    toggleOverlay();
-    return;
+    if (isScreenshotMode) {
+      // Exit screenshot mode
+      selectionBox.style.display = 'none';
+      selectionBox.style.width = '0px';
+      selectionBox.style.height = '0px';
+      
+      endScreenshotMode();
+      
+      // Remove event listeners
+      if (screenshotHandlers) {
+        screenshotOverlay.removeEventListener('mousedown', screenshotHandlers.mousedown);
+        screenshotOverlay.removeEventListener('mousemove', screenshotHandlers.mousemove);
+        screenshotOverlay.removeEventListener('mouseup', screenshotHandlers.mouseup);
+        screenshotHandlers = null;
+      }
+      return;
+    }
+    
+    if (isOverlayActive) {
+      toggleOverlay();
+      return;
+    }
   }
+  
+  if (!isOverlayActive) return;
   
   // Delete key - delete selected image
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImageIndex >= 0) {

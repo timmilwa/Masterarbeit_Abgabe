@@ -3,6 +3,9 @@ const path = require('path');
 const { execFile, spawn } = require('child_process');
 const chokidar = require('chokidar');
 
+// Set application name for macOS dock and menu bar
+app.setName('Kaleido');
+
 let mainWindow;
 let keyListener;
 let selectionListener;
@@ -14,6 +17,14 @@ function createWindow() {
   // Use bounds to get full screen size (including menu bar area)
   const bounds = primaryDisplay.bounds;
   const { width, height, x, y } = bounds;
+
+  // Load icon for window - try .icns first, fallback to PNG
+  let iconPath = path.join(__dirname, 'assets', 'icon.icns');
+  let icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    iconPath = path.join(__dirname, 'assets', 'icon_dock.png');
+    icon = nativeImage.createFromPath(iconPath);
+  }
 
   mainWindow = new BrowserWindow({
     width: width,
@@ -27,6 +38,7 @@ function createWindow() {
     resizable: false, // Prevent resizing
     enableLargerThanScreen: true,
     hasShadow: false,
+    icon: icon.isEmpty() ? undefined : icon, // Set window icon
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -124,12 +136,23 @@ ipcMain.handle('get-window-bounds', async () => {
 });
 
 app.whenReady().then(() => {
-  // Set dock icon (macOS)
+  // Set dock icon (macOS) - try .icns first, fallback to PNG
   if (process.platform === 'darwin' && app.dock) {
-    const iconPath = path.join(__dirname, 'assets', 'icon_dock_256.png');
-    const icon = nativeImage.createFromPath(iconPath);
+    // Try .icns file first
+    let iconPath = path.join(__dirname, 'assets', 'icon.icns');
+    let icon = nativeImage.createFromPath(iconPath);
+    
+    // If .icns doesn't work, try PNG
+    if (icon.isEmpty()) {
+      iconPath = path.join(__dirname, 'assets', 'icon_dock.png');
+      icon = nativeImage.createFromPath(iconPath);
+    }
+    
     if (!icon.isEmpty()) {
       app.dock.setIcon(icon);
+      console.log('Dock icon set successfully from:', iconPath);
+    } else {
+      console.error('Failed to load dock icon from both .icns and PNG');
     }
   }
   
