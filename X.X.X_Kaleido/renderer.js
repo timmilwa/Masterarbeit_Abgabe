@@ -10,8 +10,9 @@ const selectionBox = document.getElementById('selection-box');
 const fileInput = document.getElementById('file-input');
 const selectTool = document.getElementById('select-tool');
 const uploadTool = document.getElementById('upload-tool');
-const settingsButton = document.getElementById('settings-button');
 const settingsPopup = document.getElementById('settings-popup');
+const settingsModalOverlay = document.getElementById('settings-modal-overlay');
+const settingsModal = document.getElementById('settings-modal');
 const tintColorInput = document.getElementById('tint-color-input');
 const colorPreview = document.getElementById('color-preview');
 const tintOpacitySlider = document.getElementById('tint-opacity-slider');
@@ -21,6 +22,9 @@ const saturationValue = document.getElementById('saturation-value');
 const circleSpeedSlider = document.getElementById('circle-speed-slider');
 const circleSpeedValue = document.getElementById('circle-speed-value');
 const circuitBlendModeSelect = document.getElementById('circuit-blend-mode-select');
+const circle1ColorInput = document.getElementById('circle-1-color-input');
+const circle2ColorInput = document.getElementById('circle-2-color-input');
+const circle3ColorInput = document.getElementById('circle-3-color-input');
 const reflectionButton = document.getElementById('reflection-button');
 const circleButton = document.getElementById('circle-button');
 const actionSettingsButton = document.getElementById('action-settings-button');
@@ -93,13 +97,6 @@ setupCanvas();
 function isMouseOverUI(x, y) {
   if (isOverlayActive || isScreenshotMode) return true;
   
-  // Check settings button position directly
-  const settingsRect = settingsButton.getBoundingClientRect();
-  if (x >= settingsRect.left && x <= settingsRect.right &&
-      y >= settingsRect.top && y <= settingsRect.bottom) {
-    return true;
-  }
-  
   // Check circle button position directly
   if (circleButton) {
     const circleButtonRect = circleButton.getBoundingClientRect();
@@ -109,9 +106,9 @@ function isMouseOverUI(x, y) {
     }
   }
   
-  // Check settings popup position
-  if (settingsPopup.classList.contains('visible')) {
-    const popupRect = settingsPopup.getBoundingClientRect();
+  // Check settings modal position
+  if (settingsModalOverlay.classList.contains('visible')) {
+    const popupRect = settingsModal.getBoundingClientRect();
     if (x >= popupRect.left && x <= popupRect.right &&
         y >= popupRect.top && y <= popupRect.bottom) {
       return true;
@@ -145,9 +142,8 @@ function isMouseOverUI(x, y) {
   try {
     const el = document.elementFromPoint(x, y);
     if (el) {
-      if (el.closest('#settings-button') ||
-          el.closest('#circle-button') ||
-          el.closest('#settings-popup') ||
+      if (el.closest('#circle-button') ||
+          el.closest('#settings-modal-overlay') ||
           el.closest('.action-button') ||
           el.closest('button') ||
           el.closest('input')) {
@@ -1902,22 +1898,24 @@ fileInput.addEventListener('change', (e) => {
   fileInput.value = '';
 });
 
-// Settings button and popup
-settingsButton.addEventListener('click', (e) => {
-  e.stopPropagation();
-  const isVisible = settingsPopup.classList.contains('visible');
-  if (isVisible) {
-    settingsPopup.classList.remove('visible');
+// Settings modal can be opened via action button (action-settings-button)
+
+// Close modal when clicking on overlay (but not on modal content)
+settingsModalOverlay.addEventListener('click', (e) => {
+  if (e.target === settingsModalOverlay) {
+    settingsModalOverlay.classList.remove('visible');
     // Re-enable click-through if overlay is not active
     if (!isOverlayActive && !isScreenshotMode) {
       if (!isMouseOverUI(lastMouseX, lastMouseY)) {
         ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
       }
     }
-  } else {
-    settingsPopup.classList.add('visible');
-    ipcRenderer.send('set-ignore-mouse-events', false);
   }
+});
+
+// Prevent clicks inside modal from closing it
+settingsModal.addEventListener('click', (e) => {
+  e.stopPropagation();
 });
 
 // Helper function to hide buttons and uncollect circles
@@ -1988,8 +1986,8 @@ actionSettingsButton.addEventListener('click', (e) => {
   e.stopPropagation();
   // Hide action buttons and uncollect circles
   hideActionButtons();
-  // Open settings popup (same as clicking settings button)
-  settingsPopup.classList.add('visible');
+  // Open settings modal (same as clicking settings button)
+  settingsModalOverlay.classList.add('visible');
   ipcRenderer.send('set-ignore-mouse-events', false);
 });
 
@@ -2082,6 +2080,55 @@ circuitBlendModeSelect.addEventListener('change', (e) => {
   // The blend mode will be applied in the next drawCircles call
 });
 
+// Handle circle color inputs (hex code text inputs)
+function updateCircleColor(index, hexValue) {
+  if (circles.length > index) {
+    // Validate hex color format
+    const hexPattern = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
+    if (hexPattern.test(hexValue)) {
+      // Normalize 3-digit hex to 6-digit
+      if (hexValue.length === 4) {
+        hexValue = '#' + hexValue[1] + hexValue[1] + hexValue[2] + hexValue[2] + hexValue[3] + hexValue[3];
+      }
+      circles[index].color = hexValue;
+    }
+  }
+}
+
+circle1ColorInput.addEventListener('input', (e) => {
+  updateCircleColor(0, e.target.value);
+});
+
+circle1ColorInput.addEventListener('blur', (e) => {
+  updateCircleColor(0, e.target.value);
+  // Update input to show normalized value
+  if (circles.length > 0 && circles[0].color) {
+    e.target.value = circles[0].color;
+  }
+});
+
+circle2ColorInput.addEventListener('input', (e) => {
+  updateCircleColor(1, e.target.value);
+});
+
+circle2ColorInput.addEventListener('blur', (e) => {
+  updateCircleColor(1, e.target.value);
+  if (circles.length > 1 && circles[1].color) {
+    e.target.value = circles[1].color;
+  }
+});
+
+circle3ColorInput.addEventListener('input', (e) => {
+  updateCircleColor(2, e.target.value);
+});
+
+circle3ColorInput.addEventListener('blur', (e) => {
+  updateCircleColor(2, e.target.value);
+  if (circles.length > 2 && circles[2].color) {
+    e.target.value = circles[2].color;
+  }
+});
+
 // Handle keyboard icon scaling for Command and Option keys
 let isMetaKeyPressed = false;
 let isAltKeyPressed = false;
@@ -2136,11 +2183,11 @@ window.addEventListener('blur', () => {
   updateKeyIcons();
 });
 
-// Close settings popup and action buttons when clicking outside
+// Close settings modal and action buttons when clicking outside
 document.addEventListener('click', (e) => {
-  if (settingsPopup.classList.contains('visible')) {
-    if (!settingsPopup.contains(e.target) && !settingsButton.contains(e.target)) {
-      settingsPopup.classList.remove('visible');
+  if (settingsModalOverlay.classList.contains('visible')) {
+    if (!settingsModal.contains(e.target) && e.target !== settingsModalOverlay) {
+      settingsModalOverlay.classList.remove('visible');
       if (!isOverlayActive && !isScreenshotMode) {
         if (!isMouseOverUI(lastMouseX, lastMouseY)) {
           ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
@@ -2172,17 +2219,6 @@ document.addEventListener('click', (e) => {
 });
 
 // Ensure settings button is always clickable
-settingsButton.addEventListener('mouseenter', () => {
-  if (!isOverlayActive && !isScreenshotMode) {
-    ipcRenderer.send('set-ignore-mouse-events', false);
-  }
-});
-
-settingsButton.addEventListener('mouseleave', () => {
-  if (!isOverlayActive && !isScreenshotMode && !settingsPopup.classList.contains('visible')) {
-    ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
-  }
-});
 
 // Ensure action buttons are always clickable
 [actionSettingsButton, actionOpenCanvasButton, actionCaptureArtefactButton].forEach(button => {
@@ -2298,6 +2334,7 @@ function initCircleButton() {
     targetFreq1: 0.08 + Math.random() * 0.05,
     targetFreq2: 0.12 + Math.random() * 0.05,
     freqChangeTime: Date.now() + 3000 + Math.random() * 2000,
+    color: '#FFFFFF', // Default white color
   });
   
   // Circle 2: Figure-8 pattern
@@ -2319,6 +2356,7 @@ function initCircleButton() {
     targetFreq1: 0.1 + Math.random() * 0.05,
     targetFreq2: 0.15 + Math.random() * 0.05,
     freqChangeTime: Date.now() + 3000 + Math.random() * 2000,
+    color: '#FFFFFF', // Default white color
   });
   
   // Circle 3: Rhythmic random walk
@@ -2348,7 +2386,19 @@ function initCircleButton() {
     prevRandomTargetX: (Math.random() - 0.5) * 10,
     prevRandomTargetY: (Math.random() - 0.5) * 10,
     randomTransitionProgress: 1, // 0 to 1, starts at 1 (fully at new target)
+    color: '#FFFFFF', // Default white color
   });
+  
+  // Initialize color inputs with circle colors
+  if (circles.length > 0 && circle1ColorInput) {
+    circle1ColorInput.value = circles[0].color || '#FFFFFF';
+  }
+  if (circles.length > 1 && circle2ColorInput) {
+    circle2ColorInput.value = circles[1].color || '#FFFFFF';
+  }
+  if (circles.length > 2 && circle3ColorInput) {
+    circle3ColorInput.value = circles[2].color || '#FFFFFF';
+  }
   
   // Start animation
   drawCircles();
@@ -2469,6 +2519,7 @@ function initCircleButton() {
 }
 
 // Update circle positions based on patterns
+// Completely rewritten for consistent speed and smooth movement
 function updateCirclePositions() {
   const currentTime = Date.now();
   let deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
@@ -2482,7 +2533,7 @@ function updateCirclePositions() {
   
   const centerX = circleButtonCanvas.width / 2;
   const centerY = circleButtonCanvas.height / 2;
-  const wanderRadius = 35; // Smaller wander area
+  const wanderRadius = 30; // Reduced to ensure all patterns stay well within bounds
   
   // Update hover animation progress
   // Keep circles collected if button is pressed, even if hover state changes
@@ -2549,131 +2600,100 @@ function updateCirclePositions() {
   currentHoverCenterY = hoverCenterY;
   
   circles.forEach((circle, index) => {
-    // Calculate pattern position first
+    // Calculate pattern position with guaranteed bounds
     let patternX = centerX;
     let patternY = centerY;
     
-    // Normal pattern movement
+    // Use consistent time-based movement
     const t = animationTime + circle.timeOffset / 1000;
     
-    // Smoothly transition angle speed and frequencies (time-based for constant speed)
-    if (hoverAnimationProgress === 0) {
-      // In default state, make transitions very smooth and slow
-      if (circle.targetAngleSpeed !== undefined) {
-        const speedLerpPerSecond = 0.5; // Lerp rate per second
-        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerpPerSecond * deltaTime;
-      }
-      
-      // Smoothly transition frequencies (very slowly, time-based)
-      if (circle.targetFreq1 !== undefined && currentTime > circle.freqChangeTime) {
-        const freqLerpPerSecond = 0.3; // Lerp rate per second
-        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerpPerSecond * deltaTime;
-        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerpPerSecond * deltaTime;
-        
-        // Periodically set new target frequencies (less frequently)
-        if (Math.abs(circle.freq1 - circle.targetFreq1) < 0.0001) {
-          circle.targetFreq1 = 0.08 + Math.random() * 0.05;
-          circle.targetFreq2 = 0.12 + Math.random() * 0.05;
-          circle.freqChangeTime = currentTime + 5000 + Math.random() * 3000; // Less frequent changes
-        }
-      }
-    } else {
-      // When hovered, use slower smooth transitions to avoid bouncing (time-based)
-      if (circle.targetAngleSpeed !== undefined) {
-        const speedLerpPerSecond = 0.8; // Lerp rate per second
-        circle.angleSpeed += (circle.targetAngleSpeed - circle.angleSpeed) * speedLerpPerSecond * deltaTime;
-      }
-      
-      if (circle.targetFreq1 !== undefined && currentTime > circle.freqChangeTime) {
-        const freqLerpPerSecond = 0.5; // Lerp rate per second
-        circle.freq1 += (circle.targetFreq1 - circle.freq1) * freqLerpPerSecond * deltaTime;
-        circle.freq2 += (circle.targetFreq2 - circle.freq2) * freqLerpPerSecond * deltaTime;
-        
-        if (Math.abs(circle.freq1 - circle.targetFreq1) < 0.001) {
-          circle.targetFreq1 = 0.08 + Math.random() * 0.05;
-          circle.targetFreq2 = 0.12 + Math.random() * 0.05;
-          circle.freqChangeTime = currentTime + 5000 + Math.random() * 3000; // Less frequent changes
-        }
-      }
-    }
+    // Base speed in radians per second (constant, not frame-based)
+    const baseSpeed = 0.3; // Radians per second - consistent speed
+    const speed = baseSpeed * circleSpeedMultiplier;
     
     if (circle.patternType === 'orbital') {
-      // Orbital: base point drifts, circle orbits around it
-      const baseDriftX = Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * 8; // Apply speed multiplier
-      const baseDriftY = Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * 8; // Apply speed multiplier
-      circle.baseX = centerX + baseDriftX;
-      circle.baseY = centerY + baseDriftY;
+      // Orbital: circle orbits around a drifting base point
+      // Use fixed, bounded amplitudes to ensure we never exceed wander radius
+      const maxDrift = 8; // Base drift amplitude
+      const maxOrbit = 12; // Orbit radius
+      // Ensure total never exceeds wander radius: maxDrift + maxOrbit < wanderRadius
       
-      circle.angle += circle.angleSpeed * circleSpeedMultiplier * deltaTime; // Time-based: apply speed multiplier and deltaTime
-      const orbitX = Math.cos(circle.angle + circle.phase) * circle.orbitRadius;
-      const orbitY = Math.sin(circle.angle + circle.phase) * circle.orbitRadius;
+      // Base point drifts slowly
+      const driftX = Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * maxDrift;
+      const driftY = Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * maxDrift;
       
-      patternX = circle.baseX + orbitX;
-      patternY = circle.baseY + orbitY;
+      // Circle orbits around base point
+      circle.angle += speed * deltaTime; // Constant angular velocity
+      const orbitX = Math.cos(circle.angle + circle.phase) * maxOrbit;
+      const orbitY = Math.sin(circle.angle + circle.phase) * maxOrbit;
+      
+      patternX = centerX + driftX + orbitX;
+      patternY = centerY + driftY + orbitY;
+      
     } else if (circle.patternType === 'figure8') {
-      // Figure-8: parametric lemniscate
-      circle.angle += circle.angleSpeed * circleSpeedMultiplier * deltaTime; // Time-based: apply speed multiplier and deltaTime
-      const a = circle.orbitRadius;
+      // Figure-8: Lemniscate of Bernoulli
+      // Constrain size to ensure it stays within bounds
+      const maxSize = 12; // Maximum size of figure-8
+      
+      circle.angle += speed * deltaTime; // Constant angular velocity
       const tParam = circle.angle + circle.phase;
-      // Lemniscate of Bernoulli: x = a*sin(t), y = a*sin(t)*cos(t)
-      const figure8X = a * Math.sin(tParam);
-      const figure8Y = a * Math.sin(tParam) * Math.cos(tParam);
       
-      // Add slow drift to base
-      const baseDriftX = Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * 6; // Apply speed multiplier
-      const baseDriftY = Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * 6; // Apply speed multiplier
+      // Lemniscate: x = a*sin(t), y = a*sin(t)*cos(t)
+      // Maximum distance from center is approximately a
+      const figure8X = maxSize * Math.sin(tParam);
+      const figure8Y = maxSize * Math.sin(tParam) * Math.cos(tParam);
       
-      patternX = centerX + figure8X + baseDriftX;
-      patternY = centerY + figure8Y + baseDriftY;
+      // Add slow drift
+      const maxDrift = 6;
+      const driftX = Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * maxDrift;
+      const driftY = Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * maxDrift;
+      
+      patternX = centerX + figure8X + driftX;
+      patternY = centerY + figure8Y + driftY;
+      
     } else if (circle.patternType === 'rhythmic') {
-      // Rhythmic random walk: sine wave base with random walk
-      const baseX = centerX + Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * 10; // Apply speed multiplier
-      const baseY = centerY + Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * 10; // Apply speed multiplier
+      // Rhythmic: sine wave base with smooth random offset
+      const baseAmplitude = 8; // Base sine wave amplitude
+      const maxOffset = 6; // Maximum random offset
+      // Total: baseAmplitude + maxOffset = 14, well within wanderRadius of 30
       
-      // Update random walk target periodically with smooth transition
+      // Base sine wave movement
+      const baseX = centerX + Math.sin(t * circle.freq1 * 2 * Math.PI * circleSpeedMultiplier) * baseAmplitude;
+      const baseY = centerY + Math.cos(t * circle.freq2 * 2 * Math.PI * circleSpeedMultiplier) * baseAmplitude;
+      
+      // Update random target periodically (every 3-5 seconds)
       if (currentTime > circle.randomChangeTime) {
-        circle.prevRandomTargetX = circle.randomTargetX;
-        circle.prevRandomTargetY = circle.randomTargetY;
-        circle.randomTargetX = (Math.random() - 0.5) * 10;
-        circle.randomTargetY = (Math.random() - 0.5) * 10;
-        circle.randomChangeTime = currentTime + 2000 + Math.random() * 2000;
-        circle.randomTransitionProgress = 0; // Start transition
+        circle.randomTargetX = (Math.random() - 0.5) * maxOffset * 2; // -maxOffset to maxOffset
+        circle.randomTargetY = (Math.random() - 0.5) * maxOffset * 2;
+        circle.randomChangeTime = currentTime + 3000 + Math.random() * 2000;
       }
       
-      // Smoothly transition between old and new random targets (time-based for constant speed)
-      const transitionSpeedPerSecond = 1.0; // Progress per second
-      const randomLerpPerSecond = 1.0 * circleSpeedMultiplier; // Lerp rate per second
+      // Smoothly move toward random target (constant speed lerp)
+      const lerpSpeed = 2.0; // Units per second
+      const lerpFactor = Math.min(1.0, lerpSpeed * deltaTime);
+      circle.randomOffsetX += (circle.randomTargetX - circle.randomOffsetX) * lerpFactor;
+      circle.randomOffsetY += (circle.randomTargetY - circle.randomOffsetY) * lerpFactor;
       
-      if (circle.randomTransitionProgress < 1) {
-        circle.randomTransitionProgress = Math.min(1, circle.randomTransitionProgress + transitionSpeedPerSecond * deltaTime);
-        const smoothProgress = circle.randomTransitionProgress * circle.randomTransitionProgress * (3 - 2 * circle.randomTransitionProgress); // Smoothstep
-        const currentTargetX = circle.prevRandomTargetX + (circle.randomTargetX - circle.prevRandomTargetX) * smoothProgress;
-        const currentTargetY = circle.prevRandomTargetY + (circle.randomTargetY - circle.prevRandomTargetY) * smoothProgress;
-        
-        // Smoothly move toward current target (time-based)
-        circle.randomOffsetX += (currentTargetX - circle.randomOffsetX) * randomLerpPerSecond * deltaTime;
-        circle.randomOffsetY += (currentTargetY - circle.randomOffsetY) * randomLerpPerSecond * deltaTime;
-      } else {
-        // Smoothly move toward random target (time-based)
-        circle.randomOffsetX += (circle.randomTargetX - circle.randomOffsetX) * randomLerpPerSecond * deltaTime;
-        circle.randomOffsetY += (circle.randomTargetY - circle.randomOffsetY) * randomLerpPerSecond * deltaTime;
+      // Constrain offset to maxOffset
+      const offsetDist = Math.sqrt(circle.randomOffsetX * circle.randomOffsetX + circle.randomOffsetY * circle.randomOffsetY);
+      if (offsetDist > maxOffset) {
+        const scale = maxOffset / offsetDist;
+        circle.randomOffsetX *= scale;
+        circle.randomOffsetY *= scale;
       }
       
       patternX = baseX + circle.randomOffsetX;
       patternY = baseY + circle.randomOffsetY;
     }
     
-    // Constrain pattern position within wander area (time-based smooth constraint)
+    // Final safety constraint - clamp to wander radius if needed
     const dx = patternX - centerX;
     const dy = patternY - centerY;
     const distance = Math.sqrt(dx * dx + dy * dy);
     if (distance > wanderRadius) {
-      // Smoothly constrain instead of snapping (time-based)
-      const constraintLerpPerSecond = 10.0; // Lerp rate per second
-      const targetX = centerX + (dx / distance) * wanderRadius;
-      const targetY = centerY + (dy / distance) * wanderRadius;
-      patternX += (targetX - patternX) * constraintLerpPerSecond * deltaTime;
-      patternY += (targetY - patternY) * constraintLerpPerSecond * deltaTime;
+      const scale = wanderRadius / distance;
+      patternX = centerX + dx * scale;
+      patternY = centerY + dy * scale;
     }
     
     // Handle position based on collected state and hover
@@ -2720,36 +2740,60 @@ function drawCircles() {
   // Update positions
   updateCirclePositions();
   
-  // Draw each circle (color depends on background, or blue when screenshot mode is active)
-  let circleColor;
+  // Calculate opacity based on mouse distance to circle button
+  // When in X state (collected), always use max opacity regardless of mouse distance
+  let dynamicOpacity;
   if (isScreenshotMode) {
-    circleColor = 'rgba(59, 130, 246, 0.5)'; // Blue when screenshot mode is active (50% opacity)
+    dynamicOpacity = 0.5; // Blue when screenshot mode is active (50% opacity)
     // Use normal blending for screenshot mode
     circleButtonCtx.globalCompositeOperation = 'source-over';
   } else {
-    // Calculate opacity based on mouse distance to circle button
-    // Closer mouse = higher opacity (more intense blending)
-    // Further mouse = lower opacity (lighter blending)
-    const maxDistance = 350; // Distance at which opacity is at minimum
-    const minOpacity = 0.15; // Minimum opacity when far away (very light)
-    const maxOpacity = 0.5; // Maximum opacity when close (more intense)
+    if (isCirclesCollected) {
+      // In X state: always use maximum opacity
+      dynamicOpacity = 0.5; // Maximum opacity
+    } else {
+      // Normal state: opacity based on mouse distance
+      // Closer mouse = higher opacity (more intense blending)
+      // Further mouse = lower opacity (lighter blending)
+      const maxDistance = 350; // Distance at which opacity is at minimum
+      const minOpacity = 0.25; // Minimum opacity when far away (very light)
+      const maxOpacity = 0.5; // Maximum opacity when close (more intense)
+      
+      // Clamp distance and calculate opacity
+      const clampedDistance = Math.min(mouseDistanceToCircleButton, maxDistance);
+      const distanceRatio = clampedDistance / maxDistance; // 0 = close, 1 = far
+      dynamicOpacity = maxOpacity - (maxOpacity - minOpacity) * distanceRatio;
+    }
     
-    // Clamp distance and calculate opacity
-    const clampedDistance = Math.min(mouseDistanceToCircleButton, maxDistance);
-    const distanceRatio = clampedDistance / maxDistance; // 0 = close, 1 = far
-    const dynamicOpacity = maxOpacity - (maxOpacity - minOpacity) * distanceRatio;
-    
-    circleColor = `rgba(255, 255, 255, ${dynamicOpacity})`; // Dynamic opacity based on mouse distance
     // Use selected blend mode so overlapping circles can create different visual effects
     // 'screen' makes overlapping areas appear brighter and more solid
     // 'lighter' adds the colors together for additive blending
     // 'lighten' takes the lighter of the two colors
     circleButtonCtx.globalCompositeOperation = circuitBlendMode;
   }
-  circles.forEach(circle => {
+  
+  // Draw each circle with its individual color
+  circles.forEach((circle, index) => {
+    // Get the circle's color (default to white if not set)
+    let circleHexColor = circle.color || '#FFFFFF';
+    
+    // In screenshot mode, use blue instead of the circle's color
+    if (isScreenshotMode) {
+      circleHexColor = '#3B82F6'; // Blue color
+    }
+    
+    // Convert hex to RGB
+    const hex = circleHexColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    
+    // Apply dynamic opacity to the circle's color
+    const circleColorWithOpacity = `rgba(${r}, ${g}, ${b}, ${dynamicOpacity})`;
+    
     circleButtonCtx.beginPath();
     circleButtonCtx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
-    circleButtonCtx.fillStyle = circleColor;
+    circleButtonCtx.fillStyle = circleColorWithOpacity;
     circleButtonCtx.fill();
   });
   // Reset to default blend mode after drawing circles

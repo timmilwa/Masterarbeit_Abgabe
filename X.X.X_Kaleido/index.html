@@ -129,55 +129,76 @@
             display: none;
         }
 
-        /* Settings Button */
-        #settings-button {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            width: 48px;
-            height: 48px;
-            border-radius: 8px;
-            background-color: #ef4444;
-            color: white;
-            border: 1px solid white;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            z-index: 2000;
-            transition: all 0.2s;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
 
-        #settings-button:hover {
-            background-color: #dc2626;
-            transform: scale(1.05);
-        }
-
-        #settings-button:active {
-            transform: scale(0.95);
-        }
-
-        /* Settings Popup */
-        #settings-popup {
+        /* Settings Modal Overlay */
+        #settings-modal-overlay {
             display: none;
             position: fixed;
-            bottom: 80px;
-            left: 20px;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 3000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #settings-modal-overlay.visible {
+            display: flex;
+        }
+
+        /* Settings Modal */
+        #settings-modal {
             background-color: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(0, 0, 0, 0.1);
-            border-radius: 8px;
-            padding: 16px;
-            z-index: 2001;
-            min-width: 200px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            border-radius: 12px;
+            padding: 0;
+            z-index: 3001;
+            min-width: 400px;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            overflow-x: visible;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            animation: modalFadeIn 0.2s ease-out;
+            position: relative;
         }
 
-        #settings-popup.visible {
-            display: block;
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .settings-modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .settings-modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: oklch(0.145 0 0);
+            margin: 0;
+        }
+
+        .settings-modal-content {
+            padding: 24px;
+        }
+
+        /* Keep old popup styles for backward compatibility but hide it */
+        #settings-popup {
+            display: none !important;
         }
 
         .settings-section {
@@ -546,57 +567,73 @@
     <!-- Hidden file input -->
     <input type="file" id="file-input" accept="image/*">
 
-    <!-- Settings Button -->
-    <button id="settings-button" title="Settings">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
-            <circle cx="12" cy="12" r="3"></circle>
-        </svg>
-    </button>
 
-    <!-- Settings Popup -->
-    <div id="settings-popup">
-        <div class="settings-section">
-            <label class="settings-label" for="tint-color-input">Background Tint Color</label>
-            <input type="text" id="tint-color-input" class="settings-input" placeholder="#C8C8C8" value="#C8C8C8">
-            <div id="color-preview" class="color-preview"></div>
-        </div>
-        <div class="settings-section">
-            <label class="settings-label" for="tint-opacity-slider">Tint Opacity</label>
-            <input type="range" id="tint-opacity-slider" class="settings-slider" min="0" max="100" value="50" step="1">
-            <div class="settings-slider-value">
-                <span id="tint-opacity-value">50%</span>
+    <!-- Settings Modal -->
+    <div id="settings-modal-overlay">
+        <div id="settings-modal">
+            <div class="settings-modal-header">
+                <h2 class="settings-modal-title">Settings</h2>
+            </div>
+            <div class="settings-modal-content">
+                <div class="settings-section">
+                    <label class="settings-label" for="tint-color-input">Background Tint Color</label>
+                    <input type="text" id="tint-color-input" class="settings-input" placeholder="#C8C8C8" value="#C8C8C8">
+                    <div id="color-preview" class="color-preview"></div>
+                </div>
+                <div class="settings-section">
+                    <label class="settings-label" for="tint-opacity-slider">Tint Opacity</label>
+                    <input type="range" id="tint-opacity-slider" class="settings-slider" min="0" max="100" value="50" step="1">
+                    <div class="settings-slider-value">
+                        <span id="tint-opacity-value">50%</span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <label class="settings-label" for="saturation-slider">Background Saturation</label>
+                    <input type="range" id="saturation-slider" class="settings-slider" min="0" max="200" value="0" step="1">
+                    <div class="settings-slider-value">
+                        <span id="saturation-value">0%</span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <label class="settings-label" for="circle-speed-slider">Circle Button Speed</label>
+                    <input type="range" id="circle-speed-slider" class="settings-slider" min="0" max="200" value="72" step="1">
+                    <div class="settings-slider-value">
+                        <span id="circle-speed-value">72%</span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <label class="settings-label" for="circuit-blend-mode-select">Circuit Blend Mode</label>
+                    <select id="circuit-blend-mode-select" class="settings-input">
+                        <option value="source-over">Normal (source-over)</option>
+                        <option value="screen">Screen</option>
+                        <option value="lighten">Lighten</option>
+                        <option value="lighter" selected>Lighter (Additive)</option>
+                        <option value="color-dodge">Color Dodge</option>
+                        <option value="overlay">Overlay</option>
+                        <option value="soft-light">Soft Light</option>
+                        <option value="hard-light">Hard Light</option>
+                        <option value="multiply">Multiply</option>
+                        <option value="difference">Difference</option>
+                    </select>
+                </div>
+                <div class="settings-section">
+                    <label class="settings-label" for="circle-1-color-input">Circle 1 Color (Orbital)</label>
+                    <input type="text" id="circle-1-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
+                </div>
+                <div class="settings-section">
+                    <label class="settings-label" for="circle-2-color-input">Circle 2 Color (Figure-8)</label>
+                    <input type="text" id="circle-2-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
+                </div>
+                <div class="settings-section">
+                    <label class="settings-label" for="circle-3-color-input">Circle 3 Color (Rhythmic)</label>
+                    <input type="text" id="circle-3-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
+                </div>
             </div>
         </div>
-        <div class="settings-section">
-            <label class="settings-label" for="saturation-slider">Background Saturation</label>
-            <input type="range" id="saturation-slider" class="settings-slider" min="0" max="200" value="0" step="1">
-            <div class="settings-slider-value">
-                <span id="saturation-value">0%</span>
-            </div>
-        </div>
-        <div class="settings-section">
-            <label class="settings-label" for="circle-speed-slider">Circle Button Speed</label>
-            <input type="range" id="circle-speed-slider" class="settings-slider" min="0" max="200" value="72" step="1">
-            <div class="settings-slider-value">
-                <span id="circle-speed-value">72%</span>
-            </div>
-        </div>
-        <div class="settings-section">
-            <label class="settings-label" for="circuit-blend-mode-select">Circuit Blend Mode</label>
-            <select id="circuit-blend-mode-select" class="settings-input">
-                <option value="source-over">Normal (source-over)</option>
-                <option value="screen">Screen</option>
-                <option value="lighten">Lighten</option>
-                <option value="lighter" selected>Lighter (Additive)</option>
-                <option value="color-dodge">Color Dodge</option>
-                <option value="overlay">Overlay</option>
-                <option value="soft-light">Soft Light</option>
-                <option value="hard-light">Hard Light</option>
-                <option value="multiply">Multiply</option>
-                <option value="difference">Difference</option>
-            </select>
-        </div>
+    </div>
+
+    <!-- Old Settings Popup (hidden, kept for backward compatibility) -->
+    <div id="settings-popup" style="display: none;">
     </div>
 
     <!-- SVG filter for blur effect -->

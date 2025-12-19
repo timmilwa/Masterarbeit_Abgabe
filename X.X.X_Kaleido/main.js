@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Menu, nativeImage } = require('electron');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 const chokidar = require('chokidar');
@@ -124,6 +124,15 @@ ipcMain.handle('get-window-bounds', async () => {
 });
 
 app.whenReady().then(() => {
+  // Set dock icon (macOS)
+  if (process.platform === 'darwin' && app.dock) {
+    const iconPath = path.join(__dirname, 'assets', 'icon_dock_256.png');
+    const icon = nativeImage.createFromPath(iconPath);
+    if (!icon.isEmpty()) {
+      app.dock.setIcon(icon);
+    }
+  }
+  
   // Show app in dock (macOS)
   app.dock?.show();
   
