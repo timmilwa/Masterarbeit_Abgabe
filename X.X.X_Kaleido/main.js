@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Menu, nativeImage, dialog } = require('electron');
 const path = require('path');
-const { execFile, spawn } = require('child_process');
-const chokidar = require('chokidar');
+const { execFile, spawn, exec } = require('child_process');
+// Only require chokidar in development mode
+const chokidar = process.env.NODE_ENV !== 'production' ? require('chokidar') : null;
 
 // Set application name for macOS dock and menu bar
 app.setName('Kaleido');
@@ -189,17 +190,64 @@ app.whenReady().then(() => {
 
   keyListener.stdout.on('data', (data) => {
     const message = data.toString().trim();
-    if (message.includes('TOGGLE_SCREENSHOT')) {
-      const wins = BrowserWindow.getAllWindows();
-      if (wins.length > 0) {
-        wins[0].focus();
+    const wins = BrowserWindow.getAllWindows();
+    if (wins.length > 0) {
+      wins[0].focus();
+      if (message.includes('TOGGLE_SCREENSHOT')) {
         wins[0].webContents.send('toggle-screenshot');
+      } else if (message.includes('OPEN_CANVAS')) {
+        wins[0].webContents.send('open-canvas');
       }
     }
   });
 
   keyListener.stderr.on('data', (data) => {
-    console.error('Key listener error:', data.toString());
+    const errorMessage = data.toString();
+    console.error('Key listener error:', errorMessage);
+    
+    // Check if it's a permission error
+    if (errorMessage.includes('Accessibility permissions') || errorMessage.includes('Failed to create global keyboard monitor')) {
+      // Show native dialog after a short delay to ensure window is ready
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          dialog.showMessageBox(mainWindow, {
+            type: 'warning',
+            title: 'Accessibility Permissions Required',
+            message: 'Keyboard shortcuts require accessibility permissions',
+            detail: 'Kaleido needs accessibility permissions to monitor keyboard shortcuts.\n\n' +
+                    'Please grant permissions:\n' +
+                    '1. Open System Settings\n' +
+                    '2. Go to Privacy & Security > Accessibility\n' +
+                    '3. Enable Kaleido\n' +
+                    '4. Restart the app',
+            buttons: ['Open System Settings', 'OK'],
+            defaultId: 0,
+            cancelId: 1
+          }).then((result) => {
+            if (result.response === 0) {
+              // Open System Settings to Accessibility pane
+              exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+            }
+          });
+        }
+      }, 1000);
+    }
+  });
+
+  keyListener.on('error', (error) => {
+    console.error('Failed to start key listener:', error);
+    if (mainWindow) {
+      mainWindow.webContents.send('key-listener-error', 'Failed to start keyboard listener. Please check accessibility permissions in System Settings > Privacy & Security > Accessibility.');
+    }
+  });
+
+  keyListener.on('exit', (code, signal) => {
+    if (code !== 0 && code !== null) {
+      console.error(`Key listener exited with code ${code}`);
+      if (mainWindow) {
+        mainWindow.webContents.send('key-listener-error', 'Keyboard listener stopped. Please grant accessibility permissions in System Settings > Privacy & Security > Accessibility and restart the app.');
+      }
+    }
   });
 
   // Auto-Reload: Watch for file changes

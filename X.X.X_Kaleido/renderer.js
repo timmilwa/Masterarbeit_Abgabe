@@ -51,7 +51,7 @@ let isResizing = false;
 let resizeHandle = null;
 let dragStartX = 0;
 let dragStartY = 0;
-let backgroundTintColor = '#C8C8C8'; // Default light gray
+let backgroundTintColor = '#F4F4F7'; // Default background color
 let backgroundTintOpacity = 0.5; // Default opacity (50%)
 let backgroundSaturation = 0; // Default saturation (0% = grayscale)
 let isReflectionMode = false;
@@ -72,7 +72,7 @@ let animationEndTranslateY = 0;
 let backgroundFadeOpacity = 0; // Background fade-in opacity (0 to 1)
 let isBackgroundFading = false; // Track if background is currently fading in
 let backgroundFadeStartTime = 0;
-let backgroundFadeDuration = 500; // Fade duration in milliseconds
+let backgroundFadeDuration = 300; // Fade duration in milliseconds
 let screenshotHandlers = null; // Store screenshot event handlers for cleanup
 let savedCanvasScale = null; // Saved canvas scale when overlay is closed
 let savedCanvasTranslateX = null; // Saved canvas translate X when overlay is closed
@@ -575,10 +575,6 @@ function draw() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Fill with black background first to prevent desktop showing through blurred edges
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
   // Draw background with blur - fully opaque, black and white, light gray tint
   if (backgroundImage) {
     ctx.save();
@@ -594,6 +590,21 @@ function draw() {
         isBackgroundFading = false;
         backgroundFadeOpacity = 1;
       }
+    }
+    
+    // When fading in, start with the background tint color as base instead of black
+    if (isBackgroundFading && backgroundFadeOpacity < 1) {
+      // Fill with background tint color that fades in as the base
+      const hex = backgroundTintColor.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${backgroundFadeOpacity})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      // Fill with black background when fully faded in to prevent desktop showing through blurred edges
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
     
     ctx.globalAlpha = backgroundFadeOpacity; // Use fade opacity
@@ -623,6 +634,10 @@ function draw() {
     if (isBackgroundFading) {
       requestAnimationFrame(() => draw());
     }
+  } else {
+    // Fill with black background if no background image (prevents desktop showing through)
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
   // Apply transform
@@ -1502,6 +1517,15 @@ canvas.addEventListener('wheel', (e) => {
 // IPC Listeners
 ipcRenderer.on('toggle-screenshot', () => {
   startScreenshotMode();
+});
+
+ipcRenderer.on('open-canvas', () => {
+  // Hide action buttons and uncollect circles
+  hideActionButtons();
+  // Open overlay (toggleOverlay handles click-through)
+  if (!isOverlayActive) {
+    toggleOverlay();
+  }
 });
 
 // End screenshot mode

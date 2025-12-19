@@ -11,9 +11,36 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "dependencies": {
+    "chokidar": "^3.5.3"
+  },
   "devDependencies": {
-    "chokidar": "^3.5.3",
     "electron": "^33.2.1",
     "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.kaleido.overlay",
+    "productName": "Kaleido",
+    "mac": {
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.utilities",
+      "entitlements": "entitlements.mac.plist",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Kaleido needs accessibility permissions to monitor keyboard shortcuts for toggling screenshot mode.",
+        "NSHighResolutionCapable": true
+      }
+    },
+    "files": [
+      "**/*",
+      "assets/**/*",
+      "main.js",
+      "index.html",
+      "renderer.js",
+      "key_listener",
+      "selection_listener",
+      "get_windows"
+    ]
   }
 }
