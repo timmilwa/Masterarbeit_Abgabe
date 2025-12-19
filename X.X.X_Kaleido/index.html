@@ -294,7 +294,7 @@
             display: none;
             position: fixed;
             right: 40px;
-            padding: 14px 16px;
+            padding: 8px 16px;
             background: rgba(255, 255, 255, 0.25);
             border: 1px solid rgba(255, 255, 255, 0.4);
             border-radius: 12px;
@@ -319,23 +319,11 @@
 
         .action-button.animating {
             bottom: 60px !important; /* Start position - stacked near circle button */
+            opacity: 0 !important; /* Start invisible when stacked */
         }
 
         .action-button.visible {
             display: flex;
-            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-
-
-        @keyframes actionButtonUnfold {
-            from {
-                opacity: 0;
-                transform: scale(0.9);
-            }
-            to {
-                opacity: 1;
-                transform: scale(1);
-            }
         }
 
         @keyframes actionButtonFold {
@@ -364,12 +352,11 @@
         }
 
         #action-settings-button {
-            bottom: 300px;
+            bottom: 260px;
         }
 
         #action-settings-button.visible {
-            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards,
-                       actionButtonSlideUp1 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation: actionButtonSlideUp1 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
         #action-settings-button:not(.visible) {
@@ -378,12 +365,11 @@
         }
 
         #action-open-canvas-button {
-            bottom: 220px;
+            bottom: 200px;
         }
 
         #action-open-canvas-button.visible {
-            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards,
-                       actionButtonSlideUp2 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation: actionButtonSlideUp2 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
         #action-open-canvas-button:not(.visible) {
@@ -396,8 +382,7 @@
         }
 
         #action-capture-artefact-button.visible {
-            animation: actionButtonUnfold 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards,
-                       actionButtonSlideUp3 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation: actionButtonSlideUp3 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
         #action-capture-artefact-button:not(.visible) {
@@ -408,33 +393,45 @@
         @keyframes actionButtonSlideUp1 {
             from {
                 bottom: 60px;
+                opacity: 0;
+                transform: scale(0.9);
             }
             to {
-                bottom: 300px;
+                bottom: 260px;
+                opacity: 1;
+                transform: scale(1);
             }
         }
 
         @keyframes actionButtonSlideUp2 {
             from {
                 bottom: 60px;
+                opacity: 0;
+                transform: scale(0.9);
             }
             to {
-                bottom: 220px;
+                bottom: 200px;
+                opacity: 1;
+                transform: scale(1);
             }
         }
 
         @keyframes actionButtonSlideUp3 {
             from {
                 bottom: 60px;
+                opacity: 0;
+                transform: scale(0.9);
             }
             to {
                 bottom: 140px;
+                opacity: 1;
+                transform: scale(1);
             }
         }
 
         @keyframes actionButtonSlideDown1 {
             from {
-                bottom: 300px;
+                bottom: 260px;
             }
             to {
                 bottom: 60px;
@@ -443,7 +440,7 @@
 
         @keyframes actionButtonSlideDown2 {
             from {
-                bottom: 220px;
+                bottom: 200px;
             }
             to {
                 bottom: 60px;

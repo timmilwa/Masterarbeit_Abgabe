@@ -336,8 +336,11 @@ function toggleActionButtons() {
     setTimeout(() => {
       if (!actionSettingsButton.classList.contains('visible')) {
         actionSettingsButton.style.display = 'none';
+        actionSettingsButton.style.opacity = '';
         actionOpenCanvasButton.style.display = 'none';
+        actionOpenCanvasButton.style.opacity = '';
         actionCaptureArtefactButton.style.display = 'none';
+        actionCaptureArtefactButton.style.opacity = '';
         // Reset bottom positions for next time
         actionSettingsButton.style.bottom = '';
         actionOpenCanvasButton.style.bottom = '';
@@ -375,9 +378,13 @@ function toggleActionButtons() {
     
     // Reset display and initial position before adding visible class
     // All buttons start at the same stacked position (60px from bottom)
+    // Set them to be invisible initially (they'll fade in as they move up)
     actionSettingsButton.style.display = 'flex';
+    actionSettingsButton.style.opacity = '0';
     actionOpenCanvasButton.style.display = 'flex';
+    actionOpenCanvasButton.style.opacity = '0';
     actionCaptureArtefactButton.style.display = 'flex';
+    actionCaptureArtefactButton.style.opacity = '0';
     
     // Add animating class to set initial position
     actionSettingsButton.classList.add('animating');
