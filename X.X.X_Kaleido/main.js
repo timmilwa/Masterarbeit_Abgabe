@@ -106,6 +106,26 @@ ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
   }
 });
 
+// IPC Handler für Developer Tools (toggle)
+ipcMain.on('toggle-dev-tools', () => {
+  if (mainWindow) {
+    if (mainWindow.webContents.isDevToolsOpened()) {
+      mainWindow.webContents.closeDevTools();
+    } else {
+      // Open as detached (separate floating window)
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
+  }
+});
+
+// Also keep the old handler for backwards compatibility
+ipcMain.on('open-dev-tools', () => {
+  if (mainWindow) {
+    // Open as detached (separate floating window)
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+});
+
 // IPC Handler für Desktop Capturer
 ipcMain.handle('get-sources', async () => {
   const sources = await desktopCapturer.getSources({ types: ['screen'] });

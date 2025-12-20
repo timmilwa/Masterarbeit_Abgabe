@@ -12,7 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "chokidar": "^3.5.3"
+    "chokidar": "^3.5.3",
+    "lucide": "^0.562.0"
   },
   "devDependencies": {
     "electron": "^33.2.1",

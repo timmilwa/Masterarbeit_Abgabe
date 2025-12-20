@@ -11,42 +11,87 @@
             box-sizing: border-box;
         }
 
+        html {
+            width: 100vw !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            transform: none !important;
+            zoom: 1 !important;
+        }
+
         body {
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             overflow: hidden;
             background: transparent;
-            width: 100vw;
-            height: 100vh;
+            width: 100vw !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
             -webkit-font-smoothing: antialiased;
+            transform: none !important;
+            zoom: 1 !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
         }
 
         /* Overlay Container */
         #overlay-container {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            display: none !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: transparent;
             z-index: 1000;
+            overflow: hidden;
+            transform: none !important;
+            zoom: 1 !important;
+            min-width: 100vw !important;
+            min-height: 100vh !important;
+            max-width: 100vw !important;
+            max-height: 100vh !important;
         }
 
         #overlay-container.active {
-            display: block;
+            display: block !important;
+            visibility: visible !important;
         }
 
         /* Canvas */
         #canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            /* Width and height will be set via inline styles to ensure fullscreen */
         }
 
         #canvas.panning {
             cursor: grabbing;
+        }
+
+        #canvas.fade-in {
+            animation: canvasFadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes canvasFadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
         }
 
 
@@ -99,6 +144,65 @@
             height: 18px;
         }
 
+        /* FPS Counter */
+        #fps-counter {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            color: #ffffff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: ui-monospace, monospace;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 2000;
+            pointer-events: none;
+            user-select: none;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #overlay-container.active #fps-counter.visible {
+            display: flex;
+        }
+
+        #fps-counter-text {
+            pointer-events: none;
+            user-select: none;
+        }
+
+        #fps-counter-dpr {
+            pointer-events: none;
+            user-select: none;
+            opacity: 0.7;
+            font-size: 12px;
+        }
+
+        #fps-counter-settings-icon {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            pointer-events: auto;
+            opacity: 0.8;
+            transition: opacity 0.2s, transform 0.2s;
+            flex-shrink: 0;
+        }
+
+        #fps-counter-settings-icon:hover {
+            opacity: 1;
+            transform: rotate(90deg);
+        }
+
+        #fps-counter-settings-icon svg {
+            width: 100%;
+            height: 100%;
+            stroke: currentColor;
+        }
+
         /* Screenshot Selection Overlay */
         #screenshot-overlay {
             display: none;
@@ -114,6 +218,14 @@
 
         #screenshot-overlay.active {
             display: block;
+        }
+
+        #screenshot-overlay.camera-cursor {
+            cursor: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgNVY0QzE0IDMuNDQ3NzIgMTMuNTUyMyAzIDEzIDNIMTFDMTAuNDQ3NyAzIDEwIDMuNDQ3NzIgMTAgNFY1SDhDNi44OTU0MyA1IDYgNS44OTU0MyA2IDdWMTlDNiAyMC4xMDQ2IDYuODk1NDMgMjEgOCAyMUgxNkMxNy4xMDQ2IDIxIDE4IDIwLjEwNDYgMTggMTlWN0MxOCA1Ljg5NTQzIDE3LjEwNDYgNSAxNiA1SDE0WiIgc3Ryb2tlPSIjM2I4MmY2IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTMiIHI9IjMiIHN0cm9rZT0iIzNiODJmNiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=') 12 12, crosshair !important;
+        }
+
+        body.screenshot-mode {
+            cursor: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3ZnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgNVY0QzE0IDMuNDQ3NzIgMTMuNTUyMyAzIDEzIDNIMTFDMTAuNDQ3NyAzIDEwIDMuNDQ3NzIgMTAgNFY1SDhDNi44OTU0MyA1IDYgNS44OTU0MyA2IDdWMTlDNiAyMC4xMDQ2IDYuODk1NDMgMjEgOCAyMUgxNkMxNy4xMDQ2IDIxIDE4IDIwLjEwNDYgMTggMTlWN0MxOCA1Ljg5NTQzIDE3LjEwNDYgNSAxNiA1SDE0WiIgc3Ryb2tlPSIjM2I4MmY2IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTMiIHI9IjMiIHN0cm9rZT0iIzNiODJmNiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=') 12 12, crosshair !important;
         }
 
         #selection-box {
@@ -159,14 +271,16 @@
             border-radius: 12px;
             padding: 0;
             z-index: 3001;
-            min-width: 400px;
-            max-width: 500px;
-            max-height: 80vh;
-            overflow-y: auto;
-            overflow-x: visible;
+            width: 900px;
+            height: 700px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow: hidden;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
             animation: modalFadeIn 0.2s ease-out;
             position: relative;
+            display: flex;
+            flex-direction: column;
         }
 
         @keyframes modalFadeIn {
@@ -183,6 +297,10 @@
         .settings-modal-header {
             padding: 20px 24px;
             border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
         }
 
         .settings-modal-title {
@@ -192,8 +310,97 @@
             margin: 0;
         }
 
-        .settings-modal-content {
+        .settings-modal-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: oklch(0.145 0 0);
+            transition: all 0.2s;
+            padding: 0;
+        }
+
+        .settings-modal-close:hover {
+            background-color: #e9ebef;
+        }
+
+        .settings-modal-close svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+        }
+
+        .settings-modal-body {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .settings-sidebar {
+            width: 200px;
+            border-right: 1px solid rgba(0, 0, 0, 0.1);
+            background-color: rgba(0, 0, 0, 0.02);
+            padding: 16px 0;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .settings-tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+            font-size: 14px;
+            font-weight: 500;
+            color: oklch(0.145 0 0);
+            transition: all 0.2s;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            position: relative;
+        }
+
+        .settings-tab:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
+        .settings-tab.active {
+            background-color: rgba(0, 0, 0, 0.08);
+            color: oklch(0.145 0 0);
+        }
+
+        .settings-tab.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background-color: #030213;
+        }
+
+        .settings-content {
+            flex: 1;
             padding: 24px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .settings-tab-pane {
+            display: none;
+        }
+
+        .settings-tab-pane.active {
+            display: block;
+        }
+
+        .settings-modal-content {
+            padding: 0;
         }
 
         /* Keep old popup styles for backward compatibility but hide it */
@@ -252,6 +459,57 @@
             color: oklch(0.145 0 0);
             margin-top: 4px;
             text-align: right;
+        }
+
+        /* Toggle Switch */
+        .settings-toggle {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+            cursor: pointer;
+        }
+
+        .settings-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .settings-toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.2s;
+            border-radius: 24px;
+        }
+
+        .settings-toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.2s;
+            border-radius: 50%;
+        }
+
+        .settings-toggle input:checked + .settings-toggle-slider {
+            background-color: #030213;
+        }
+
+        .settings-toggle input:checked + .settings-toggle-slider:before {
+            transform: translateX(20px);
+        }
+
+        .settings-toggle input:focus + .settings-toggle-slider {
+            box-shadow: 0 0 1px #030213;
         }
 
         /* Reflection Mode Button */
@@ -557,6 +815,18 @@
 
         <!-- Reflection Mode Button -->
         <button id="reflection-button">Enter reflection</button>
+
+        <!-- FPS Counter -->
+        <div id="fps-counter">
+            <span id="fps-counter-text">FPS: --</span>
+            <span id="fps-counter-dpr">DPR: --</span>
+            <div id="fps-counter-settings-icon" title="Open Settings">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3m15.364 6.364l-4.243-4.243m-4.242 0L5.636 17.364m12.728 0l-4.243-4.243m-4.242 0L5.636 6.636"></path>
+                </svg>
+            </div>
+        </div>
     </div>
 
     <!-- Screenshot Selection Overlay -->
@@ -567,66 +837,185 @@
     <!-- Hidden file input -->
     <input type="file" id="file-input" accept="image/*">
 
+    <!-- Pin Placement UI -->
+    <div id="pin-placement-ui" style="display: none; position: fixed; z-index: 2000;">
+        <input type="text" id="pin-feature-input" placeholder="Enter feature description" style="padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;">
+        <button id="pin-confirm-button" style="margin-left: 8px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">+</button>
+    </div>
+
+    <!-- Control Panel Input Fields -->
+    <div id="control-panel-inputs" style="position: fixed; z-index: 2001; display: none; pointer-events: none;">
+        <input type="text" id="emotional-aspect-input" placeholder="Enter emotional aspect" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
+        <button id="emotional-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
+        <input type="text" id="value-aspect-input" placeholder="Enter value aspect" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
+        <button id="value-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
+    </div>
+
 
     <!-- Settings Modal -->
     <div id="settings-modal-overlay">
         <div id="settings-modal">
             <div class="settings-modal-header">
                 <h2 class="settings-modal-title">Settings</h2>
+                <button class="settings-modal-close" id="settings-modal-close" title="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
             </div>
-            <div class="settings-modal-content">
-                <div class="settings-section">
-                    <label class="settings-label" for="tint-color-input">Background Tint Color</label>
-                    <input type="text" id="tint-color-input" class="settings-input" placeholder="#F4F4F7" value="#F4F4F7">
-                    <div id="color-preview" class="color-preview"></div>
+            <div class="settings-modal-body">
+                <div class="settings-sidebar">
+                    <button class="settings-tab active" data-tab="appearance">Appearance</button>
+                    <button class="settings-tab" data-tab="ai">AI</button>
+                    <button class="settings-tab" data-tab="development">Development</button>
+                    <button class="settings-tab" data-tab="about">About</button>
+                    <button class="settings-tab" data-tab="help">Help</button>
                 </div>
-                <div class="settings-section">
-                    <label class="settings-label" for="tint-opacity-slider">Tint Opacity</label>
-                    <input type="range" id="tint-opacity-slider" class="settings-slider" min="0" max="100" value="50" step="1">
-                    <div class="settings-slider-value">
-                        <span id="tint-opacity-value">50%</span>
+                <div class="settings-content">
+                    <!-- Appearance Tab -->
+                    <div class="settings-tab-pane active" id="appearance-tab">
+                        <div class="settings-section">
+                            <label class="settings-label" for="tint-color-input">Background Tint Color</label>
+                            <input type="text" id="tint-color-input" class="settings-input" placeholder="#F4F4F7" value="#F4F4F7">
+                            <div id="color-preview" class="color-preview"></div>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="tint-opacity-slider">Tint Opacity</label>
+                            <input type="range" id="tint-opacity-slider" class="settings-slider" min="0" max="100" value="50" step="1">
+                            <div class="settings-slider-value">
+                                <span id="tint-opacity-value">50%</span>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="saturation-slider">Background Saturation</label>
+                            <input type="range" id="saturation-slider" class="settings-slider" min="0" max="200" value="0" step="1">
+                            <div class="settings-slider-value">
+                                <span id="saturation-value">0%</span>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="circle-speed-slider">Circle Button Speed</label>
+                            <input type="range" id="circle-speed-slider" class="settings-slider" min="0" max="200" value="72" step="1">
+                            <div class="settings-slider-value">
+                                <span id="circle-speed-value">72%</span>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="circuit-blend-mode-select">Circuit Blend Mode</label>
+                            <select id="circuit-blend-mode-select" class="settings-input">
+                                <option value="source-over">Normal (source-over)</option>
+                                <option value="screen">Screen</option>
+                                <option value="lighten">Lighten</option>
+                                <option value="lighter" selected>Lighter (Additive)</option>
+                                <option value="color-dodge">Color Dodge</option>
+                                <option value="overlay">Overlay</option>
+                                <option value="soft-light">Soft Light</option>
+                                <option value="hard-light">Hard Light</option>
+                                <option value="multiply">Multiply</option>
+                                <option value="difference">Difference</option>
+                            </select>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="circle-1-color-input">Circle 1 Color (Orbital)</label>
+                            <input type="text" id="circle-1-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="circle-2-color-input">Circle 2 Color (Figure-8)</label>
+                            <input type="text" id="circle-2-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="circle-3-color-input">Circle 3 Color (Rhythmic)</label>
+                            <input type="text" id="circle-3-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
+                        </div>
                     </div>
-                </div>
-                <div class="settings-section">
-                    <label class="settings-label" for="saturation-slider">Background Saturation</label>
-                    <input type="range" id="saturation-slider" class="settings-slider" min="0" max="200" value="0" step="1">
-                    <div class="settings-slider-value">
-                        <span id="saturation-value">0%</span>
+                    <!-- Development Tab -->
+                    <div class="settings-tab-pane" id="development-tab">
+                        <div class="settings-section">
+                            <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">Development Tools</h3>
+                            <div class="settings-section">
+                                <label class="settings-label" for="dpr-mode-select">Device Pixel Ratio (DPR)</label>
+                                <select id="dpr-mode-select" class="settings-input">
+                                    <option value="dynamic" selected>Dynamic (1.25 when interacting, 2.0 when static)</option>
+                                    <option value="1">1.0 DPR</option>
+                                    <option value="1.5">1.5 DPR</option>
+                                    <option value="2">2.0 DPR</option>
+                                </select>
+                            </div>
+                            <div class="settings-section">
+                                <button id="open-dev-tools-button" class="settings-input" style="cursor: pointer; background-color: #030213; color: white; border: none; padding: 10px; font-weight: 500;">
+                                    Toggle Developer Console
+                                </button>
+                            </div>
+                            <div class="settings-section">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <label class="settings-label" for="fps-counter-toggle" style="margin-bottom: 0;">Show FPS & DPR Counter</label>
+                                    <label class="settings-toggle">
+                                        <input type="checkbox" id="fps-counter-toggle" checked>
+                                        <span class="settings-toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
+                                    Display FPS and DPR information in the top right corner of the canvas.
+                                </p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="settings-section">
-                    <label class="settings-label" for="circle-speed-slider">Circle Button Speed</label>
-                    <input type="range" id="circle-speed-slider" class="settings-slider" min="0" max="200" value="72" step="1">
-                    <div class="settings-slider-value">
-                        <span id="circle-speed-value">72%</span>
+                    <!-- AI Tab -->
+                    <div class="settings-tab-pane" id="ai-tab">
+                        <div class="settings-section">
+                            <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">AI Configuration</h3>
+                            <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 24px; opacity: 0.7;">
+                                Configure AI settings for enhanced features. AI functionality uses Google Gemini as the model.
+                            </p>
+                            <div class="settings-section">
+                                <label class="settings-label" for="ai-api-key-input">API Key (Optional)</label>
+                                <input type="password" id="ai-api-key-input" class="settings-input" placeholder="Enter your API key">
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
+                                    Your API key is stored locally and never shared.
+                                </p>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="settings-section">
-                    <label class="settings-label" for="circuit-blend-mode-select">Circuit Blend Mode</label>
-                    <select id="circuit-blend-mode-select" class="settings-input">
-                        <option value="source-over">Normal (source-over)</option>
-                        <option value="screen">Screen</option>
-                        <option value="lighten">Lighten</option>
-                        <option value="lighter" selected>Lighter (Additive)</option>
-                        <option value="color-dodge">Color Dodge</option>
-                        <option value="overlay">Overlay</option>
-                        <option value="soft-light">Soft Light</option>
-                        <option value="hard-light">Hard Light</option>
-                        <option value="multiply">Multiply</option>
-                        <option value="difference">Difference</option>
-                    </select>
-                </div>
-                <div class="settings-section">
-                    <label class="settings-label" for="circle-1-color-input">Circle 1 Color (Orbital)</label>
-                    <input type="text" id="circle-1-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
-                </div>
-                <div class="settings-section">
-                    <label class="settings-label" for="circle-2-color-input">Circle 2 Color (Figure-8)</label>
-                    <input type="text" id="circle-2-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
-                </div>
-                <div class="settings-section">
-                    <label class="settings-label" for="circle-3-color-input">Circle 3 Color (Rhythmic)</label>
-                    <input type="text" id="circle-3-color-input" class="settings-input" placeholder="#FFFFFF" value="#FFFFFF">
+                    <!-- About Tab -->
+                    <div class="settings-tab-pane" id="about-tab">
+                        <div class="settings-section">
+                            <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">About Kaleido</h3>
+                            <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 16px; line-height: 1.6;">
+                                Kaleido is an interactive overlay application designed for creative workflows and visual exploration.
+                            </p>
+                            <div class="settings-section" style="margin-top: 24px;">
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); opacity: 0.6; margin-bottom: 8px;">Version</p>
+                                <p style="font-size: 14px; color: oklch(0.145 0 0); font-weight: 500;" id="app-version">1.0.0</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Help Tab -->
+                    <div class="settings-tab-pane" id="help-tab">
+                        <div class="settings-section">
+                            <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">Help & Support</h3>
+                            <div class="settings-section" style="margin-bottom: 24px;">
+                                <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 12px;">Keyboard Shortcuts</h4>
+                                <ul style="list-style: none; padding: 0; margin: 0;">
+                                    <li style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 8px; padding-left: 0;">
+                                        <span style="font-weight: 500;">⌘,</span> - Open Settings
+                                    </li>
+                                    <li style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 8px; padding-left: 0;">
+                                        <span style="font-weight: 500;">⌥⌘</span> - Open Canvas
+                                    </li>
+                                    <li style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 8px; padding-left: 0;">
+                                        <span style="font-weight: 500;">Left ⌘ + Right ⌘</span> - Capture Artefact
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="settings-section">
+                                <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 12px;">Getting Started</h4>
+                                <p style="font-size: 14px; color: oklch(0.145 0 0); line-height: 1.6; margin-bottom: 16px;">
+                                    Use the circle button in the bottom right corner to access main actions. Click on the settings icon in the FPS counter or use the keyboard shortcut to open this settings panel.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
