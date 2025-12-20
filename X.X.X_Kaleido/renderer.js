@@ -50,6 +50,9 @@ const fpsCounterDpr = document.getElementById('fps-counter-dpr');
 const fpsCounterSettingsIcon = document.getElementById('fps-counter-settings-icon');
 const dprModeSelect = document.getElementById('dpr-mode-select');
 const fpsCounterToggle = document.getElementById('fps-counter-toggle');
+const openScreenRecordingPermissionsButton = document.getElementById('open-screen-recording-permissions');
+const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
+const openAllPermissionsButton = document.getElementById('open-all-permissions');
 
 // State
 let isOverlayActive = false;
@@ -57,6 +60,7 @@ let isScreenshotMode = false;
 let isExitingScreenshotMode = false; // Track if we're transitioning out of screenshot mode
 let isOpeningFromScreenshot = false; // Track if we're opening overlay from a screenshot
 let isTransitioningToReflectionMode = false; // Track if we're transitioning to reflection mode (prevents toolbar from showing)
+let hasExitedReflectionModeOnce = false; // Track if we've exited reflection mode at least once (for showing other images)
 let cameraCursorURL = null; // Store camera cursor URL globally
 let canvasScale = 1.0; // Default zoom - normal size
 let canvasTranslateX = 0;
@@ -104,6 +108,7 @@ let isBackgroundFading = false; // Track if background is currently fading in
 let backgroundFadeStartTime = 0;
 let backgroundFadeDuration = 300; // Fade duration in milliseconds
 let screenshotHandlers = null; // Store screenshot event handlers for cleanup
+let screenshotSelectionBounds = null; // Store screenshot selection box bounds {left, top, width, height} for excluding from fade-in
 let savedCanvasScale = null; // Saved canvas scale when overlay is closed
 let savedCanvasTranslateX = null; // Saved canvas translate X when overlay is closed
 let savedCanvasTranslateY = null; // Saved canvas translate Y when overlay is closed
@@ -139,6 +144,19 @@ let selectedPinId = null; // Currently selected pin ID
 let isPlacingPin = false; // Whether currently placing a pin
 let tempPinLocation = null; // Temporary pin location during placement {x, y} in normalized coordinates
 let pinFeatureText = ''; // Text for feature during pin placement
+
+// Reflection mode exit hold state
+let isHoldingEscapeToExit = false; // Whether Escape is currently being held to exit reflection mode
+let escapeHoldStartTime = 0; // Timestamp when Escape key was pressed (for hold-to-exit)
+let escapeHoldTimeout = null; // Timeout for completing the exit after hold duration
+const ESCAPE_HOLD_DURATION = 500; // Duration to hold Escape key to exit reflection mode (ms)
+
+// Canvas exit hold state
+let isHoldingEscapeToExitCanvas = false; // Whether Escape is currently being held to exit canvas
+let canvasExitHoldStartTime = 0; // Timestamp when Escape key was pressed (for hold-to-exit canvas)
+let canvasExitHoldTimeout = null; // Timeout for completing the canvas exit after hold duration
+let escapeKeyWasReleased = true; // Track if Escape key has been released (prevents holding through from reflection mode to canvas exit)
+const CANVAS_EXIT_HOLD_DURATION = 500; // Duration to hold Escape key to exit canvas (ms)
 
 // Generate unique ID for images and pins
 function generateId() {
@@ -546,8 +564,6 @@ function toggleOverlay() {
     selectionBox.style.width = '0px';
     selectionBox.style.height = '0px';
     
-    overlayContainer.classList.add('active');
-    
     // Ensure overlay container is fullscreen
     const width = window.innerWidth;
     const height = window.innerHeight;
@@ -562,59 +578,12 @@ function toggleOverlay() {
     overlayContainer.style.setProperty('bottom', 'auto', 'important');
     overlayContainer.style.setProperty('margin', '0', 'important');
     overlayContainer.style.setProperty('padding', '0', 'important');
-    overlayContainer.style.setProperty('display', 'block', 'important');
-    overlayContainer.style.setProperty('visibility', 'visible', 'important');
     overlayContainer.style.setProperty('transform', 'none', 'important');
     overlayContainer.style.setProperty('min-width', width + 'px', 'important');
     overlayContainer.style.setProperty('min-height', height + 'px', 'important');
     overlayContainer.style.setProperty('max-width', width + 'px', 'important');
     overlayContainer.style.setProperty('max-height', height + 'px', 'important');
     
-    // Force a reflow to ensure styles are applied
-    void overlayContainer.offsetWidth;
-    void overlayContainer.offsetHeight;
-    
-    ipcRenderer.send('set-ignore-mouse-events', false);
-    // Ensure canvas is properly sized with high-DPI support
-    // Use multiple requestAnimationFrame calls to ensure DOM is fully updated
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        // CRITICAL: Ensure overlay container is visible and sized BEFORE canvas setup
-        if (overlayContainer) {
-          overlayContainer.style.setProperty('display', 'block', 'important');
-          overlayContainer.style.setProperty('visibility', 'visible', 'important');
-          void overlayContainer.offsetWidth; // Force reflow
-        }
-        
-        // Setup canvas and get fresh context
-        ctx = setupHighDPICanvas(canvas, width, height);
-        
-        // Force another reflow after canvas setup
-        void canvas.offsetWidth;
-        void canvas.offsetHeight;
-        
-        // Apply fade-in animation if opening from screenshot
-        if (isOpeningFromScreenshot) {
-          // Set initial opacity to 0
-          canvas.style.opacity = '0';
-          // Add fade-in class after a brief delay to ensure canvas is ready
-          requestAnimationFrame(() => {
-            canvas.classList.add('fade-in');
-            // Remove class after animation completes (400ms)
-            setTimeout(() => {
-              canvas.classList.remove('fade-in');
-              canvas.style.opacity = ''; // Reset to default
-              isOpeningFromScreenshot = false; // Reset flag
-            }, 400);
-          });
-        }
-        
-        // Wait one more frame to ensure everything is rendered
-        requestAnimationFrame(() => {
-          draw();
-        });
-      });
-    });
     // Restore saved canvas position, or use defaults if first time opening
     if (savedCanvasScale !== null && savedCanvasTranslateX !== null && savedCanvasTranslateY !== null) {
       canvasScale = savedCanvasScale;
@@ -631,7 +600,7 @@ function toggleOverlay() {
     canvas.style.cursor = createCustomCursor();
     
     // Collect circles when overlay opens (show X icon with all circles on top of each other)
-    // Force circles into collected/X state regardless of current state
+    // Animate circles gathering to form X icon instead of instantly switching
     isCirclesCollected = true;
     // Set icon rotation to X (0 radians)
     currentIconRotation = 0;
@@ -643,19 +612,61 @@ function toggleOverlay() {
     const centerY = CIRCLE_BUTTON_DISPLAY_SIZE / 2;
     convergedCenterX = centerX;
     convergedCenterY = centerY;
-    // Immediately set to collected state (no animation delay)
-    hoverAnimationProgress = 1.0; // Fully collected (X state)
+    // Start animation from current state (will animate to 1.0 over hoverAnimationDuration)
+    // Don't set hoverAnimationProgress immediately - let it animate from current value to 1.0
     hoverAnimationStartTime = Date.now();
-    // Move all circles to center immediately
-    if (circles && circles.length > 0) {
-      circles.forEach(circle => {
-        circle.x = centerX;
-        circle.y = centerY;
-      });
-    }
+    // Don't move circles immediately - let the animation handle the transition
+    // The animation loop will handle moving circles from their current positions to center
     
-    // If background is already captured (e.g., from screenshot mode), use it immediately
-    if (backgroundImage && backgroundImage.complete) {
+    // Function to show overlay and setup canvas
+    const showOverlayAndSetupCanvas = () => {
+      overlayContainer.classList.add('active');
+      overlayContainer.style.setProperty('display', 'block', 'important');
+      overlayContainer.style.setProperty('visibility', 'visible', 'important');
+      
+      // Force a reflow to ensure styles are applied
+      void overlayContainer.offsetWidth;
+      void overlayContainer.offsetHeight;
+      
+      ipcRenderer.send('set-ignore-mouse-events', false);
+      // Ensure canvas is properly sized with high-DPI support
+      // Use requestAnimationFrame to ensure DOM is fully updated
+      requestAnimationFrame(() => {
+        // CRITICAL: Ensure overlay container is visible and sized BEFORE canvas setup
+        if (overlayContainer) {
+          overlayContainer.style.setProperty('display', 'block', 'important');
+          overlayContainer.style.setProperty('visibility', 'visible', 'important');
+          void overlayContainer.offsetWidth; // Force reflow
+        }
+        
+        // Setup canvas and get fresh context
+        ctx = setupHighDPICanvas(canvas, width, height);
+        
+        // Force another reflow after canvas setup
+        void canvas.offsetWidth;
+        void canvas.offsetHeight;
+        
+          // Apply fade-in animation immediately (start as soon as canvas is ready)
+          // Set initial opacity to 0
+          canvas.style.opacity = '0';
+          // Start fade-in immediately - canvas is ready
+          canvas.classList.add('fade-in');
+          // Remove class after animation completes (150ms - fast fade)
+          setTimeout(() => {
+            canvas.classList.remove('fade-in');
+            canvas.style.opacity = ''; // Reset to default
+            if (isOpeningFromScreenshot) {
+              isOpeningFromScreenshot = false; // Reset flag
+            }
+          }, 150);
+        
+        // Draw immediately - fade-in will happen in parallel
+        draw();
+      });
+    };
+    
+    // If background is already captured from screenshot mode, show overlay immediately
+    if (isOpeningFromScreenshot && backgroundImage && backgroundImage.complete) {
       // Mark background cache as dirty (needs update)
       backgroundCacheDirty = true;
       cachedBlurredBackground = null;
@@ -663,18 +674,30 @@ function toggleOverlay() {
       backgroundFadeOpacity = 0;
       isBackgroundFading = true;
       backgroundFadeStartTime = Date.now();
+      // Show overlay and setup canvas
+      showOverlayAndSetupCanvas();
       // Update toolbar visibility (will show when background fades in)
       updateToolbarVisibility();
       requestDraw();
     } else {
+      // When opening via button, capture background first while overlay is hidden
+      // Overlay is already hidden (display: none by default), so we can capture immediately
+      // Ensure overlay is explicitly hidden before capturing (just to be safe)
+      overlayContainer.classList.remove('active');
+      overlayContainer.style.setProperty('display', 'none', 'important');
+      overlayContainer.style.setProperty('visibility', 'hidden', 'important');
+      
       // Hide toolbar initially - it will appear when background is loaded
       updateToolbarVisibility();
-      // Draw black background immediately so user sees something
-      draw();
-      // Capture fresh background when opening overlay
-      // captureBackground() will show toolbar and update draw() when the image is loaded
-      captureBackground().catch(() => {
-        // If capture fails, still draw (will show black background)
+      
+      // Capture background immediately (overlay is already hidden, no delay needed)
+      captureBackground().then(() => {
+        // Once background is captured, show overlay and fade it in immediately
+        showOverlayAndSetupCanvas();
+        // Background fade-in will be handled by captureBackground's onload callback
+      }).catch(() => {
+        // If capture fails, still show overlay (will show black background)
+        showOverlayAndSetupCanvas();
         draw();
       });
     }
@@ -728,6 +751,15 @@ function toggleOverlay() {
     canvas.classList.remove('fade-in');
     canvas.style.opacity = '';
     isOpeningFromScreenshot = false;
+    
+    // Reset canvas exit hold state
+    isHoldingEscapeToExitCanvas = false;
+    canvasExitHoldStartTime = 0;
+    if (canvasExitHoldTimeout) {
+      clearTimeout(canvasExitHoldTimeout);
+      canvasExitHoldTimeout = null;
+    }
+    escapeKeyWasReleased = true; // Reset for next time
     
     // Uncollect circles when overlay closes
     if (isCirclesCollected) {
@@ -1038,6 +1070,7 @@ async function captureBackground() {
 
     await new Promise((resolve) => {
       video.onloadedmetadata = () => {
+        // Reduced delay - video should be ready quickly after metadata loads
         setTimeout(() => {
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = video.videoWidth;
@@ -1056,7 +1089,7 @@ async function captureBackground() {
             // Mark background cache as dirty (needs update)
             backgroundCacheDirty = true;
             cachedBlurredBackground = null;
-            // Start fade-in animation
+            // Start fade-in animation immediately
             backgroundFadeOpacity = 0;
             isBackgroundFading = true;
             backgroundFadeStartTime = Date.now();
@@ -1065,7 +1098,7 @@ async function captureBackground() {
             requestDraw();
             resolve();
           };
-        }, 300);
+        }, 100); // Reduced from 300ms to 100ms - video should be ready faster
       };
     });
   } catch (error) {
@@ -1155,6 +1188,11 @@ function draw() {
       if (progress >= 1) {
         isBackgroundFading = false;
         backgroundFadeOpacity = 1;
+        // Clear selection bounds after fade-in completes if they weren't already cleared
+        // (They might have been cleared when image was added to canvas)
+        if (screenshotSelectionBounds && !isScreenshotMode) {
+          screenshotSelectionBounds = null;
+        }
         // Update toolbar visibility when fade completes
         updateToolbarVisibility();
       } else {
@@ -1171,7 +1209,24 @@ function draw() {
       const g = parseInt(hex.substring(2, 4), 16);
       const b = parseInt(hex.substring(4, 6), 16);
       ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${backgroundFadeOpacity})`;
-      ctx.fillRect(0, 0, clearWidth, clearHeight);
+      
+      // If we have a selection (even if screenshot mode ended, keep exclusion during fade-in), exclude the selection area from the tint
+      if (screenshotSelectionBounds && 
+          screenshotSelectionBounds.width > 0 && screenshotSelectionBounds.height > 0) {
+        const sel = screenshotSelectionBounds;
+        // Draw tint in 4 rectangles around the selection area
+        // Top rectangle
+        ctx.fillRect(0, 0, clearWidth, sel.top);
+        // Bottom rectangle
+        ctx.fillRect(0, sel.top + sel.height, clearWidth, clearHeight - (sel.top + sel.height));
+        // Left rectangle
+        ctx.fillRect(0, sel.top, sel.left, sel.height);
+        // Right rectangle
+        ctx.fillRect(sel.left + sel.width, sel.top, clearWidth - (sel.left + sel.width), sel.height);
+      } else {
+        // No selection or not in screenshot mode - fill entire canvas
+        ctx.fillRect(0, 0, clearWidth, clearHeight);
+      }
     } else {
       // Fill with black background when fully faded in to prevent desktop showing through blurred edges
       ctx.fillStyle = '#000000';
@@ -1181,8 +1236,31 @@ function draw() {
     // Draw cached blurred background (much faster than applying blur filter every frame)
     if (cachedBlurredBackground && cachedBlurredBackground.complete) {
       ctx.globalAlpha = backgroundFadeOpacity;
-      // Draw cached background scaled up to full size (it's stored at 50% resolution)
-      ctx.drawImage(cachedBlurredBackground, 0, 0, clearWidth, clearHeight);
+      
+      // If we have a selection (even if screenshot mode ended, keep exclusion during fade-in), exclude the selection area from the blurred background
+      if (screenshotSelectionBounds && 
+          screenshotSelectionBounds.width > 0 && screenshotSelectionBounds.height > 0) {
+        const sel = screenshotSelectionBounds;
+        ctx.save();
+        // Create a clipping path that excludes the selection area
+        ctx.beginPath();
+        // Top rectangle
+        ctx.rect(0, 0, clearWidth, sel.top);
+        // Bottom rectangle
+        ctx.rect(0, sel.top + sel.height, clearWidth, clearHeight - (sel.top + sel.height));
+        // Left rectangle
+        ctx.rect(0, sel.top, sel.left, sel.height);
+        // Right rectangle
+        ctx.rect(sel.left + sel.width, sel.top, clearWidth - (sel.left + sel.width), sel.height);
+        ctx.clip();
+        // Draw cached background scaled up to full size (it's stored at 50% resolution)
+        ctx.drawImage(cachedBlurredBackground, 0, 0, clearWidth, clearHeight);
+        ctx.restore();
+      } else {
+        // No selection or not in screenshot mode - draw normally
+        // Draw cached background scaled up to full size (it's stored at 50% resolution)
+        ctx.drawImage(cachedBlurredBackground, 0, 0, clearWidth, clearHeight);
+      }
     } else if (!cachedBlurredBackground && backgroundImage.complete) {
       // Fallback: if cache isn't ready yet, draw a simple black background
       // This prevents performance issues while cache is being generated
@@ -1222,15 +1300,20 @@ function draw() {
   drawGrid();
 
   // Draw images
+  // CRITICAL: Never draw images with hidden = true, regardless of any other conditions
   if (isReflectionMode && reflectionImageIndex >= 0) {
     // In reflection mode, only draw the reflection image
     const reflectionImg = images[reflectionImageIndex];
-    drawImage(reflectionImg, selectedImageIndices.includes(reflectionImageIndex));
+    if (reflectionImg && !reflectionImg.hidden) {
+      drawImage(reflectionImg, selectedImageIndices.includes(reflectionImageIndex));
+    }
     
     // Animate fade-out of other images during reflection mode transition
+    // But only if we've exited reflection mode at least once (for button-click entry)
+    // NEVER draw hidden images
     const currentTime = Date.now();
     images.forEach((img, index) => {
-      if (index !== reflectionImageIndex && img.fadeStartTime !== undefined) {
+      if (index !== reflectionImageIndex && !img.hidden && img.fadeStartTime !== undefined && hasExitedReflectionModeOnce) {
         const fadeElapsed = currentTime - img.fadeStartTime;
         const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
         img.opacity = 1.0 - fadeProgress; // Fade from 1.0 to 0.0
@@ -1240,11 +1323,34 @@ function draw() {
         }
       }
     });
+  } else if (isTransitioningToReflectionMode || !hasExitedReflectionModeOnce) {
+    // During transition to reflection mode OR before first exit from reflection mode
+    // ONLY draw the selected image(s) - absolutely never draw other images
+    // This ensures other images stay invisible until first exit
+    images.forEach((img, index) => {
+      // Only draw if it's selected AND not hidden
+      if (selectedImageIndices.includes(index) && !img.hidden) {
+        const currentTime = Date.now();
+        // Update opacity if fading in
+        if (img.fadeStartTime !== undefined) {
+          const fadeElapsed = currentTime - img.fadeStartTime;
+          const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
+          img.opacity = fadeProgress; // Fade from 0.0 to 1.0
+          if (fadeProgress >= 1) {
+            img.opacity = 1.0;
+            img.fadeStartTime = undefined; // Clear fade animation
+          }
+        }
+        drawImage(img, true);
+      }
+      // Explicitly skip all other images - don't draw them at all
+    });
   } else {
-    // Normal mode - draw all images that are not hidden
-    // Animate fade-in if images are fading in
+    // Normal mode - after first exit from reflection mode
+    // Draw all images that are not hidden
     const currentTime = Date.now();
     images.forEach((img, index) => {
+      // Still respect the hidden flag - never draw hidden images
       if (!img.hidden) {
         // Update opacity if fading in
         if (img.fadeStartTime !== undefined) {
@@ -1270,10 +1376,23 @@ function draw() {
     if (reflectionImg) {
       drawPins(reflectionImg, selectedImageIndices.includes(reflectionImageIndex));
     }
+  } else if (isTransitioningToReflectionMode) {
+    // During transition, only draw pins for the selected image
+    if (selectedImageIndices.length === 1 && selectedImageIndices[0] >= 0 && selectedImageIndices[0] < images.length) {
+      const selectedImg = images[selectedImageIndices[0]];
+      if (!selectedImg.hidden) {
+        drawPins(selectedImg, true);
+      }
+    }
   } else {
     // In normal mode, draw pins for all visible images
+    // Only show pins for other images if we've exited reflection mode at least once
     images.forEach((img, index) => {
       if (!img.hidden) {
+        // During initial transition (before first exit), only show pins for selected image
+        if (!hasExitedReflectionModeOnce && !selectedImageIndices.includes(index)) {
+          return; // Skip other images
+        }
         drawPins(img, selectedImageIndices.includes(index));
       }
     });
@@ -1409,6 +1528,11 @@ function drawImage(img, isSelected) {
 function drawSelectionBorderAndHandles(img) {
   if (!img) return;
   
+  // Don't draw selection border or handles in reflection mode
+  if (isReflectionMode) {
+    return;
+  }
+  
   // Convert image corners from canvas coordinates to screen coordinates
   const topLeft = canvasToScreen(img.x, img.y);
   const topRight = canvasToScreen(img.x + img.width, img.y);
@@ -1423,11 +1547,6 @@ function drawSelectionBorderAndHandles(img) {
   ctx.strokeStyle = '#3b82f6';
   ctx.lineWidth = 2; // Fixed 2 CSS pixels (context is already in screen coordinates, no DPR scaling)
   ctx.strokeRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
-
-  // Don't draw resize handles in reflection mode
-  if (isReflectionMode) {
-    return;
-  }
 
   // Draw resize handles (fixed size in CSS pixels, independent of DPR)
   const handleSize = 12; // Fixed 12 CSS pixels (context is already in screen coordinates, no DPR scaling)
@@ -1466,61 +1585,58 @@ function drawPins(img, isImageSelected) {
     const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
     
     // Define radii for concentric rings (in CSS pixels - context is already scaled by dpr)
-    const blueRadius = isSelected ? 14 : 12; // Blue circle (innermost) - bigger when selected
-    const whiteStrokeWidth = 4; // White stroke width
-    const yellowRingInnerRadius = blueRadius + whiteStrokeWidth * 2; // Start of yellow ring (after blue + white stroke)
-    const yellowRingOuterRadius = yellowRingInnerRadius + 8; // End of yellow ring
-    const greenRingInnerRadius = hasEmotionalAspects ? yellowRingOuterRadius + whiteStrokeWidth * 2 : yellowRingInnerRadius;
-    const greenRingOuterRadius = greenRingInnerRadius + 8; // End of green ring
+    // Blue circle is smaller when yellow ring is present
+    const baseBlueRadius = isSelected ? 14 : 12; // Base blue circle size - bigger when selected
+    const blueRadius = hasEmotionalAspects ? baseBlueRadius - 2 : baseBlueRadius; // Smaller when yellow ring is added
+    const whiteStrokeWidth = 3; // White stroke width
+    const ringThickness = 8; // Thickness of yellow and green rings
+    
+    // Yellow ring starts at blue radius (touching the blue pin) and extends outward
+    const yellowRingInnerRadius = blueRadius; // Yellow ring touches blue pin directly
+    const yellowRingOuterRadius = yellowRingInnerRadius + ringThickness; // End of yellow ring
+    
+    // Green ring starts at yellow ring's outer edge (touching yellow ring) and extends outward
+    const greenRingInnerRadius = hasEmotionalAspects ? yellowRingOuterRadius : blueRadius; // Touches yellow ring if it exists, otherwise touches blue pin
+    const greenRingOuterRadius = greenRingInnerRadius + ringThickness; // End of green ring
     
     // Draw from outside to inside to create proper layering
     
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
-      // Draw green ring as a donut shape
-      ctx.fillStyle = '#22c55e'; // Green
+      // Draw green ring as a donut shape (no inner stroke, only outer stroke)
+      ctx.fillStyle = '#4CB948'; // Green
       ctx.beginPath();
       ctx.arc(screenX, screenY, greenRingOuterRadius, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, greenRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
       ctx.fill();
       
-      // White stroke on outer edge of green ring
+      // White stroke on outer edge of green ring only (no inner stroke)
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = whiteStrokeWidth;
       ctx.beginPath();
       ctx.arc(screenX, screenY, greenRingOuterRadius, 0, Math.PI * 2);
       ctx.stroke();
-      
-      // White stroke on inner edge of green ring
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, greenRingInnerRadius, 0, Math.PI * 2);
-      ctx.stroke();
     }
     
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
-      // Draw yellow ring as a donut shape
-      ctx.fillStyle = '#eab308'; // Yellow
+      // Draw yellow ring as a donut shape (no inner stroke, only outer stroke)
+      ctx.fillStyle = '#F0CE25'; // Yellow
       ctx.beginPath();
       ctx.arc(screenX, screenY, yellowRingOuterRadius, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, yellowRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
       ctx.fill();
       
-      // White stroke on outer edge of yellow ring
+      // White stroke on outer edge of yellow ring only (no inner stroke)
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = whiteStrokeWidth;
       ctx.beginPath();
       ctx.arc(screenX, screenY, yellowRingOuterRadius, 0, Math.PI * 2);
       ctx.stroke();
-      
-      // White stroke on inner edge of yellow ring
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, yellowRingInnerRadius, 0, Math.PI * 2);
-      ctx.stroke();
     }
     
     // Draw blue circle (innermost) - always visible
-    ctx.fillStyle = isSelected ? '#2563eb' : '#3b82f6'; // Darker blue if selected
+    ctx.fillStyle = '#008CFF'; // Blue
     ctx.beginPath();
     ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
     ctx.fill();
@@ -1546,7 +1662,7 @@ function getPinAt(screenX, screenY, img) {
   const rect = canvas.getBoundingClientRect();
   const canvasRelativeX = screenX - rect.left;
   const canvasRelativeY = screenY - rect.top;
-  const hitRadius = 10; // Hit radius in CSS pixels
+  const hitRadius = 18; // Hit radius in CSS pixels (increased for easier clicking)
   
   for (let i = img.pins.length - 1; i >= 0; i--) {
     const pin = img.pins[i];
@@ -1809,9 +1925,19 @@ function drawReflectionButton(img) {
   
   // Draw button background with rounded corners (fixed pixel size, screen coordinates)
   // Red background for "Exit reflection", blue for "Enter reflection" (same as selection frame)
-  ctx.fillStyle = isReflectionMode ? 'rgba(239, 68, 68, 0.95)' : 'rgba(59, 130, 246, 0.95)';
   const cornerRadius = 8; // Fixed pixel corner radius (screen coordinates)
   const buttonLeft = buttonScreenX - buttonWidth / 2;
+  
+  // Calculate progress fill width if holding Escape to exit
+  let progressFillWidth = 0;
+  if (isReflectionMode && isHoldingEscapeToExit && escapeHoldStartTime > 0) {
+    const holdElapsed = Date.now() - escapeHoldStartTime;
+    const progress = Math.min(holdElapsed / ESCAPE_HOLD_DURATION, 1);
+    progressFillWidth = buttonWidth * progress;
+  }
+  
+  // Draw base button background (darker red for exit, blue for enter)
+  ctx.fillStyle = isReflectionMode ? 'rgba(239, 68, 68, 0.95)' : 'rgba(59, 130, 246, 0.95)';
   
   // Draw rounded rectangle
   ctx.beginPath();
@@ -1826,6 +1952,31 @@ function drawReflectionButton(img) {
   ctx.quadraticCurveTo(buttonLeft, buttonScreenY, buttonLeft + cornerRadius, buttonScreenY);
   ctx.closePath();
   ctx.fill();
+  
+  // Draw progress fill from left to right (darker red) if holding Escape
+  if (progressFillWidth > 0 && isReflectionMode) {
+    // Use a darker red for the progress fill to show contrast
+    ctx.fillStyle = 'rgba(185, 28, 28, 1.0)'; // Darker red for contrast
+    
+    // Draw progress fill with rounded left corners
+    const fillRight = buttonLeft + progressFillWidth;
+    // Only draw rounded corners if fill is wider than corner radius
+    if (progressFillWidth > cornerRadius) {
+      ctx.beginPath();
+      ctx.moveTo(buttonLeft + cornerRadius, buttonScreenY);
+      ctx.lineTo(fillRight, buttonScreenY);
+      ctx.lineTo(fillRight, buttonScreenY + buttonHeight);
+      ctx.lineTo(buttonLeft + cornerRadius, buttonScreenY + buttonHeight);
+      ctx.quadraticCurveTo(buttonLeft, buttonScreenY + buttonHeight, buttonLeft, buttonScreenY + buttonHeight - cornerRadius);
+      ctx.lineTo(buttonLeft, buttonScreenY + cornerRadius);
+      ctx.quadraticCurveTo(buttonLeft, buttonScreenY, buttonLeft + cornerRadius, buttonScreenY);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // If fill is narrower than corner radius, draw a simple rectangle
+      ctx.fillRect(buttonLeft, buttonScreenY, progressFillWidth, buttonHeight);
+    }
+  }
   
   // Draw button border
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
@@ -2064,6 +2215,7 @@ function enterReflectionMode(fromScreenshot = false) {
   // Set reflection mode state
   isReflectionMode = true;
   reflectionImageIndex = selectedImageIndex;
+  
   // Clear transition flag since we're now in reflection mode
   isTransitioningToReflectionMode = false;
   
@@ -2072,8 +2224,12 @@ function enterReflectionMode(fromScreenshot = false) {
     if (index !== selectedImageIndex) {
       if (fromScreenshot) {
         // For screenshots, immediately hide other images (no fade)
+        // Also set hidden flag to ensure they're not drawn
+        image.hidden = true;
         image.opacity = 0.0;
         image.fadeStartTime = undefined; // No fade animation
+        // Ensure flag is set so other images don't show until first exit
+        hasExitedReflectionModeOnce = false;
       } else {
         // For button click, start fade-out animation
         image.opacity = 1.0;
@@ -2106,6 +2262,17 @@ function exitReflectionMode() {
   hidePinPlacementUI();
   selectedPinId = null;
   if (controlPanelInputs) controlPanelInputs.style.display = 'none';
+  
+  // Reset escape hold state
+  isHoldingEscapeToExit = false;
+  escapeHoldStartTime = 0;
+  if (escapeHoldTimeout) {
+    clearTimeout(escapeHoldTimeout);
+    escapeHoldTimeout = null;
+  }
+  
+  // Reset key release flag so user must release and press Escape again to exit canvas
+  escapeKeyWasReleased = false;
   // Set animation start values (current state)
   animationStartScale = canvasScale;
   animationStartTranslateX = canvasTranslateX;
@@ -2122,6 +2289,9 @@ function exitReflectionMode() {
     reflectionImg.y = reflectionImg.finalPosition.y;
     reflectionImg.finalPosition = null; // Clear it after moving
   }
+  
+  // Mark that we've exited reflection mode at least once
+  hasExitedReflectionModeOnce = true;
   
   // Fade in all images when exiting reflection mode
   images.forEach((img, index) => {
@@ -2382,7 +2552,7 @@ function getResizeHandleAt(x, y, img) {
 
 // Keyboard shortcuts
 window.addEventListener('keydown', (e) => {
-  // Escape key - exit screenshot mode or close overlay
+  // Escape key - hierarchical handling: input fields → pin placement → reflection mode → image selection → close canvas
   if (e.key === 'Escape') {
     if (isScreenshotMode) {
       // Exit screenshot mode
@@ -2397,13 +2567,103 @@ window.addEventListener('keydown', (e) => {
         screenshotOverlay.removeEventListener('mousedown', screenshotHandlers.mousedown);
         screenshotOverlay.removeEventListener('mousemove', screenshotHandlers.mousemove);
         screenshotOverlay.removeEventListener('mouseup', screenshotHandlers.mouseup);
+        document.removeEventListener('mouseup', screenshotHandlers.mouseup);
         screenshotHandlers = null;
       }
       return;
     }
     
-    if (isOverlayActive) {
-      toggleOverlay();
+    // Only handle escape for canvas operations when overlay is active
+    if (!isOverlayActive) return;
+    
+    // Check if an input field is currently focused
+    const activeElement = document.activeElement;
+    if (activeElement && (activeElement === pinFeatureInput || activeElement === emotionalAspectInput || activeElement === valueAspectInput)) {
+      // Blur the input field and cancel pin placement if placing a pin
+      activeElement.blur();
+      if (isPlacingPin && tempPinLocation) {
+        hidePinPlacementUI();
+        draw();
+      }
+      e.preventDefault();
+      return;
+    }
+    
+    // If placing a pin (even if input not focused), cancel pin placement
+    if (isPlacingPin && tempPinLocation) {
+      hidePinPlacementUI();
+      draw();
+      e.preventDefault();
+      return;
+    }
+    
+    // If in reflection mode, start hold-to-exit timer (don't close canvas immediately)
+    if (isReflectionMode) {
+      if (!isHoldingEscapeToExit) {
+        // Start holding Escape to exit
+        isHoldingEscapeToExit = true;
+        escapeHoldStartTime = Date.now();
+        escapeKeyWasReleased = false; // Mark that key is held (prevents immediate canvas exit)
+        
+        // Set timeout to exit after hold duration
+        escapeHoldTimeout = setTimeout(() => {
+          if (isHoldingEscapeToExit && isReflectionMode) {
+            // Reset hold state before exiting
+            isHoldingEscapeToExit = false;
+            escapeHoldStartTime = 0;
+            escapeHoldTimeout = null;
+            exitReflectionMode();
+          }
+        }, ESCAPE_HOLD_DURATION);
+        
+        // Continuously redraw while holding to animate progress fill
+        const animateProgress = () => {
+          if (isHoldingEscapeToExit && isReflectionMode) {
+            requestDraw();
+            requestAnimationFrame(animateProgress);
+          }
+        };
+        animateProgress();
+      }
+      e.preventDefault();
+      return;
+    }
+    
+    // If an image is selected, deselect all images (but don't close canvas)
+    if (selectedImageIndices.length > 0) {
+      selectedImageIndices = [];
+      handleSelectionChange(-1);
+      e.preventDefault();
+      return;
+    }
+    
+    // Only start hold-to-exit canvas if none of the above conditions are met and key was released
+    if (isOverlayActive && escapeKeyWasReleased) {
+      if (!isHoldingEscapeToExitCanvas) {
+        // Start holding Escape to exit canvas
+        isHoldingEscapeToExitCanvas = true;
+        canvasExitHoldStartTime = Date.now();
+        
+        // Set timeout to exit after hold duration
+        canvasExitHoldTimeout = setTimeout(() => {
+          if (isHoldingEscapeToExitCanvas && isOverlayActive) {
+            // Reset hold state before exiting
+            isHoldingEscapeToExitCanvas = false;
+            canvasExitHoldStartTime = 0;
+            canvasExitHoldTimeout = null;
+            toggleOverlay();
+          }
+        }, CANVAS_EXIT_HOLD_DURATION);
+        
+        // Continuously trigger redraw while holding to animate progress stroke
+        // The drawCircles function is already in an animation loop, so we just need to ensure it runs
+        // The progress will be calculated on each frame in drawCircles based on canvasExitHoldStartTime
+      }
+      e.preventDefault();
+      return;
+    } else if (isOverlayActive && !escapeKeyWasReleased) {
+      // Key was not released, prevent canvas exit (prevents holding through from reflection mode)
+      e.preventDefault();
       return;
     }
   }
@@ -2427,13 +2687,9 @@ window.addEventListener('keydown', (e) => {
     const sortedIndices = [...selectedImageIndices].sort((a, b) => b - a);
     
     // Check if reflection image is being deleted
-    let wasReflectionImageDeleted = false;
-    if (isReflectionMode && sortedIndices.includes(reflectionImageIndex)) {
-      exitReflectionMode();
-      wasReflectionImageDeleted = true;
-    }
+    const isDeletingReflectionImage = sortedIndices.includes(reflectionImageIndex);
     
-    // Remove all selected images from the array
+    // Remove images
     sortedIndices.forEach(index => {
       if (index >= 0 && index < images.length) {
         images.splice(index, 1);
@@ -2444,6 +2700,45 @@ window.addEventListener('keydown', (e) => {
     selectedImageIndices = [];
     // Update button visibility (this will call requestDraw())
     handleSelectionChange(-1);
+    
+    // If reflection image was deleted, exit reflection mode
+    if (isDeletingReflectionImage && isReflectionMode) {
+      exitReflectionMode();
+    }
+  }
+});
+
+// Handle Escape key release for hold-to-exit reflection mode and canvas exit
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Escape') {
+    // Mark that Escape key was released (required before canvas exit can be triggered)
+    escapeKeyWasReleased = true;
+    
+    // Cancel reflection mode hold-to-exit if Escape is released before duration completes
+    if (isHoldingEscapeToExit) {
+      isHoldingEscapeToExit = false;
+      escapeHoldStartTime = 0;
+      if (escapeHoldTimeout) {
+        clearTimeout(escapeHoldTimeout);
+        escapeHoldTimeout = null;
+      }
+      // Trigger redraw to remove progress fill
+      requestDraw();
+    }
+    
+    // Cancel canvas exit hold-to-exit if Escape is released before duration completes
+    if (isHoldingEscapeToExitCanvas) {
+      isHoldingEscapeToExitCanvas = false;
+      canvasExitHoldStartTime = 0;
+      if (canvasExitHoldTimeout) {
+        clearTimeout(canvasExitHoldTimeout);
+        canvasExitHoldTimeout = null;
+      }
+      // Trigger redraw of circle button to remove progress stroke
+      if (circleAnimationFrameId) {
+        drawCircles();
+      }
+    }
   }
 });
 
@@ -2478,8 +2773,9 @@ canvas.addEventListener('mousedown', (e) => {
     // Check if clicking on an existing pin
     const clickedPin = getPinAt(e.clientX, e.clientY, reflectionImg);
     if (clickedPin) {
-      // Select the pin
+      // Select the pin and hide pin placement UI if it's showing
       selectedPinId = clickedPin.id;
+      hidePinPlacementUI();
       updateControlPanelInputs();
       requestDraw();
       return;
@@ -2548,14 +2844,15 @@ canvas.addEventListener('mousedown', (e) => {
     // Clicked on an image - check if it's already selected
     const isAlreadySelected = selectedImageIndices.includes(imgIndex);
     
-    if (isAlreadySelected && selectedImageIndices.length === 1) {
-      // Clicked on already selected image - start dragging immediately
+    if (isAlreadySelected) {
+      // Clicked on already selected image (single or multi-select) - start dragging immediately
+      // Keep all selected images selected
       isDragging = true;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
       setInteracting(true); // Track interaction for dynamic DPR
     } else {
-      // Clicked on different image or multi-select - select it (single select)
+      // Clicked on different image - select it (single select)
       selectedImageIndices = [imgIndex];
       handleSelectionChange(imgIndex);
       isDragging = true;
@@ -2697,16 +2994,21 @@ canvas.addEventListener('mousemove', (e) => {
     dragStartX = e.clientX;
     dragStartY = e.clientY;
     requestDraw();
-  } else if (isDragging && selectedImageIndices.length === 1 && selectedImageIndices[0] >= 0) {
-    const img = images[selectedImageIndices[0]];
+  } else if (isDragging && selectedImageIndices.length > 0) {
     // Convert viewport coordinates to canvas coordinates for proper delta calculation
     const currentCanvasPos = screenToCanvas(e.clientX, e.clientY);
     const startCanvasPos = screenToCanvas(dragStartX, dragStartY);
     const deltaX = currentCanvasPos.x - startCanvasPos.x;
     const deltaY = currentCanvasPos.y - startCanvasPos.y;
     
-    img.x += deltaX;
-    img.y += deltaY;
+    // Move all selected images together
+    selectedImageIndices.forEach(index => {
+      if (index >= 0 && index < images.length) {
+        const img = images[index];
+        img.x += deltaX;
+        img.y += deltaY;
+      }
+    });
     
     dragStartX = e.clientX;
     dragStartY = e.clientY;
@@ -3016,9 +3318,15 @@ function stopCursorMaintenance() {
 
 // End screenshot mode
 function endScreenshotMode() {
+  // Reset clip-path when ending screenshot mode
+  if (screenshotOverlay) {
+    screenshotOverlay.style.removeProperty('--selection-clip-path');
+  }
   screenshotOverlay.classList.remove('active');
   document.body.classList.remove('screenshot-mode');
   isScreenshotMode = false;
+  // Don't clear selection bounds here - keep them during fade-in
+  // They will be cleared when fade-in completes or overlay opens
   isExitingScreenshotMode = true; // Start transition state
   screenshotOutlineFadeStartTime = 0; // Reset fade start time
   // Stop cursor maintenance
@@ -3064,6 +3372,8 @@ function startScreenshotMode() {
   screenshotOverlay.classList.add('camera-cursor');
   document.body.classList.add('screenshot-mode');
   ipcRenderer.send('set-ignore-mouse-events', false);
+  // Clear selection bounds when starting screenshot mode
+  screenshotSelectionBounds = null;
   
   // Collect circles when screenshot mode starts (show X icon with all circles on top of each other)
   if (!isCirclesCollected) {
@@ -3096,6 +3406,9 @@ function startScreenshotMode() {
   selectionBox.style.width = '0px';
   selectionBox.style.height = '0px';
   
+  // Initialize clip-path to dim everything (no selection yet)
+  screenshotOverlay.style.setProperty('--selection-clip-path', 'polygon(0 0, 100% 0, 100% 100%, 0 100%)');
+  
   // Generate camera cursor once and store it globally
   cameraCursorURL = createCameraCursor();
   
@@ -3111,16 +3424,33 @@ function startScreenshotMode() {
   let startY = 0;
   let isSelecting = false;
   let backgroundCapturePromise = null; // Store background capture promise
+  let rafId = null; // RequestAnimationFrame ID for throttling updates
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+  let lastLeft = -1;
+  let lastTop = -1;
+  let lastWidth = -1;
+  let lastHeight = -1;
 
   const handleMouseDown = (e) => {
     startX = e.clientX;
     startY = e.clientY;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
     isSelecting = true;
+    lastLeft = -1;
+    lastTop = -1;
+    lastWidth = -1;
+    lastHeight = -1;
+    
     selectionBox.style.display = 'block';
     selectionBox.style.left = startX + 'px';
     selectionBox.style.top = startY + 'px';
     selectionBox.style.width = '0px';
     selectionBox.style.height = '0px';
+    
+    // Initialize clip-path to dim everything (no selection yet)
+    screenshotOverlay.style.setProperty('--selection-clip-path', 'polygon(0 0, 100% 0, 100% 100%, 0 100%)');
     
     // Camera cursor is already applied, keep it while selecting
     applyCameraCursor();
@@ -3129,36 +3459,102 @@ function startScreenshotMode() {
     backgroundCapturePromise = captureBackground();
   };
 
+  const updateSelection = () => {
+    if (!isSelecting) return;
+    
+    const width = Math.abs(lastMouseX - startX);
+    const height = Math.abs(lastMouseY - startY);
+    const left = Math.min(lastMouseX, startX);
+    const top = Math.min(lastMouseY, startY);
+    
+    // Only update if values actually changed (performance optimization)
+    if (left !== lastLeft || top !== lastTop || width !== lastWidth || height !== lastHeight) {
+      lastLeft = left;
+      lastTop = top;
+      lastWidth = width;
+      lastHeight = height;
+      
+      // Update selection box (fast - direct style updates)
+      selectionBox.style.left = left + 'px';
+      selectionBox.style.top = top + 'px';
+      selectionBox.style.width = width + 'px';
+      selectionBox.style.height = height + 'px';
+      
+      // Store selection bounds globally for excluding from canvas fade-in
+      if (width > 0 && height > 0) {
+        screenshotSelectionBounds = { left, top, width, height };
+      } else {
+        screenshotSelectionBounds = null;
+      }
+      
+      // Update clip-path to cut out selection box area from dimming
+      if (width > 0 && height > 0) {
+        const right = left + width;
+        const bottom = top + height;
+        // Simplified clip-path for better performance
+        const clipPath = `polygon(0% 0%, 0% 100%, ${left}px 100%, ${left}px ${top}px, ${right}px ${top}px, ${right}px ${bottom}px, ${left}px ${bottom}px, ${left}px 100%, 100% 100%, 100% 0%)`;
+        screenshotOverlay.style.setProperty('--selection-clip-path', clipPath);
+      } else {
+        // No selection yet, dim everything
+        screenshotOverlay.style.setProperty('--selection-clip-path', 'polygon(0 0, 100% 0, 100% 100%, 0 100%)');
+      }
+    }
+    
+    rafId = null;
+  };
+
   const handleMouseMove = (e) => {
     // Always maintain camera cursor when in screenshot mode
     applyCameraCursor();
     
     if (isSelecting) {
-      const width = Math.abs(e.clientX - startX);
-      const height = Math.abs(e.clientY - startY);
-      const left = Math.min(e.clientX, startX);
-      const top = Math.min(e.clientY, startY);
+      // Update mouse position immediately
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
       
-      selectionBox.style.left = left + 'px';
-      selectionBox.style.top = top + 'px';
-      selectionBox.style.width = width + 'px';
-      selectionBox.style.height = height + 'px';
+      // Throttle updates using requestAnimationFrame for smooth performance
+      if (rafId === null) {
+        rafId = requestAnimationFrame(updateSelection);
+      }
     }
   };
 
   const handleMouseUp = async (e) => {
+    // Prevent double execution if called from both overlay and document
     if (!isSelecting) return;
+    
+    // Cancel any pending animation frame
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    
+    // Update mouse position from event
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    
+    // Final update to ensure selection box is at correct position
+    updateSelection();
+    
+    // Mark as no longer selecting to prevent double execution
     isSelecting = false;
     
     // Keep camera cursor after selection ends (screenshot mode is still active)
     applyCameraCursor();
     
     const rect = {
-      left: Math.min(startX, e.clientX),
-      top: Math.min(startY, e.clientY),
-      width: Math.abs(e.clientX - startX),
-      height: Math.abs(e.clientY - startY)
+      left: Math.min(startX, lastMouseX),
+      top: Math.min(startY, lastMouseY),
+      width: Math.abs(lastMouseX - startX),
+      height: Math.abs(lastMouseY - startY)
     };
+
+    // Store final selection bounds for excluding from canvas fade-in
+    if (rect.width > 10 && rect.height > 10) {
+      screenshotSelectionBounds = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    } else {
+      screenshotSelectionBounds = null;
+    }
 
     if (rect.width > 10 && rect.height > 10) {
       // Wait for background to be captured (if it was started)
@@ -3172,11 +3568,13 @@ function startScreenshotMode() {
       selectionBox.style.display = 'none';
       selectionBox.style.width = '0px';
       selectionBox.style.height = '0px';
+      screenshotSelectionBounds = null; // Clear selection bounds
       
       endScreenshotMode();
       screenshotOverlay.removeEventListener('mousedown', handleMouseDown);
       screenshotOverlay.removeEventListener('mousemove', handleMouseMove);
       screenshotOverlay.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseup', handleMouseUp);
       
       // Clear stored handlers
       screenshotHandlers = null;
@@ -3186,6 +3584,8 @@ function startScreenshotMode() {
   screenshotOverlay.addEventListener('mousedown', handleMouseDown);
   screenshotOverlay.addEventListener('mousemove', handleMouseMove);
   screenshotOverlay.addEventListener('mouseup', handleMouseUp);
+  // Also listen on document to ensure mouseup always fires, even if mouse leaves overlay
+  document.addEventListener('mouseup', handleMouseUp);
   
   // Store handlers for cleanup
   screenshotHandlers = {
@@ -3251,6 +3651,8 @@ async function captureScreenshot(rect) {
           selectionBox.style.display = 'none';
           selectionBox.style.width = '0px';
           selectionBox.style.height = '0px';
+          // Clear selection bounds now that image is on canvas (no longer needed for fade-in exclusion)
+          screenshotSelectionBounds = null;
         };
         
         // Pass the screenshot position to addImageToCanvas
@@ -3266,6 +3668,7 @@ async function captureScreenshot(rect) {
           screenshotOverlay.removeEventListener('mousedown', screenshotHandlers.mousedown);
           screenshotOverlay.removeEventListener('mousemove', screenshotHandlers.mousemove);
           screenshotOverlay.removeEventListener('mouseup', screenshotHandlers.mouseup);
+          document.removeEventListener('mouseup', screenshotHandlers.mouseup);
           screenshotHandlers = null;
         }
         
@@ -3453,11 +3856,14 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
     
     images.push(imageObj);
     selectedImageIndices = [images.length - 1];
-    handleSelectionChange(selectedImageIndices[0]);
     
-    // For screenshots, hide all other images for smooth transition to reflection mode
+    // For screenshots, hide all other images IMMEDIATELY for smooth transition to reflection mode
+    // Do this BEFORE handleSelectionChange and BEFORE any draw calls
     if (screenX !== null && screenY !== null) {
       // Hide all other images and set opacity to 0 immediately
+      // This must happen before any draw() calls to prevent them from showing
+      // Set transition flag early to ensure draw function respects it
+      hasExitedReflectionModeOnce = false;
       images.forEach((img, index) => {
         if (!selectedImageIndices.includes(index)) {
           img.hidden = true;
@@ -3466,6 +3872,9 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
         }
       });
     }
+    
+    // Now call handleSelectionChange - it will trigger a draw, but draw function will only show selected images
+    handleSelectionChange(selectedImageIndices[0]);
     
     // For screenshots, position canvas so image appears at the screen position where it was captured
     // Then animate directly to reflection mode
@@ -3498,7 +3907,9 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
       isTransitioningToReflectionMode = true;
       updateToolbarVisibility(); // Hide toolbar immediately
       
-      draw();
+      // Force a redraw to ensure hidden images are not shown
+      // The draw function will now only show selected images
+      requestDraw();
       
       // Call callback to hide selection box now that image is visible on canvas
       if (onImageAdded) {
@@ -3625,6 +4036,43 @@ if (openDevToolsButton) {
       ipcRenderer.send('toggle-dev-tools');
     }
   });
+}
+
+// Permission buttons handlers
+if (openScreenRecordingPermissionsButton) {
+  openScreenRecordingPermissionsButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Opening screen recording permissions...');
+    ipcRenderer.send('open-system-settings', 'screen-recording');
+    closeSettingsModal();
+  });
+} else {
+  console.warn('openScreenRecordingPermissionsButton not found');
+}
+
+if (openAccessibilityPermissionsButton) {
+  openAccessibilityPermissionsButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Opening accessibility permissions...');
+    ipcRenderer.send('open-system-settings', 'accessibility');
+    closeSettingsModal();
+  });
+} else {
+  console.warn('openAccessibilityPermissionsButton not found');
+}
+
+if (openAllPermissionsButton) {
+  openAllPermissionsButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Opening privacy & security settings...');
+    ipcRenderer.send('open-system-settings', 'privacy');
+    closeSettingsModal();
+  });
+} else {
+  console.warn('openAllPermissionsButton not found');
 }
 
 // FPS counter visibility toggle
@@ -4634,6 +5082,34 @@ function drawCircles() {
     circleButtonCtx.arc(centerX, centerY, outlineRadius, 0, Math.PI * 2);
     circleButtonCtx.strokeStyle = '#3B82F6'; // Blue outline
     circleButtonCtx.lineWidth = 2;
+    circleButtonCtx.stroke();
+    circleButtonCtx.restore();
+  }
+  
+  // Draw progress stroke around circle button when holding Escape to exit canvas
+  if (isHoldingEscapeToExitCanvas && canvasExitHoldStartTime > 0 && isOverlayActive) {
+    const centerX = CIRCLE_BUTTON_DISPLAY_SIZE / 2;
+    const centerY = CIRCLE_BUTTON_DISPLAY_SIZE / 2;
+    const strokeRadius = 32; // Radius for the stroke (matches circle radius 30 + small offset, same as blue outline)
+    const strokeWidth = 3;
+    
+    // Calculate progress (0 to 1)
+    const holdElapsed = Date.now() - canvasExitHoldStartTime;
+    const progress = Math.min(holdElapsed / CANVAS_EXIT_HOLD_DURATION, 1);
+    
+    // Draw the progress stroke (circular arc from top, going clockwise)
+    circleButtonCtx.save();
+    circleButtonCtx.strokeStyle = 'rgba(239, 68, 68, 1.0)'; // Red stroke
+    circleButtonCtx.lineWidth = strokeWidth;
+    circleButtonCtx.lineCap = 'round';
+    
+    // Start from top (270 degrees in canvas coordinates, which is -Math.PI/2)
+    const startAngle = -Math.PI / 2;
+    // End angle based on progress (full circle = 2 * Math.PI)
+    const endAngle = startAngle + (progress * 2 * Math.PI);
+    
+    circleButtonCtx.beginPath();
+    circleButtonCtx.arc(centerX, centerY, strokeRadius, startAngle, endAngle);
     circleButtonCtx.stroke();
     circleButtonCtx.restore();
   }

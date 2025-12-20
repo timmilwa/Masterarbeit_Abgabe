@@ -82,7 +82,7 @@
         }
 
         #canvas.fade-in {
-            animation: canvasFadeIn 0.4s ease-out forwards;
+            animation: canvasFadeIn 0.15s ease-out forwards;
         }
 
         @keyframes canvasFadeIn {
@@ -211,9 +211,10 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: transparent;
+            background: rgba(0, 0, 0, 0.5);
             z-index: 3000;
             cursor: crosshair;
+            clip-path: var(--selection-clip-path, polygon(0 0, 100% 0, 100% 100%, 0 100%));
         }
 
         #screenshot-overlay.active {
@@ -231,8 +232,9 @@
         #selection-box {
             position: absolute;
             border: 2px dashed #3b82f6;
-            background: rgba(59, 130, 246, 0.1);
+            background: transparent;
             pointer-events: none;
+            z-index: 1;
         }
 
 
@@ -554,7 +556,7 @@
             width: 120px;
             height: 120px;
             cursor: pointer !important;
-            z-index: 2003;
+            z-index: 3002;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -578,7 +580,7 @@
             border: 1px solid rgba(255, 255, 255, 0.4);
             border-radius: 12px;
             cursor: pointer;
-            z-index: 2002;
+            z-index: 3000;
             box-shadow: 
                 0 8px 32px rgba(0, 0, 0, 0.12),
                 0 0 0 1px rgba(255, 255, 255, 0.1) inset,
@@ -869,6 +871,7 @@
                     <button class="settings-tab active" data-tab="appearance">Appearance</button>
                     <button class="settings-tab" data-tab="ai">AI</button>
                     <button class="settings-tab" data-tab="development">Development</button>
+                    <button class="settings-tab" data-tab="permissions">Permissions</button>
                     <button class="settings-tab" data-tab="about">About</button>
                     <button class="settings-tab" data-tab="help">Help</button>
                 </div>
@@ -974,6 +977,42 @@
                                 <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
                                     Your API key is stored locally and never shared.
                                 </p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Permissions Tab -->
+                    <div class="settings-tab-pane" id="permissions-tab">
+                        <div class="settings-section">
+                            <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">System Permissions</h3>
+                            <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 24px; opacity: 0.7; line-height: 1.6;">
+                                Kaleido requires certain system permissions to function properly. Click the buttons below to open System Settings where you can grant the necessary permissions.
+                            </p>
+                            <div class="settings-section" style="margin-bottom: 24px;">
+                                <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 12px;">Screen Recording</h4>
+                                <p style="font-size: 13px; color: oklch(0.145 0 0); margin-bottom: 12px; opacity: 0.7; line-height: 1.5;">
+                                    Required for capturing screenshots and screen content. This permission is needed for the capture artefact feature.
+                                </p>
+                                <button id="open-screen-recording-permissions" class="settings-input" style="cursor: pointer; background-color: #030213; color: white; border: none; padding: 10px 16px; font-weight: 500; text-align: center; width: auto; min-width: 200px;">
+                                    Open Screen Recording Settings
+                                </button>
+                            </div>
+                            <div class="settings-section" style="margin-bottom: 24px;">
+                                <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 12px;">Accessibility</h4>
+                                <p style="font-size: 13px; color: oklch(0.145 0 0); margin-bottom: 12px; opacity: 0.7; line-height: 1.5;">
+                                    Required for monitoring keyboard shortcuts (like ⌘⌘ for capture artefact and ⌥⌘ for open canvas). This permission enables global keyboard event detection.
+                                </p>
+                                <button id="open-accessibility-permissions" class="settings-input" style="cursor: pointer; background-color: #030213; color: white; border: none; padding: 10px 16px; font-weight: 500; text-align: center; width: auto; min-width: 200px;">
+                                    Open Accessibility Settings
+                                </button>
+                            </div>
+                            <div class="settings-section">
+                                <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 12px;">Open All Permissions</h4>
+                                <p style="font-size: 13px; color: oklch(0.145 0 0); margin-bottom: 12px; opacity: 0.7; line-height: 1.5;">
+                                    Opens System Settings to Privacy & Security where you can manage all permissions at once.
+                                </p>
+                                <button id="open-all-permissions" class="settings-input" style="cursor: pointer; background-color: #030213; color: white; border: none; padding: 10px 16px; font-weight: 500; text-align: center; width: auto; min-width: 200px;">
+                                    Open Privacy & Security Settings
+                                </button>
                             </div>
                         </div>
                     </div>

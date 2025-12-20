@@ -156,6 +156,76 @@ ipcMain.handle('get-window-bounds', async () => {
   });
 });
 
+// IPC Handler for opening System Settings to specific permission panes
+ipcMain.on('open-system-settings', (event, permissionType) => {
+  if (process.platform !== 'darwin') {
+    console.log('System settings opening is only supported on macOS');
+    return;
+  }
+
+  console.log(`Opening system settings for: ${permissionType}`);
+
+  let command;
+  // Use the open command with the appropriate URL scheme
+  // For macOS Ventura (13+) and later, use systemsettings
+  // For older versions, use systempreferences
+  switch (permissionType) {
+    case 'screen-recording':
+      // Try new System Settings URL first (macOS 13+)
+      command = 'open "x-apple.systemsettings:com.apple.preference.security?Privacy_ScreenCapture"';
+      break;
+    case 'accessibility':
+      command = 'open "x-apple.systemsettings:com.apple.preference.security?Privacy_Accessibility"';
+      break;
+    case 'privacy':
+      command = 'open "x-apple.systemsettings:com.apple.preference.security?Privacy"';
+      break;
+    default:
+      console.error('Unknown permission type:', permissionType);
+      return;
+  }
+
+  exec(command, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error executing command: ${command}`, error);
+      // Fallback to old System Preferences URL scheme for older macOS versions
+      let fallbackCommand;
+      switch (permissionType) {
+        case 'screen-recording':
+          fallbackCommand = 'open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"';
+          break;
+        case 'accessibility':
+          fallbackCommand = 'open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"';
+          break;
+        case 'privacy':
+          fallbackCommand = 'open "x-apple.systempreferences:com.apple.preference.security?Privacy"';
+          break;
+      }
+      
+      if (fallbackCommand) {
+        console.log(`Trying fallback command: ${fallbackCommand}`);
+        exec(fallbackCommand, (fallbackError) => {
+          if (fallbackError) {
+            console.error('Error opening system settings with both URL schemes:', fallbackError);
+            // Last resort: try opening System Settings app directly
+            exec('open -b com.apple.systempreferences', (lastResortError) => {
+              if (lastResortError) {
+                console.error('Failed to open System Settings:', lastResortError);
+              } else {
+                console.log('Opened System Settings app (fallback)');
+              }
+            });
+          } else {
+            console.log(`Opened system settings (fallback) for: ${permissionType}`);
+          }
+        });
+      }
+    } else {
+      console.log(`Successfully opened system settings for: ${permissionType}`);
+    }
+  });
+});
+
 app.whenReady().then(() => {
   // Set dock icon (macOS) - try .icns first, fallback to PNG
   if (process.platform === 'darwin' && app.dock) {
