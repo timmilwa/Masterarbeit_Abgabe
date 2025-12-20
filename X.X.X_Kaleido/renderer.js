@@ -1,5 +1,7 @@
 const { ipcRenderer } = require('electron');
 const { Fullscreen, Camera } = require('lucide');
+const fs = require('fs');
+const path = require('path');
 
 // DOM Elements
 const overlayContainer = document.getElementById('overlay-container');
@@ -50,6 +52,7 @@ const fpsCounterDpr = document.getElementById('fps-counter-dpr');
 const fpsCounterSettingsIcon = document.getElementById('fps-counter-settings-icon');
 const dprModeSelect = document.getElementById('dpr-mode-select');
 const fpsCounterToggle = document.getElementById('fps-counter-toggle');
+const demoModeToggle = document.getElementById('demo-mode-toggle');
 const openScreenRecordingPermissionsButton = document.getElementById('open-screen-recording-permissions');
 const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
 const openAllPermissionsButton = document.getElementById('open-all-permissions');
@@ -129,6 +132,7 @@ let canvasNeedsReinit = false; // Flag to reinitialize canvas when DPR changes
 let dprMode = 'dynamic'; // DPR mode: 'dynamic', '1', '1.5', or '2'
 const INTERACTION_DPR = 1.25; // Lower DPR during interaction for performance
 const STATIC_DPR = 2.0; // Higher DPR when static for quality
+const ANIMATION_DPR = 1.0; // Lower DPR during animations for smooth performance
 const INTERACTION_TIMEOUT = 300; // Milliseconds to wait after interaction stops before switching to high DPR
 
 // FPS tracking
@@ -141,9 +145,122 @@ let fpsCounterVisible = true; // Default: FPS counter is visible
 
 // Pin system state
 let selectedPinId = null; // Currently selected pin ID
+let expandedPinId = null; // Currently expanded pin ID (for showing aspect dots in orbits)
 let isPlacingPin = false; // Whether currently placing a pin
 let tempPinLocation = null; // Temporary pin location during placement {x, y} in normalized coordinates
 let pinFeatureText = ''; // Text for feature during pin placement
+
+// Pin expansion animation state
+let pinExpansionAnimation = null; // { pinId, startTime, duration, fromState: 'collapsed'|'expanded', toState: 'collapsed'|'expanded' }
+const PIN_EXPANSION_DURATION = 350; // Animation duration in milliseconds
+
+// Hovered aspect dot state - tracks which dot is currently hovered
+let hoveredAspectDot = null; // { pinId, type: 'emotional'|'value', index, text, x, y }
+
+// Dot position animation state - tracks repositioning animations for aspect dots
+// Structure: { pinId: { emotional: { startTime, duration, oldAngles: [], newAngles: [], isNewDot: [] }, value: { ... } } }
+let dotPositionAnimations = {};
+const DOT_REPOSITION_DURATION = 400; // Animation duration in milliseconds
+
+// Values area appearance animation - tracks when values area first appears
+// Structure: { pinId: { startTime, duration } }
+let valuesAreaAnimations = {};
+const VALUES_AREA_ANIMATION_DURATION = 350; // Same duration as pin expansion
+
+// Helper function to start values area appearance animation
+function startValuesAreaAnimation(pinId) {
+  valuesAreaAnimations[pinId] = {
+    startTime: Date.now(),
+    duration: VALUES_AREA_ANIMATION_DURATION
+  };
+  
+  // Trigger continuous redraw during animation
+  const animate = () => {
+    if (!valuesAreaAnimations[pinId]) {
+      return; // Animation was cancelled or completed
+    }
+    
+    const anim = valuesAreaAnimations[pinId];
+    const elapsed = Date.now() - anim.startTime;
+    const progress = elapsed / anim.duration;
+    
+    if (progress < 1.0) {
+      requestDraw();
+      requestAnimationFrame(animate);
+    } else {
+      // Animation complete
+      delete valuesAreaAnimations[pinId];
+      requestDraw();
+    }
+  };
+  
+  requestAnimationFrame(animate);
+}
+
+// Helper function to get values area animation progress
+function getValuesAreaProgress(pinId) {
+  if (!valuesAreaAnimations[pinId]) {
+    return 1.0; // No animation, fully visible
+  }
+  
+  const anim = valuesAreaAnimations[pinId];
+  const elapsed = Date.now() - anim.startTime;
+  const progress = Math.min(elapsed / anim.duration, 1.0);
+  
+  // Apply bouncy easing (same as pin expansion)
+  const easedProgress = easeOutBack(progress);
+  
+  // If animation is complete, clean it up
+  if (progress >= 1.0) {
+    delete valuesAreaAnimations[pinId];
+    return 1.0;
+  }
+  
+  return easedProgress;
+}
+
+// SVG label images
+let emotionsLabelImage = null;
+let valuesLabelImage = null;
+
+// Load SVG label images
+function loadLabelImages() {
+  // Load from assets folder
+  const emotionsPath = path.join(__dirname, 'assets', 'Emotions.svg');
+  const valuesPath = path.join(__dirname, 'assets', 'Values.svg');
+  
+  // Load Emotions SVG
+  emotionsLabelImage = new Image();
+  emotionsLabelImage.onload = () => {
+    requestDraw();
+  };
+  emotionsLabelImage.onerror = () => {
+    console.error('Failed to load Emotions.svg from:', emotionsPath);
+  };
+  emotionsLabelImage.src = 'file://' + emotionsPath;
+  
+  // Load Values SVG
+  valuesLabelImage = new Image();
+  valuesLabelImage.onload = () => {
+    requestDraw();
+  };
+  valuesLabelImage.onerror = () => {
+    console.error('Failed to load Values.svg from:', valuesPath);
+  };
+  valuesLabelImage.src = 'file://' + valuesPath;
+}
+
+// Initialize label images on load
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', loadLabelImages);
+  // Also try loading immediately in case window is already loaded
+  if (document.readyState === 'complete') {
+    loadLabelImages();
+  } else {
+    // Try loading after a short delay
+    setTimeout(loadLabelImages, 100);
+  }
+}
 
 // Reflection mode exit hold state
 let isHoldingEscapeToExit = false; // Whether Escape is currently being held to exit reflection mode
@@ -169,7 +286,7 @@ function getBaseDevicePixelRatio() {
   return window.devicePixelRatio || 1;
 }
 
-// Get effective DPR (dynamic based on interaction state or manual mode)
+// Get effective DPR (dynamic based on interaction state, animation state, or manual mode)
 function getDevicePixelRatio() {
   // Check if manual DPR mode is set
   if (dprMode === '1') {
@@ -178,6 +295,20 @@ function getDevicePixelRatio() {
     return 1.5;
   } else if (dprMode === '2') {
     return 2.0;
+  }
+  
+  // Check if pin expansion animation is active - use lower DPR for smooth animation
+  if (pinExpansionAnimation) {
+    const baseDPR = getBaseDevicePixelRatio();
+    // Use animation DPR, but don't go below base DPR
+    return Math.max(ANIMATION_DPR, baseDPR);
+  }
+  
+  // Check if dot repositioning animation is active
+  if (Object.keys(dotPositionAnimations).length > 0) {
+    const baseDPR = getBaseDevicePixelRatio();
+    // Use animation DPR, but don't go below base DPR
+    return Math.max(ANIMATION_DPR, baseDPR);
   }
   
   // Dynamic mode: use interaction-based DPR
@@ -647,6 +778,8 @@ function toggleOverlay() {
         void canvas.offsetHeight;
         
           // Apply fade-in animation immediately (start as soon as canvas is ready)
+          // Remove fade-out class if present
+          canvas.classList.remove('fade-out');
           // Set initial opacity to 0
           canvas.style.opacity = '0';
           // Start fade-in immediately - canvas is ready
@@ -739,18 +872,26 @@ function toggleOverlay() {
     savedCanvasTranslateX = canvasTranslateX;
     savedCanvasTranslateY = canvasTranslateY;
     
-    overlayContainer.classList.remove('active');
-    updateToolbarVisibility();
-    // Hide reflection button when overlay is closed
-    reflectionButton.classList.remove('visible');
-    // Hide control panel inputs when overlay is closed
-    if (controlPanelInputs) controlPanelInputs.style.display = 'none';
-    // Reset cursor to default
-    canvas.style.cursor = 'default';
-    // Remove fade-in class and reset flag if overlay is closed
+    // Remove fade-in class if present
     canvas.classList.remove('fade-in');
-    canvas.style.opacity = '';
-    isOpeningFromScreenshot = false;
+    // Add fade-out class for smooth exit animation
+    canvas.classList.add('fade-out');
+    
+    // Wait for fade-out animation to complete before hiding overlay
+    setTimeout(() => {
+      overlayContainer.classList.remove('active');
+      updateToolbarVisibility();
+      // Hide reflection button when overlay is closed
+      reflectionButton.classList.remove('visible');
+      // Hide control panel inputs when overlay is closed
+      if (controlPanelInputs) controlPanelInputs.style.display = 'none';
+      // Reset cursor to default
+      canvas.style.cursor = 'default';
+      // Remove fade-out class and reset opacity
+      canvas.classList.remove('fade-out');
+      canvas.style.opacity = '';
+      isOpeningFromScreenshot = false;
+    }, 150); // Match fade-out duration (150ms)
     
     // Reset canvas exit hold state
     isHoldingEscapeToExitCanvas = false;
@@ -1563,6 +1704,350 @@ function drawSelectionBorderAndHandles(img) {
   });
 }
 
+// Helper function to calculate angle for dot, with SVG treated as one item in even spacing
+// SVG is at 12 o'clock (-90°), all items (SVG + dots) are evenly spaced around the circle
+// First dot is opposite SVG (6 o'clock, 90°), then dots continue evenly spaced
+// For emotional type, excludes a larger reserved area around the SVG to prevent overlap
+function calculateDotAngle(index, totalCount, type = 'emotional') {
+  if (totalCount === 0) return 0;
+  
+  const svgAngle = -Math.PI / 2; // -90 degrees (12 o'clock) where SVG is positioned
+  const totalItems = totalCount + 1; // Total items: dots + SVG
+  
+  // Calculate angle spacing between all items (including SVG)
+  const angleStep = (2 * Math.PI) / totalItems;
+  
+  // For emotional type, define a larger reserved area around the SVG to prevent overlap
+  // Reserved area is centered at -90° (12 o'clock) where the SVG is
+  const reservedAreaSize = type === 'emotional' ? Math.PI / 3 : 0; // 60 degrees for emotional, none for value
+  const reservedAreaStart = svgAngle - reservedAreaSize / 2;
+  const reservedAreaEnd = svgAngle + reservedAreaSize / 2;
+  
+  // Calculate all available positions (excluding position 0 where SVG is)
+  const availablePositions = [];
+  for (let i = 1; i < totalItems; i++) {
+    let angle = svgAngle + (i * angleStep);
+    angle = ((angle % (2 * Math.PI)) + (2 * Math.PI)) % (2 * Math.PI);
+    
+    // For emotional type, exclude positions within the reserved area
+    if (type === 'emotional' && reservedAreaSize > 0) {
+      // Check if angle is within reserved area (accounting for wrapping)
+      let inReservedArea = false;
+      
+      // Normalize reserved area bounds
+      let startNorm = ((reservedAreaStart % (2 * Math.PI)) + (2 * Math.PI)) % (2 * Math.PI);
+      let endNorm = ((reservedAreaEnd % (2 * Math.PI)) + (2 * Math.PI)) % (2 * Math.PI);
+      
+      if (startNorm <= endNorm) {
+        // Normal case: reserved area doesn't wrap
+        inReservedArea = angle >= startNorm && angle <= endNorm;
+      } else {
+        // Wrapped case: reserved area crosses 0°
+        inReservedArea = angle >= startNorm || angle <= endNorm;
+      }
+      
+      if (inReservedArea) {
+        continue; // Skip this position - it's in the reserved area
+      }
+    }
+    
+    availablePositions.push(i);
+  }
+  
+  // If we excluded too many positions, fall back to all positions (except 0)
+  if (availablePositions.length < totalCount) {
+    availablePositions.length = 0;
+    for (let i = 1; i < totalItems; i++) {
+      availablePositions.push(i);
+    }
+  }
+  
+  // Find which position is closest to opposite (90°)
+  const oppositeAngle = Math.PI / 2; // 90°
+  let closestPos = availablePositions[0];
+  let minDiff = Infinity;
+  
+  for (const pos of availablePositions) {
+    let angle = svgAngle + (pos * angleStep);
+    angle = ((angle % (2 * Math.PI)) + (2 * Math.PI)) % (2 * Math.PI);
+    
+    // Calculate difference to opposite, considering wrapping
+    let diff = Math.abs(angle - oppositeAngle);
+    if (diff > Math.PI) {
+      diff = 2 * Math.PI - diff;
+    }
+    
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestPos = pos;
+    }
+  }
+  
+  // Sort positions starting from closest to opposite, then going clockwise
+  const sortedPositions = availablePositions.sort((a, b) => {
+    // First position is the one closest to opposite
+    if (a === closestPos) return -1;
+    if (b === closestPos) return 1;
+    
+    // For others, sort by angle going clockwise from closest
+    let angleA = ((svgAngle + (a * angleStep)) % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
+    let angleB = ((svgAngle + (b * angleStep)) % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
+    let closestAngle = ((svgAngle + (closestPos * angleStep)) % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
+    
+    // Normalize relative to closest
+    let relA = angleA - closestAngle;
+    let relB = angleB - closestAngle;
+    if (relA < 0) relA += 2 * Math.PI;
+    if (relB < 0) relB += 2 * Math.PI;
+    
+    return relA - relB;
+  });
+  
+  // Get position for this dot index
+  if (index >= sortedPositions.length) {
+    // Fallback if index is out of range
+    return oppositeAngle;
+  }
+  
+  const dotPosition = sortedPositions[index];
+  let angle = svgAngle + (dotPosition * angleStep);
+  
+  // Normalize to 0-2π range
+  angle = ((angle % (2 * Math.PI)) + (2 * Math.PI)) % (2 * Math.PI);
+  
+  return angle;
+}
+
+// Helper function to get animated angle for dot repositioning
+function getAnimatedDotAngle(pinId, type, index, currentAngle) {
+  const animation = dotPositionAnimations[pinId];
+  if (!animation || !animation[type]) {
+    return currentAngle; // No animation, return current angle
+  }
+  
+  const anim = animation[type];
+  const elapsed = Date.now() - anim.startTime;
+  const progress = Math.min(elapsed / anim.duration, 1.0);
+  
+  // Apply ease-out easing
+  const easedProgress = 1 - Math.pow(1 - progress, 3);
+  
+  // If animation is complete, clean it up
+  if (progress >= 1.0) {
+    delete dotPositionAnimations[pinId][type];
+    if (Object.keys(dotPositionAnimations[pinId]).length === 0) {
+      delete dotPositionAnimations[pinId];
+    }
+    return currentAngle;
+  }
+  
+  // Interpolate between old and new angle
+  const oldAngle = anim.oldAngles[index];
+  const newAngle = anim.newAngles[index];
+  
+  if (oldAngle === undefined || newAngle === undefined) {
+    return currentAngle; // Fallback if angles not found
+  }
+  
+  // Handle angle wrapping (shortest path)
+  let angleDiff = newAngle - oldAngle;
+  if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+  if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+  
+  return oldAngle + angleDiff * easedProgress;
+}
+
+// Helper function to get animated radius for new dots (starts from 0, animates to target radius)
+function getAnimatedDotRadius(pinId, type, index, targetRadius) {
+  const animation = dotPositionAnimations[pinId];
+  if (!animation || !animation[type]) {
+    return targetRadius; // No animation, return target radius
+  }
+  
+  const anim = animation[type];
+  const isNew = anim.isNewDot && anim.isNewDot[index];
+  
+  if (!isNew) {
+    return targetRadius; // Existing dot, use target radius immediately
+  }
+  
+  const elapsed = Date.now() - anim.startTime;
+  const progress = Math.min(elapsed / anim.duration, 1.0);
+  
+  // Apply ease-out easing for smooth animation
+  const easedProgress = 1 - Math.pow(1 - progress, 3);
+  
+  // Start from 0, animate to target radius
+  return targetRadius * easedProgress;
+}
+
+// Helper function to get animated opacity for new dots (starts from 0, fades in to 1)
+function getAnimatedDotOpacity(pinId, type, index, baseOpacity) {
+  const animation = dotPositionAnimations[pinId];
+  if (!animation || !animation[type]) {
+    return baseOpacity; // No animation, return base opacity
+  }
+  
+  const anim = animation[type];
+  const isNew = anim.isNewDot && anim.isNewDot[index];
+  
+  if (!isNew) {
+    return baseOpacity; // Existing dot, use base opacity immediately
+  }
+  
+  const elapsed = Date.now() - anim.startTime;
+  const progress = Math.min(elapsed / anim.duration, 1.0);
+  
+  // Apply ease-out easing for smooth fade-in
+  const easedProgress = 1 - Math.pow(1 - progress, 3);
+  
+  // Start from 0, fade in to base opacity
+  return baseOpacity * easedProgress;
+}
+
+// Helper function to start dot repositioning animation
+function startDotRepositionAnimation(pinId, type, oldCount, newCount) {
+  if (!dotPositionAnimations[pinId]) {
+    dotPositionAnimations[pinId] = {};
+  }
+  
+  // Calculate old and new angles (with SVG as part of even spacing)
+  const oldAngles = [];
+  const newAngles = [];
+  const isNewDot = []; // Track which dots are newly added
+  
+  for (let i = 0; i < newCount; i++) {
+    if (i < oldCount) {
+      // Existing dot - calculate old and new positions
+      oldAngles.push(calculateDotAngle(i, oldCount, type));
+      newAngles.push(calculateDotAngle(i, newCount, type));
+      isNewDot.push(false);
+    } else {
+      // New dot - start from center (angle doesn't matter, radius will be 0)
+      // We'll use the final angle but start from center
+      const finalAngle = calculateDotAngle(i, newCount, type);
+      oldAngles.push(finalAngle); // Angle doesn't matter since radius starts at 0
+      newAngles.push(finalAngle);
+      isNewDot.push(true);
+    }
+  }
+  
+  dotPositionAnimations[pinId][type] = {
+    startTime: Date.now(),
+    duration: DOT_REPOSITION_DURATION,
+    oldAngles: oldAngles,
+    newAngles: newAngles,
+    isNewDot: isNewDot
+  };
+  
+  // Lower DPR during animation for smooth performance
+  canvasNeedsReinit = true; // Force canvas reinit to apply new DPR
+  
+  // Trigger continuous redraw during animation
+  const animate = () => {
+    if (!dotPositionAnimations[pinId] || !dotPositionAnimations[pinId][type]) {
+      // Animation was cancelled or completed - restore DPR if needed
+      canvasNeedsReinit = true;
+      requestDraw();
+      return;
+    }
+    
+    const anim = dotPositionAnimations[pinId][type];
+    const elapsed = Date.now() - anim.startTime;
+    const progress = elapsed / anim.duration;
+    
+    if (progress < 1.0) {
+      requestDraw();
+      requestAnimationFrame(animate);
+    } else {
+      // Animation complete - restore DPR
+      delete dotPositionAnimations[pinId][type];
+      if (Object.keys(dotPositionAnimations[pinId]).length === 0) {
+        delete dotPositionAnimations[pinId];
+      }
+      canvasNeedsReinit = true; // Trigger canvas reinit to restore normal DPR
+      requestDraw();
+    }
+  };
+  
+  requestAnimationFrame(animate);
+}
+
+// Helper function to start pin expansion animation
+function startPinExpansionAnimation(pinId, fromState, toState) {
+  pinExpansionAnimation = {
+    pinId: pinId,
+    startTime: Date.now(),
+    duration: PIN_EXPANSION_DURATION,
+    fromState: fromState,
+    toState: toState
+  };
+  
+  // Lower DPR during animation for smooth performance
+  // Check if DPR will change and trigger canvas reinit if needed
+  const oldDPR = getDevicePixelRatio();
+  canvasNeedsReinit = true; // Force canvas reinit to apply new DPR
+  
+  // Trigger continuous redraw during animation
+  const animate = () => {
+    if (!pinExpansionAnimation || pinExpansionAnimation.pinId !== pinId) {
+      // Animation was cancelled or completed - restore DPR if needed
+      canvasNeedsReinit = true;
+      requestDraw();
+      return;
+    }
+    
+    const elapsed = Date.now() - pinExpansionAnimation.startTime;
+    const progress = elapsed / pinExpansionAnimation.duration;
+    
+    if (progress < 1.0) {
+      requestDraw();
+      requestAnimationFrame(animate);
+    } else {
+      // Animation complete - restore DPR
+      pinExpansionAnimation = null;
+      canvasNeedsReinit = true; // Trigger canvas reinit to restore normal DPR
+      requestDraw();
+    }
+  };
+  
+  requestAnimationFrame(animate);
+}
+
+// Helper function to get animation progress for pin expansion
+function getPinExpansionProgress(pinId) {
+  if (!pinExpansionAnimation || pinExpansionAnimation.pinId !== pinId) {
+    // No animation for this pin - check if it's expanded
+    return expandedPinId === pinId ? 1.0 : 0.0;
+  }
+  
+  const elapsed = Date.now() - pinExpansionAnimation.startTime;
+  const progress = Math.min(elapsed / pinExpansionAnimation.duration, 1.0);
+  
+  // Apply bouncy easing (ease-out-back for overshoot effect)
+  const easedProgress = easeOutBack(progress);
+  
+  // Handle direction: if collapsing, reverse the progress
+  let finalProgress;
+  if (pinExpansionAnimation.toState === 'collapsed') {
+    // Collapsing: animate from 1.0 to 0.0 (reverse the bouncy easing)
+    finalProgress = 1.0 - easedProgress;
+  } else {
+    // Expanding: animate from 0.0 to 1.0
+    finalProgress = easedProgress;
+  }
+  
+  // If animation is complete, clean it up and update expandedPinId
+  if (progress >= 1.0) {
+    if (pinExpansionAnimation.toState === 'collapsed') {
+      expandedPinId = null;
+    }
+    pinExpansionAnimation = null;
+  }
+  
+  return finalProgress;
+}
+
 // Draw pins on an image (called after transform is restored, so we draw in screen coordinates)
 function drawPins(img, isImageSelected) {
   if (!img || !img.pins || img.pins.length === 0) return;
@@ -1570,7 +2055,24 @@ function drawPins(img, isImageSelected) {
   const dpr = getDevicePixelRatio();
   ctx.save();
   
+  // Clear hovered dot at start of each draw (will be set if mouse is over a dot)
+  hoveredAspectDot = null;
+  
   img.pins.forEach(pin => {
+    // Filter pins based on reflection mode
+    // When NOT in reflection mode: only show pins with feature, emotional aspects, and value aspects
+    // When IN reflection mode: show all pins
+    if (!isReflectionMode) {
+      const hasFeature = pin.feature && pin.feature.trim().length > 0;
+      const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
+      const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
+      
+      // Skip this pin if it doesn't have all required aspects
+      if (!hasFeature || !hasEmotionalAspects || !hasValueAspects) {
+        return; // Skip this pin
+      }
+    }
+    
     // Calculate pin position in canvas coordinates
     const canvasX = img.x + (pin.location.x * img.width);
     const canvasY = img.y + (pin.location.y * img.height);
@@ -1581,61 +2083,529 @@ function drawPins(img, isImageSelected) {
     const screenY = screenPos.y;
     
     const isSelected = selectedPinId === pin.id;
+    const isExpanded = expandedPinId === pin.id;
     const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
     const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
+    const canExpand = hasEmotionalAspects || hasValueAspects; // Only expandable if aspects exist
+    
+    // Get animation progress (0.0 = collapsed, 1.0 = expanded)
+    const expansionProgress = canExpand ? getPinExpansionProgress(pin.id) : 0.0;
+    const isExpandedState = expansionProgress > 0.5 || (isExpanded && expansionProgress === 0.0);
     
     // Define radii for concentric rings (in CSS pixels - context is already scaled by dpr)
-    // Blue circle is smaller when yellow ring is present
     const baseBlueRadius = isSelected ? 14 : 12; // Base blue circle size - bigger when selected
-    const blueRadius = hasEmotionalAspects ? baseBlueRadius - 2 : baseBlueRadius; // Smaller when yellow ring is added
+    // Blue pin is smaller in collapsed view when rings exist
+    const blueRadiusCollapsed = baseBlueRadius * 0.75; // 75% of base size when collapsed with rings
+    const blueRadiusExpanded = baseBlueRadius; // Full size when expanded
+    // Interpolate blue radius during transition (smaller when collapsed, full size when expanded)
+    const blueRadius = canExpand 
+      ? blueRadiusCollapsed + (blueRadiusExpanded - blueRadiusCollapsed) * expansionProgress
+      : baseBlueRadius; // No rings, use base size
     const whiteStrokeWidth = 3; // White stroke width
-    const ringThickness = 8; // Thickness of yellow and green rings
     
-    // Yellow ring starts at blue radius (touching the blue pin) and extends outward
-    const yellowRingInnerRadius = blueRadius; // Yellow ring touches blue pin directly
-    const yellowRingOuterRadius = yellowRingInnerRadius + ringThickness; // End of yellow ring
+    // Collapsed state radii
+    const collapsedRingThickness = 10; // Thickness of yellow rings in collapsed state (increased by 2px)
+    const collapsedGreenRingThickness = 10; // Thickness of green ring in collapsed state
+    let collapsedYellowRingInnerRadius = blueRadius;
+    let collapsedYellowRingOuterRadius = collapsedYellowRingInnerRadius + collapsedRingThickness;
+    let collapsedGreenRingInnerRadius = hasEmotionalAspects ? collapsedYellowRingOuterRadius : blueRadius;
+    let collapsedGreenRingOuterRadius = collapsedGreenRingInnerRadius + collapsedGreenRingThickness;
     
-    // Green ring starts at yellow ring's outer edge (touching yellow ring) and extends outward
-    const greenRingInnerRadius = hasEmotionalAspects ? yellowRingOuterRadius : blueRadius; // Touches yellow ring if it exists, otherwise touches blue pin
-    const greenRingOuterRadius = greenRingInnerRadius + ringThickness; // End of green ring
+    // Limit collapsed pin size to max 1/4 of image width (in screen coordinates)
+    // Calculate image width in screen coordinates
+    const imageTopLeft = canvasToScreen(img.x, img.y);
+    const imageTopRight = canvasToScreen(img.x + img.width, img.y);
+    const imageScreenWidth = Math.abs(imageTopRight.x - imageTopLeft.x);
+    const maxCollapsedRadius = imageScreenWidth * 0.25; // Max 1/4 of image width
+    
+    // If collapsed pin exceeds max size, scale all radii down proportionally
+    if (collapsedGreenRingOuterRadius > maxCollapsedRadius && collapsedGreenRingOuterRadius > 0) {
+      const scaleFactor = maxCollapsedRadius / collapsedGreenRingOuterRadius;
+      // Scale all collapsed radii proportionally to maintain relative sizes
+      collapsedGreenRingOuterRadius = maxCollapsedRadius;
+      collapsedGreenRingInnerRadius *= scaleFactor;
+      collapsedYellowRingOuterRadius *= scaleFactor;
+      collapsedYellowRingInnerRadius *= scaleFactor;
+    }
+    
+    // Expanded state radii with gaps
+    const gapSize = 5; // Small gap between areas (reduced from 8 to 5)
+    const expandedInnerOrbitRadius = 70; // Inner orbit for emotions (outer edge) - reduced thickness
+    const expandedOuterOrbitRadius = 130; // Outer orbit for values (outer edge)
+    const dotRadius = blueRadius; // Same size as blue pin
+    const dotStrokeWidth = 3; // White border on dots (same as blue pin)
+    const blurRadius = 4; // Blur radius for background blur effect (lighter blur)
+    
+    // Calculate expanded ring boundaries with gaps
+    // Emotions area: starts after gap from blue, ends at innerOrbitRadius (thinner now)
+    const emotionsAreaInnerRadius = blueRadius + gapSize;
+    const emotionsAreaOuterRadius = expandedInnerOrbitRadius;
+    // Values area: starts after gap from emotions, ends at outerOrbitRadius
+    const valuesAreaInnerRadius = expandedInnerOrbitRadius + gapSize;
+    const valuesAreaOuterRadius = expandedOuterOrbitRadius;
+    
+    // Calculate middle radius for dot positioning (center of each ring)
+    const emotionsDotRadius = (emotionsAreaInnerRadius + emotionsAreaOuterRadius) / 2;
+    const valuesDotRadius = (valuesAreaInnerRadius + valuesAreaOuterRadius) / 2;
+    
+    // Interpolate between collapsed and expanded states for smooth transition
+    const innerOrbitRadius = collapsedYellowRingOuterRadius + (expandedInnerOrbitRadius - collapsedYellowRingOuterRadius) * expansionProgress;
+    const outerOrbitRadius = collapsedGreenRingOuterRadius + (expandedOuterOrbitRadius - collapsedGreenRingOuterRadius) * expansionProgress;
+    
+    // Get values area animation progress (for scaling when first value aspect is added)
+    // This animates separately when the first value aspect is added to an already-expanded pin
+    const valuesAreaProgress = hasValueAspects ? getValuesAreaProgress(pin.id) : 1.0;
+    
+    // Interpolate gap and ring boundaries during animation
+    const currentGapSize = gapSize * expansionProgress;
+    const currentEmotionsAreaInnerRadius = blueRadius + currentGapSize;
+    const currentEmotionsAreaOuterRadius = innerOrbitRadius;
+    
+    // Values area radii: interpolate from collapsed green ring to expanded size
+    // When pin is already expanded (expansionProgress = 1.0), use valuesAreaProgress to scale from collapsed to expanded
+    // When pin is expanding (expansionProgress < 1.0), use expansionProgress so it scales with the pin expansion
+    const valuesAreaStartInnerRadius = hasEmotionalAspects ? collapsedYellowRingOuterRadius : blueRadius;
+    const valuesAreaStartOuterRadius = collapsedGreenRingOuterRadius;
+    const valuesAreaEndInnerRadius = innerOrbitRadius + currentGapSize;
+    const valuesAreaEndOuterRadius = outerOrbitRadius;
+    
+    // Use valuesAreaProgress only if pin expansion is complete, otherwise use expansionProgress
+    const valuesAreaScaleProgress = expansionProgress >= 1.0 ? valuesAreaProgress : expansionProgress;
+    const currentValuesAreaInnerRadius = valuesAreaStartInnerRadius + (valuesAreaEndInnerRadius - valuesAreaStartInnerRadius) * valuesAreaScaleProgress;
+    const currentValuesAreaOuterRadius = valuesAreaStartOuterRadius + (valuesAreaEndOuterRadius - valuesAreaStartOuterRadius) * valuesAreaScaleProgress;
+    
+    // Interpolate dot positions during animation
+    const currentEmotionsDotRadius = (currentEmotionsAreaInnerRadius + currentEmotionsAreaOuterRadius) / 2;
+    const currentValuesDotRadius = (currentValuesAreaInnerRadius + currentValuesAreaOuterRadius) / 2;
     
     // Draw from outside to inside to create proper layering
     
-    // Draw green ring (outermost) if value aspects exist
-    if (hasValueAspects) {
-      // Draw green ring as a donut shape (no inner stroke, only outer stroke)
-      ctx.fillStyle = '#4CB948'; // Green
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, greenRingOuterRadius, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, greenRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
+    // During transition, show both states with opacity based on progress
+    // When progress < 0.5: show collapsed state fading out
+    // When progress >= 0.5: show expanded state fading in
+    
+    if (expansionProgress < 0.5 && canExpand) {
+      // TRANSITION: Collapsed state fading out (during expansion) or fading in (during collapse)
+      const collapsedFade = expansionProgress < 0.5 ? (1.0 - expansionProgress * 2) : (expansionProgress - 0.5) * 2;
       
-      // White stroke on outer edge of green ring only (no inner stroke)
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = whiteStrokeWidth;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, greenRingOuterRadius, 0, Math.PI * 2);
-      ctx.stroke();
+      // Draw green ring (outermost) if value aspects exist
+      if (hasValueAspects) {
+        ctx.save();
+        ctx.globalAlpha = collapsedFade;
+        
+        // Interpolate ring size during transition
+        const currentGreenOuter = collapsedGreenRingOuterRadius + (expandedOuterOrbitRadius - collapsedGreenRingOuterRadius) * expansionProgress;
+        const currentGreenInner = collapsedGreenRingInnerRadius + (expandedOuterOrbitRadius - collapsedGreenRingInnerRadius) * expansionProgress;
+        
+        // Draw green ring as a donut shape
+        ctx.fillStyle = '#4CB948'; // Green
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, currentGreenOuter, 0, Math.PI * 2);
+        ctx.arc(screenX, screenY, currentGreenInner, 0, Math.PI * 2, true); // Counter-clockwise to create hole
+        ctx.fill();
+        
+        // White stroke on outer edge of green ring only
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = whiteStrokeWidth;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, currentGreenOuter, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        ctx.restore();
+      }
+      
+      // Draw yellow ring if emotional aspects exist
+      if (hasEmotionalAspects) {
+        ctx.save();
+        ctx.globalAlpha = collapsedFade;
+        
+        // Interpolate ring size during transition
+        const currentYellowOuter = collapsedYellowRingOuterRadius + (expandedInnerOrbitRadius - collapsedYellowRingOuterRadius) * expansionProgress;
+        const currentYellowInner = collapsedYellowRingInnerRadius + (expandedInnerOrbitRadius - collapsedYellowRingInnerRadius) * expansionProgress;
+        
+        // Draw yellow ring as a donut shape
+        ctx.fillStyle = '#F0CE25'; // Yellow
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, currentYellowOuter, 0, Math.PI * 2);
+        ctx.arc(screenX, screenY, currentYellowInner, 0, Math.PI * 2, true); // Counter-clockwise to create hole
+        ctx.fill();
+        
+        // White stroke on outer edge of yellow ring only
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = whiteStrokeWidth;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, currentYellowOuter, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        ctx.restore();
+      }
     }
     
-    // Draw yellow ring if emotional aspects exist
-    if (hasEmotionalAspects) {
-      // Draw yellow ring as a donut shape (no inner stroke, only outer stroke)
-      ctx.fillStyle = '#F0CE25'; // Yellow
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, yellowRingOuterRadius, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, yellowRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
+    if (isExpandedState && canExpand) {
+      // EXPANDED STATE: Draw orbital rings with dots
       
-      // White stroke on outer edge of yellow ring only (no inner stroke)
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = whiteStrokeWidth;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, yellowRingOuterRadius, 0, Math.PI * 2);
-      ctx.stroke();
+      // Draw semi-transparent green background ring for values orbit (outermost)
+      if (hasValueAspects) {
+        // Use the same progress that was used for scaling the radii (valuesAreaScaleProgress)
+        // This ensures opacity matches the scale animation
+        const combinedProgress = valuesAreaScaleProgress;
+        
+        // Create blurred background effect
+        const blurAmount = blurRadius * combinedProgress;
+        if (blurAmount > 0 && img.element) {
+          // Get the area to blur (in screen coordinates)
+          const areaSize = Math.ceil(currentValuesAreaOuterRadius * 2);
+          const areaX = Math.floor(screenX - currentValuesAreaOuterRadius);
+          const areaY = Math.floor(screenY - currentValuesAreaOuterRadius);
+          
+          // Calculate pin position in canvas coordinates
+          const canvasX = img.x + (pin.location.x * img.width);
+          const canvasY = img.y + (pin.location.y * img.height);
+          
+          // Convert screen coordinates to canvas coordinates for the area
+          const areaCanvasTopLeft = screenToCanvas(areaX, areaY);
+          const areaCanvasBottomRight = screenToCanvas(areaX + areaSize, areaY + areaSize);
+          const areaCanvasWidth = areaCanvasBottomRight.x - areaCanvasTopLeft.x;
+          const areaCanvasHeight = areaCanvasBottomRight.y - areaCanvasTopLeft.y;
+          
+          // Calculate position within the image (in image pixel coordinates)
+          const pinImageX = pin.location.x * img.element.naturalWidth;
+          const pinImageY = pin.location.y * img.element.naturalHeight;
+          
+          // Calculate the area size in image coordinates (scale by image size / canvas size)
+          const imageToCanvasScaleX = img.element.naturalWidth / img.width;
+          const imageToCanvasScaleY = img.element.naturalHeight / img.height;
+          const areaImageSizeX = areaCanvasWidth * imageToCanvasScaleX;
+          const areaImageSizeY = areaCanvasHeight * imageToCanvasScaleY;
+          let areaImageX = pinImageX - areaImageSizeX / 2;
+          let areaImageY = pinImageY - areaImageSizeY / 2;
+          
+          // Clamp to image bounds
+          const imageWidth = img.element.naturalWidth;
+          const imageHeight = img.element.naturalHeight;
+          areaImageX = Math.max(0, Math.min(areaImageX, imageWidth - areaImageSizeX));
+          areaImageY = Math.max(0, Math.min(areaImageY, imageHeight - areaImageSizeY));
+          
+          // Create temporary canvas for blur effect
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = areaSize;
+          tempCanvas.height = areaSize;
+          const tempCtx = tempCanvas.getContext('2d');
+          
+          // Fill with transparent background first
+          tempCtx.clearRect(0, 0, areaSize, areaSize);
+          
+          // Draw only the image content to temp canvas (not the entire canvas)
+          tempCtx.drawImage(
+            img.element,
+            areaImageX, areaImageY, areaImageSizeX, areaImageSizeY, // Source: image coordinates
+            0, 0, areaSize, areaSize // Destination: temp canvas
+          );
+          
+          // Create a second temp canvas for the blurred result
+          const blurCanvas = document.createElement('canvas');
+          blurCanvas.width = areaSize;
+          blurCanvas.height = areaSize;
+          const blurCtx = blurCanvas.getContext('2d');
+          
+          // Apply blur filter and draw the captured content
+          blurCtx.filter = `blur(${blurAmount}px)`;
+          blurCtx.drawImage(tempCanvas, 0, 0);
+          
+          // Create clipping path for donut shape
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, currentValuesAreaOuterRadius, 0, Math.PI * 2);
+          ctx.arc(screenX, screenY, currentValuesAreaInnerRadius, 0, Math.PI * 2, true);
+          ctx.clip();
+          
+          // Draw blurred background
+          ctx.drawImage(blurCanvas, areaX, areaY);
+          ctx.restore();
+        }
+        
+        // Then draw the semi-transparent colored overlay
+        const bgOpacity = 0.35 * combinedProgress; // Moderate transparency (0.3-0.4)
+        ctx.fillStyle = `rgba(76, 185, 72, ${bgOpacity})`; // Green with transparency
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, currentValuesAreaOuterRadius, 0, Math.PI * 2);
+        ctx.arc(screenX, screenY, currentValuesAreaInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
+        ctx.fill();
+        
+        // Draw value aspect dots
+        const valueAspectCount = pin.valueAspects.length;
+        if (valueAspectCount > 0) {
+          const dotOpacity = combinedProgress; // Fade in dots as ring expands
+          
+          pin.valueAspects.forEach((aspect, index) => {
+            // Calculate target angle for even distribution (excluding upper eighth for text)
+            const targetAngle = calculateDotAngle(index, valueAspectCount, 'value');
+            // Get animated angle (interpolates during repositioning)
+            const angle = getAnimatedDotAngle(pin.id, 'value', index, targetAngle);
+            // Get animated radius (new dots start from center, existing dots use full radius)
+            const animatedRadius = getAnimatedDotRadius(pin.id, 'value', index, currentValuesDotRadius);
+            // Position dots - new dots start from center, existing dots use animated radius
+            const dotX = screenX + Math.cos(angle) * animatedRadius;
+            const dotY = screenY + Math.sin(angle) * animatedRadius;
+            
+            // Get animated opacity (new dots fade in)
+            const animatedOpacity = getAnimatedDotOpacity(pin.id, 'value', index, dotOpacity);
+            
+            // Draw dot with white border (same size as blue pin)
+            ctx.save();
+            ctx.globalAlpha = animatedOpacity;
+            ctx.fillStyle = '#4CB948'; // Green
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = dotStrokeWidth;
+            ctx.stroke();
+            ctx.restore();
+            
+            // Store dot position for hover detection (only if expanded and visible)
+            if (combinedProgress > 0.5) {
+              // Check if mouse is hovering over this dot
+              const dx = lastMouseX - dotX;
+              const dy = lastMouseY - dotY;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+              if (distance <= dotRadius + 5) { // 5px hover margin
+                hoveredAspectDot = {
+                  pinId: pin.id,
+                  type: 'value',
+                  index: index,
+                  text: aspect,
+                  x: dotX,
+                  y: dotY
+                };
+              }
+            }
+          });
+        }
+        
+        // Draw "Values" label SVG (curved along the ring, upper-middle section)
+        if (valuesLabelImage && valuesLabelImage.complete && valuesLabelImage.naturalWidth > 0) {
+          ctx.save();
+          ctx.globalAlpha = combinedProgress;
+          
+          // Position SVG along the curve of the values ring (upper-middle, angle = -90 degrees)
+          const valuesLabelAngle = -Math.PI / 2; // -90 degrees (top)
+          const valuesLabelRadius = currentValuesDotRadius; // Use middle radius of the ring
+          const valuesLabelX = screenX + Math.cos(valuesLabelAngle) * valuesLabelRadius;
+          const valuesLabelY = screenY + Math.sin(valuesLabelAngle) * valuesLabelRadius;
+          
+          // Transform to rotate SVG along the curve
+          ctx.translate(valuesLabelX, valuesLabelY);
+          ctx.rotate(valuesLabelAngle + Math.PI / 2); // Rotate 90 degrees to align with curve
+          
+          // Draw SVG image (scale to appropriate size - bigger)
+          const svgWidth = 48; // SVG viewBox width
+          const svgHeight = 15; // SVG viewBox height
+          const scale = 1.4; // Scale factor (bigger)
+          ctx.drawImage(valuesLabelImage, -svgWidth / 2 * scale, -svgHeight / 2 * scale, svgWidth * scale, svgHeight * scale);
+          ctx.restore();
+        }
+      }
+      
+      // Draw semi-transparent yellow background ring for emotions orbit
+      if (hasEmotionalAspects) {
+        // Create blurred background effect
+        const blurAmount = blurRadius * expansionProgress;
+        if (blurAmount > 0 && img.element) {
+          // Get the area to blur (in screen coordinates)
+          const areaSize = Math.ceil(currentEmotionsAreaOuterRadius * 2);
+          const areaX = Math.floor(screenX - currentEmotionsAreaOuterRadius);
+          const areaY = Math.floor(screenY - currentEmotionsAreaOuterRadius);
+          
+          // Calculate pin position in canvas coordinates
+          const canvasX = img.x + (pin.location.x * img.width);
+          const canvasY = img.y + (pin.location.y * img.height);
+          
+          // Convert screen coordinates to canvas coordinates for the area
+          const areaCanvasTopLeft = screenToCanvas(areaX, areaY);
+          const areaCanvasBottomRight = screenToCanvas(areaX + areaSize, areaY + areaSize);
+          const areaCanvasWidth = areaCanvasBottomRight.x - areaCanvasTopLeft.x;
+          const areaCanvasHeight = areaCanvasBottomRight.y - areaCanvasTopLeft.y;
+          
+          // Calculate position within the image (in image pixel coordinates)
+          const pinImageX = pin.location.x * img.element.naturalWidth;
+          const pinImageY = pin.location.y * img.element.naturalHeight;
+          
+          // Calculate the area size in image coordinates (scale by image size / canvas size)
+          const imageToCanvasScaleX = img.element.naturalWidth / img.width;
+          const imageToCanvasScaleY = img.element.naturalHeight / img.height;
+          const areaImageSizeX = areaCanvasWidth * imageToCanvasScaleX;
+          const areaImageSizeY = areaCanvasHeight * imageToCanvasScaleY;
+          let areaImageX = pinImageX - areaImageSizeX / 2;
+          let areaImageY = pinImageY - areaImageSizeY / 2;
+          
+          // Clamp to image bounds
+          const imageWidth = img.element.naturalWidth;
+          const imageHeight = img.element.naturalHeight;
+          areaImageX = Math.max(0, Math.min(areaImageX, imageWidth - areaImageSizeX));
+          areaImageY = Math.max(0, Math.min(areaImageY, imageHeight - areaImageSizeY));
+          
+          // Create temporary canvas for blur effect
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = areaSize;
+          tempCanvas.height = areaSize;
+          const tempCtx = tempCanvas.getContext('2d');
+          
+          // Fill with transparent background first
+          tempCtx.clearRect(0, 0, areaSize, areaSize);
+          
+          // Draw only the image content to temp canvas (not the entire canvas)
+          tempCtx.drawImage(
+            img.element,
+            areaImageX, areaImageY, areaImageSizeX, areaImageSizeY, // Source: image coordinates
+            0, 0, areaSize, areaSize // Destination: temp canvas
+          );
+          
+          // Create a second temp canvas for the blurred result
+          const blurCanvas = document.createElement('canvas');
+          blurCanvas.width = areaSize;
+          blurCanvas.height = areaSize;
+          const blurCtx = blurCanvas.getContext('2d');
+          
+          // Apply blur filter and draw the captured content
+          blurCtx.filter = `blur(${blurAmount}px)`;
+          blurCtx.drawImage(tempCanvas, 0, 0);
+          
+          // Create clipping path for donut shape
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, currentEmotionsAreaOuterRadius, 0, Math.PI * 2);
+          ctx.arc(screenX, screenY, currentEmotionsAreaInnerRadius, 0, Math.PI * 2, true);
+          ctx.clip();
+          
+          // Draw blurred background
+          ctx.drawImage(blurCanvas, areaX, areaY);
+          ctx.restore();
+        }
+        
+        // Then draw the semi-transparent colored overlay
+        const bgOpacity = 0.35 * expansionProgress; // Moderate transparency (0.3-0.4)
+        ctx.fillStyle = `rgba(240, 206, 37, ${bgOpacity})`; // Yellow with transparency
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, currentEmotionsAreaOuterRadius, 0, Math.PI * 2);
+        ctx.arc(screenX, screenY, currentEmotionsAreaInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
+        ctx.fill();
+        
+        // Draw emotional aspect dots
+        const emotionalAspectCount = pin.emotionalAspects.length;
+        if (emotionalAspectCount > 0) {
+          const dotOpacity = expansionProgress; // Fade in dots as ring expands
+          
+          pin.emotionalAspects.forEach((aspect, index) => {
+            // Calculate target angle for even distribution (excluding upper quarter for text)
+            const targetAngle = calculateDotAngle(index, emotionalAspectCount, 'emotional');
+            // Get animated angle (interpolates during repositioning)
+            const angle = getAnimatedDotAngle(pin.id, 'emotional', index, targetAngle);
+            // Get animated radius (new dots start from center, existing dots use full radius)
+            const animatedRadius = getAnimatedDotRadius(pin.id, 'emotional', index, currentEmotionsDotRadius);
+            // Position dots - new dots start from center, existing dots use animated radius
+            const dotX = screenX + Math.cos(angle) * animatedRadius;
+            const dotY = screenY + Math.sin(angle) * animatedRadius;
+            
+            // Get animated opacity (new dots fade in)
+            const animatedOpacity = getAnimatedDotOpacity(pin.id, 'emotional', index, dotOpacity);
+            
+            // Draw dot with white border (same size as blue pin)
+            ctx.save();
+            ctx.globalAlpha = animatedOpacity;
+            ctx.fillStyle = '#F0CE25'; // Yellow
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = dotStrokeWidth;
+            ctx.stroke();
+            ctx.restore();
+            
+            // Store dot position for hover detection (only if expanded and visible)
+            if (expansionProgress > 0.5) {
+              // Check if mouse is hovering over this dot
+              const dx = lastMouseX - dotX;
+              const dy = lastMouseY - dotY;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+              if (distance <= dotRadius + 5) { // 5px hover margin
+                hoveredAspectDot = {
+                  pinId: pin.id,
+                  type: 'emotional',
+                  index: index,
+                  text: aspect,
+                  x: dotX,
+                  y: dotY
+                };
+              }
+            }
+          });
+        }
+        
+        // Draw "Emotions" label SVG (curved along the ring, 12 o'clock position)
+        if (emotionsLabelImage && emotionsLabelImage.complete && emotionsLabelImage.naturalWidth > 0) {
+          ctx.save();
+          ctx.globalAlpha = expansionProgress;
+          
+          // Position SVG along the curve of the emotions ring (12 o'clock, angle = -90 degrees)
+          const emotionsLabelAngle = -Math.PI / 2; // -90 degrees (12 o'clock)
+          const emotionsLabelRadius = currentEmotionsDotRadius; // Use middle radius of the ring
+          const emotionsLabelX = screenX + Math.cos(emotionsLabelAngle) * emotionsLabelRadius;
+          const emotionsLabelY = screenY + Math.sin(emotionsLabelAngle) * emotionsLabelRadius;
+          
+          // Transform to rotate SVG along the curve
+          ctx.translate(emotionsLabelX, emotionsLabelY);
+          ctx.rotate(emotionsLabelAngle + Math.PI / 2); // Rotate 90 degrees to align with curve
+          
+          // Draw SVG image (scale to appropriate size - bigger)
+          const svgWidth = 64; // SVG viewBox width
+          const svgHeight = 23; // SVG viewBox height
+          const scale = 1.4; // Scale factor (bigger)
+          ctx.drawImage(emotionsLabelImage, -svgWidth / 2 * scale, -svgHeight / 2 * scale, svgWidth * scale, svgHeight * scale);
+          ctx.restore();
+        }
+      }
+    } else if (expansionProgress === 0.0) {
+      // FULLY COLLAPSED STATE: Draw solid rings (existing behavior, no animation)
+      
+      // Draw green ring (outermost) if value aspects exist
+      if (hasValueAspects) {
+        // Draw green ring as a donut shape
+        ctx.fillStyle = '#4CB948'; // Green
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, collapsedGreenRingOuterRadius, 0, Math.PI * 2);
+        ctx.arc(screenX, screenY, collapsedGreenRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
+        ctx.fill();
+        
+        // White stroke on outer edge of green ring only
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = whiteStrokeWidth;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, collapsedGreenRingOuterRadius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      
+      // Draw yellow ring if emotional aspects exist
+      if (hasEmotionalAspects) {
+        // Draw yellow ring as a donut shape
+        ctx.fillStyle = '#F0CE25'; // Yellow
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, collapsedYellowRingOuterRadius, 0, Math.PI * 2);
+        ctx.arc(screenX, screenY, collapsedYellowRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
+        ctx.fill();
+        
+        // White stroke on outer edge of yellow ring only
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = whiteStrokeWidth;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, collapsedYellowRingOuterRadius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
     
-    // Draw blue circle (innermost) - always visible
+    // Draw blue circle (innermost) - always visible, same size in both states
     ctx.fillStyle = '#008CFF'; // Blue
     ctx.beginPath();
     ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
@@ -1647,9 +2617,63 @@ function drawPins(img, isImageSelected) {
     ctx.beginPath();
     ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
     ctx.stroke();
-    
-    // Selection is indicated by larger size (blueRadius is already larger when selected)
   });
+  
+  // Draw tooltip for hovered aspect dot
+  if (hoveredAspectDot) {
+    ctx.save();
+    
+    // Tooltip styling
+    const tooltipPadding = 8;
+    const tooltipFontSize = 14;
+    const tooltipMaxWidth = 200;
+    
+    ctx.font = `${tooltipFontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    
+    // Measure text
+    const textMetrics = ctx.measureText(hoveredAspectDot.text);
+    const textWidth = Math.min(textMetrics.width, tooltipMaxWidth);
+    const textHeight = tooltipFontSize;
+    
+    // Calculate tooltip position (offset from dot)
+    const tooltipOffsetX = 20; // Offset to the right of dot (increased from 15 to 20)
+    const tooltipOffsetY = -textHeight / 2 - 10; // Center vertically with dot, then move 10px up
+    const tooltipX = hoveredAspectDot.x + tooltipOffsetX;
+    const tooltipY = hoveredAspectDot.y + tooltipOffsetY;
+    
+    // Tooltip background
+    const tooltipWidth = textWidth + tooltipPadding * 2;
+    const tooltipHeight = textHeight + tooltipPadding * 2;
+    
+    // Draw tooltip background with rounded corners
+    ctx.fillStyle = 'rgba(128, 128, 128, 0.9)'; // Gray background
+    const cornerRadius = 6;
+    ctx.beginPath();
+    ctx.moveTo(tooltipX + cornerRadius, tooltipY);
+    ctx.lineTo(tooltipX + tooltipWidth - cornerRadius, tooltipY);
+    ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY, tooltipX + tooltipWidth, tooltipY + cornerRadius);
+    ctx.lineTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight - cornerRadius);
+    ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight, tooltipX + tooltipWidth - cornerRadius, tooltipY + tooltipHeight);
+    ctx.lineTo(tooltipX + cornerRadius, tooltipY + tooltipHeight);
+    ctx.quadraticCurveTo(tooltipX, tooltipY + tooltipHeight, tooltipX, tooltipY + tooltipHeight - cornerRadius);
+    ctx.lineTo(tooltipX, tooltipY + cornerRadius);
+    ctx.quadraticCurveTo(tooltipX, tooltipY, tooltipX + cornerRadius, tooltipY);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Draw tooltip border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    
+    // Draw tooltip text
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(hoveredAspectDot.text, tooltipX + tooltipPadding, tooltipY + tooltipPadding);
+    
+    ctx.restore();
+  }
   
   ctx.restore();
 }
@@ -1662,7 +2686,8 @@ function getPinAt(screenX, screenY, img) {
   const rect = canvas.getBoundingClientRect();
   const canvasRelativeX = screenX - rect.left;
   const canvasRelativeY = screenY - rect.top;
-  const hitRadius = 18; // Hit radius in CSS pixels (increased for easier clicking)
+  const baseHitRadius = 18; // Base hit radius in CSS pixels (increased for easier clicking)
+  const expandedHitRadius = 150; // Hit radius for expanded pins (outer orbit + margin)
   
   for (let i = img.pins.length - 1; i >= 0; i--) {
     const pin = img.pins[i];
@@ -1673,6 +2698,10 @@ function getPinAt(screenX, screenY, img) {
     const dx = canvasRelativeX - screenPos.x;
     const dy = canvasRelativeY - screenPos.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Use expanded hit radius if pin is expanded, otherwise use base hit radius
+    const isExpanded = expandedPinId === pin.id;
+    const hitRadius = isExpanded ? expandedHitRadius : baseHitRadius;
     
     if (distance <= hitRadius) {
       return pin;
@@ -2140,6 +3169,11 @@ function enterReflectionMode(fromScreenshot = false) {
   // Reset pin placement state
   hidePinPlacementUI();
   selectedPinId = null;
+  // Clear expanded pin state
+  if (expandedPinId !== null) {
+    expandedPinId = null;
+    pinExpansionAnimation = null;
+  }
   
   // Clear screenshot mode transition flag when entering reflection mode (canvas opens)
   // This ensures the icon switches to X immediately when canvas opens
@@ -2261,6 +3295,11 @@ function exitReflectionMode() {
   // Reset pin-related state
   hidePinPlacementUI();
   selectedPinId = null;
+  // Clear expanded pin state
+  if (expandedPinId !== null) {
+    expandedPinId = null;
+    pinExpansionAnimation = null;
+  }
   if (controlPanelInputs) controlPanelInputs.style.display = 'none';
   
   // Reset escape hold state
@@ -2773,11 +3812,44 @@ canvas.addEventListener('mousedown', (e) => {
     // Check if clicking on an existing pin
     const clickedPin = getPinAt(e.clientX, e.clientY, reflectionImg);
     if (clickedPin) {
+      const hasEmotionalAspects = clickedPin.emotionalAspects && clickedPin.emotionalAspects.length > 0;
+      const hasValueAspects = clickedPin.valueAspects && clickedPin.valueAspects.length > 0;
+      const canExpand = hasEmotionalAspects || hasValueAspects;
+      const isCurrentlyExpanded = expandedPinId === clickedPin.id;
+      
       // Select the pin and hide pin placement UI if it's showing
       selectedPinId = clickedPin.id;
       hidePinPlacementUI();
-      updateControlPanelInputs();
-      requestDraw();
+      
+      // Handle pin expansion
+      if (canExpand) {
+        if (isCurrentlyExpanded) {
+          // Pin is already expanded - keep it expanded (no change)
+          // Just update control panel
+          updateControlPanelInputs();
+          requestDraw();
+        } else {
+          // Collapse any currently expanded pin
+          if (expandedPinId !== null && expandedPinId !== clickedPin.id) {
+            startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+            // Don't clear expandedPinId here - let animation complete first
+          }
+          // Expand this pin
+          expandedPinId = clickedPin.id;
+          startPinExpansionAnimation(clickedPin.id, 'collapsed', 'expanded');
+          updateControlPanelInputs();
+          requestDraw();
+        }
+      } else {
+        // Pin cannot be expanded (no aspects) - just select it
+        // Collapse any currently expanded pin
+        if (expandedPinId !== null) {
+          startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+          // Don't clear expandedPinId here - let animation complete first
+        }
+        updateControlPanelInputs();
+        requestDraw();
+      }
       return;
     }
     
@@ -2790,6 +3862,27 @@ canvas.addEventListener('mousedown', (e) => {
       return; // Don't handle clicks on control panel inputs
     }
     
+    // Check if clicking within expanded pin bounds (to prevent collapsing when clicking on expanded pin area)
+    let clickedOnExpandedPin = false;
+    if (expandedPinId !== null) {
+      const expandedPin = reflectionImg.pins.find(p => p.id === expandedPinId);
+      if (expandedPin) {
+        const canvasX = reflectionImg.x + (expandedPin.location.x * reflectionImg.width);
+        const canvasY = reflectionImg.y + (expandedPin.location.y * reflectionImg.height);
+        const screenPos = canvasToScreen(canvasX, canvasY);
+        const expandedRadius = 130 + 20; // Outer orbit radius + margin for hit detection
+        const canvasPos = screenToCanvas(e.clientX, e.clientY);
+        const clickCanvasX = canvasPos.x;
+        const clickCanvasY = canvasPos.y;
+        const dx = clickCanvasX - canvasX;
+        const dy = clickCanvasY - canvasY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance <= expandedRadius) {
+          clickedOnExpandedPin = true;
+        }
+      }
+    }
+    
     const canvasPos = screenToCanvas(e.clientX, e.clientY);
     if (canvasPos.x >= reflectionImg.x && 
         canvasPos.x <= reflectionImg.x + reflectionImg.width &&
@@ -2798,25 +3891,43 @@ canvas.addEventListener('mousedown', (e) => {
       // Start pin placement
       e.preventDefault();
       e.stopPropagation();
+      
+      // Deselect any previously selected pin when clicking on image (but not on a pin)
+      if (selectedPinId !== null) {
+        selectedPinId = null;
+      }
+      
       isPlacingPin = true;
       const normalizedX = (canvasPos.x - reflectionImg.x) / reflectionImg.width;
       const normalizedY = (canvasPos.y - reflectionImg.y) / reflectionImg.height;
       tempPinLocation = { x: normalizedX, y: normalizedY };
       pinFeatureText = '';
       
+      // Collapse expanded pin if clicking on image (but not on expanded pin area)
+      if (expandedPinId !== null && !clickedOnExpandedPin) {
+        startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+        // Don't clear expandedPinId here - let animation complete first
+      }
+      
       // Show pin placement UI
       showPinPlacementUI(e.clientX, e.clientY);
+      updateControlPanelInputs();
       requestDraw();
       return;
     }
     
-    // Click outside - deselect pin (but not if clicking on control panel)
+    // Click outside - deselect pin and collapse expanded pin (but not if clicking on control panel)
     if (!window.reflectionPanelBounds || 
         e.clientX < window.reflectionPanelBounds.x ||
         e.clientX > window.reflectionPanelBounds.x + window.reflectionPanelBounds.width ||
         e.clientY < window.reflectionPanelBounds.y ||
         e.clientY > window.reflectionPanelBounds.y + window.reflectionPanelBounds.height) {
       selectedPinId = null;
+      // Collapse expanded pin
+      if (expandedPinId !== null) {
+        startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+        // Don't clear expandedPinId here - let animation complete first
+      }
       updateControlPanelInputs();
       requestDraw();
     }
@@ -2876,6 +3987,15 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mousemove', (e) => {
+  // Update last mouse position for hover detection
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+  
+  // Trigger redraw to update tooltip
+  if (isOverlayActive) {
+    requestDraw();
+  }
+  
   if (!isOverlayActive) return;
 
   lastMouseX = e.clientX;
@@ -2910,8 +4030,9 @@ canvas.addEventListener('mousemove', (e) => {
     const deltaX = currentCanvasPos.x - startCanvasPos.x;
     const deltaY = currentCanvasPos.y - startCanvasPos.y;
 
-    // Calculate minimum width based on reflection button width
-    const minWidth = getReflectionButtonMinWidth();
+    // Set minimum width to 400 pixels and maximum width to 4000 pixels (in canvas coordinates)
+    const minWidth = 400;
+    const maxWidth = 4000;
     const minHeight = 10; // Keep minimum height as fallback
 
     // Calculate new dimensions while maintaining aspect ratio
@@ -2922,15 +4043,18 @@ canvas.addEventListener('mousemove', (e) => {
       case 'nw': // Top-left corner - anchor is bottom-right
         anchorX = img.x + img.width;
         anchorY = img.y + img.height;
-        newWidth = Math.max(minWidth, img.width - deltaX);
+        newWidth = Math.max(minWidth, Math.min(maxWidth, img.width - deltaX));
         newHeight = newWidth / img.aspectRatio;
         // Adjust if height would be too small
         if (newHeight < minHeight) {
           newHeight = minHeight;
           newWidth = newHeight * img.aspectRatio;
-          // Ensure width still meets minimum
+          // Ensure width still meets minimum and maximum
           if (newWidth < minWidth) {
             newWidth = minWidth;
+            newHeight = newWidth / img.aspectRatio;
+          } else if (newWidth > maxWidth) {
+            newWidth = maxWidth;
             newHeight = newWidth / img.aspectRatio;
           }
         }
@@ -2942,13 +4066,16 @@ canvas.addEventListener('mousemove', (e) => {
       case 'ne': // Top-right corner - anchor is bottom-left
         anchorX = img.x;
         anchorY = img.y + img.height;
-        newWidth = Math.max(minWidth, img.width + deltaX);
+        newWidth = Math.max(minWidth, Math.min(maxWidth, img.width + deltaX));
         newHeight = newWidth / img.aspectRatio;
         if (newHeight < minHeight) {
           newHeight = minHeight;
           newWidth = newHeight * img.aspectRatio;
           if (newWidth < minWidth) {
             newWidth = minWidth;
+            newHeight = newWidth / img.aspectRatio;
+          } else if (newWidth > maxWidth) {
+            newWidth = maxWidth;
             newHeight = newWidth / img.aspectRatio;
           }
         }
@@ -2959,13 +4086,16 @@ canvas.addEventListener('mousemove', (e) => {
       case 'se': // Bottom-right corner - anchor is top-left
         anchorX = img.x;
         anchorY = img.y;
-        newWidth = Math.max(minWidth, img.width + deltaX);
+        newWidth = Math.max(minWidth, Math.min(maxWidth, img.width + deltaX));
         newHeight = newWidth / img.aspectRatio;
         if (newHeight < minHeight) {
           newHeight = minHeight;
           newWidth = newHeight * img.aspectRatio;
           if (newWidth < minWidth) {
             newWidth = minWidth;
+            newHeight = newWidth / img.aspectRatio;
+          } else if (newWidth > maxWidth) {
+            newWidth = maxWidth;
             newHeight = newWidth / img.aspectRatio;
           }
         }
@@ -2975,13 +4105,16 @@ canvas.addEventListener('mousemove', (e) => {
       case 'sw': // Bottom-left corner - anchor is top-right
         anchorX = img.x + img.width;
         anchorY = img.y;
-        newWidth = Math.max(minWidth, img.width - deltaX);
+        newWidth = Math.max(minWidth, Math.min(maxWidth, img.width - deltaX));
         newHeight = newWidth / img.aspectRatio;
         if (newHeight < minHeight) {
           newHeight = minHeight;
           newWidth = newHeight * img.aspectRatio;
           if (newWidth < minWidth) {
             newWidth = minWidth;
+            newHeight = newWidth / img.aspectRatio;
+          } else if (newWidth > maxWidth) {
+            newWidth = maxWidth;
             newHeight = newWidth / img.aspectRatio;
           }
         }
@@ -4096,6 +5229,154 @@ if (fpsCounterToggle) {
   fpsCounterToggle.addEventListener('change', (e) => {
     fpsCounterVisible = e.target.checked;
     updateFpsCounterVisibility();
+  });
+}
+
+// Demo mode functions
+function loadDemoMode() {
+  // Clear existing images first
+  images = [];
+  selectedImageIndices = [];
+  
+  // Load the demo image - read file and convert to data URL
+  const demoImagePath = path.join(__dirname, 'assets', 'demo-weather-app.png');
+  
+  try {
+    // Read the image file
+    const imageBuffer = fs.readFileSync(demoImagePath);
+    const imageBase64 = imageBuffer.toString('base64');
+    const imageDataURL = `data:image/png;base64,${imageBase64}`;
+    
+    // Load image with custom sizing (bigger than default)
+    const img = new Image();
+    img.onload = () => {
+      // Scale image to be bigger - use 90% of viewport instead of 70%, and no max size limit
+      const cssDims = getCanvasCSSDimensions();
+      const maxWidth = cssDims.width * 0.9; // 90% of viewport width
+      const maxHeight = cssDims.height * 0.9; // 90% of viewport height
+      
+      let scaledWidth = img.width;
+      let scaledHeight = img.height;
+      
+      // Scale down if image is too large
+      if (scaledWidth > maxWidth || scaledHeight > maxHeight) {
+        const scaleX = maxWidth / scaledWidth;
+        const scaleY = maxHeight / scaledHeight;
+        const scale = Math.min(scaleX, scaleY);
+        scaledWidth = scaledWidth * scale;
+        scaledHeight = scaledHeight * scale;
+      }
+      
+      // Center the image on canvas
+      const visibleCenterX = -canvasTranslateX / canvasScale + (cssDims.width / canvasScale) / 2;
+      const visibleCenterY = -canvasTranslateY / canvasScale + (cssDims.height / canvasScale) / 2;
+      const imageX = visibleCenterX - scaledWidth / 2;
+      const imageY = visibleCenterY - scaledHeight / 2;
+      
+      const imageObj = {
+        element: img,
+        x: imageX,
+        y: imageY,
+        width: scaledWidth,
+        height: scaledHeight,
+        aspectRatio: img.width / img.height,
+        finalPosition: null,
+        id: generateId(),
+        version: 1,
+        pins: []
+      };
+      
+      // Create a pin in the center of the image with demo data: feature, 2 emotions, and 3 values
+      const centerPin = {
+        id: generateId(),
+        imageId: imageObj.id,
+        imageVersion: imageObj.version,
+        location: { x: 0.5, y: 0.5 }, // Center of image (normalized coordinates)
+        semanticLocation: '',
+        feature: 'Weather Display',
+        emotionalAspects: ['Calm', 'Pleasant'],
+        valueAspects: ['Clarity', 'Accessibility', 'Aesthetics']
+      };
+      
+      imageObj.pins.push(centerPin);
+      
+      images.push(imageObj);
+      selectedImageIndices = [0];
+      
+      // Open canvas if not already open
+      if (!isOverlayActive) {
+        toggleOverlay();
+      }
+      
+      // Small delay to ensure canvas is open before entering reflection mode
+      setTimeout(() => {
+        if (reflectionButton && !isReflectionMode) {
+          enterReflectionMode();
+        }
+      }, 200);
+      
+      draw();
+    };
+    
+    img.onerror = () => {
+      console.error('Failed to load demo image:', demoImagePath);
+      alert('Failed to load demo image. Please make sure the file exists at: ' + demoImagePath);
+    };
+    
+    img.src = imageDataURL;
+  } catch (error) {
+    console.error('Failed to load demo image:', error);
+    alert('Failed to load demo image. Please make sure the file exists at: ' + demoImagePath);
+  }
+}
+
+function clearDemoMode() {
+  // Exit reflection mode if active
+  if (isReflectionMode) {
+    exitReflectionMode();
+  }
+  
+  // Clear all images
+  images = [];
+  selectedImageIndices = [];
+  
+  // Close canvas if open
+  if (isOverlayActive) {
+    toggleOverlay();
+  }
+  
+  draw();
+}
+
+// Demo mode toggle handler
+if (demoModeToggle) {
+  // Load saved demo mode state - default to true if not set
+  const savedDemoMode = localStorage.getItem('demoMode');
+  const isDemoModeEnabled = savedDemoMode === null ? true : savedDemoMode === 'true';
+  demoModeToggle.checked = isDemoModeEnabled;
+  
+  // Save the default state if it wasn't set
+  if (savedDemoMode === null) {
+    localStorage.setItem('demoMode', 'true');
+  }
+  
+  // If demo mode was enabled, load it on startup
+  if (isDemoModeEnabled) {
+    // Wait for canvas to be ready
+    setTimeout(() => {
+      loadDemoMode();
+    }, 500);
+  }
+  
+  demoModeToggle.addEventListener('change', (e) => {
+    const isEnabled = e.target.checked;
+    localStorage.setItem('demoMode', isEnabled.toString());
+    
+    if (isEnabled) {
+      loadDemoMode();
+    } else {
+      clearDemoMode();
+    }
   });
 }
 
@@ -5423,7 +6704,17 @@ function confirmPinPlacement() {
   
   reflectionImg.pins.push(newPin);
   
+  // Automatically select the newly created pin
+  selectedPinId = newPin.id;
+  
+  // Collapse any expanded pin when a new pin is placed
+  if (expandedPinId !== null) {
+    startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+    // Don't clear expandedPinId here - let animation complete first
+  }
+  
   hidePinPlacementUI();
+  updateControlPanelInputs();
   draw();
 }
 
@@ -5547,7 +6838,25 @@ function addEmotionalAspect() {
     selectedPin.emotionalAspects = [];
   }
   
+  // Store old count before adding
+  const oldCount = selectedPin.emotionalAspects.length;
   selectedPin.emotionalAspects.push(aspectText);
+  const newCount = selectedPin.emotionalAspects.length;
+  
+  // Automatically expand pin if it's not already expanded and now has aspects
+  const hasValueAspects = selectedPin.valueAspects && selectedPin.valueAspects.length > 0;
+  const canExpand = newCount > 0 || hasValueAspects;
+  if (canExpand && expandedPinId !== selectedPinId) {
+    // Pin can now expand and isn't expanded yet - expand it
+    expandedPinId = selectedPinId;
+    startPinExpansionAnimation(selectedPinId, 'collapsed', 'expanded');
+  }
+  
+  // Start dot repositioning animation if pin is expanded
+  if (expandedPinId === selectedPinId) {
+    startDotRepositionAnimation(selectedPinId, 'emotional', oldCount, newCount);
+  }
+  
   emotionalAspectInput.value = '';
   
   // Enable value aspects field if it wasn't already enabled
@@ -5571,7 +6880,36 @@ function addValueAspect() {
     selectedPin.valueAspects = [];
   }
   
+  // Store old count before adding
+  const oldCount = selectedPin.valueAspects.length;
   selectedPin.valueAspects.push(aspectText);
+  const newCount = selectedPin.valueAspects.length;
+  
+  // Automatically expand pin if it's not already expanded and now has aspects
+  const hasEmotionalAspects = selectedPin.emotionalAspects && selectedPin.emotionalAspects.length > 0;
+  const canExpand = hasEmotionalAspects || newCount > 0;
+  const wasAlreadyExpanded = expandedPinId === selectedPinId;
+  if (canExpand && !wasAlreadyExpanded) {
+    // Pin can now expand and isn't expanded yet - expand it
+    expandedPinId = selectedPinId;
+    startPinExpansionAnimation(selectedPinId, 'collapsed', 'expanded');
+  }
+  
+  // Start values area animation if this is the first value aspect
+  // Either pin was already expanded, or it just expanded (in which case values area animates with expansion)
+  if (oldCount === 0 && newCount === 1) {
+    if (wasAlreadyExpanded) {
+      // Pin was already expanded - animate values area separately
+      startValuesAreaAnimation(selectedPinId);
+    }
+    // If pin just expanded, the values area will animate as part of the expansion (expansionProgress handles it)
+  }
+  
+  // Start dot repositioning animation if pin is expanded
+  if (expandedPinId === selectedPinId) {
+    startDotRepositionAnimation(selectedPinId, 'value', oldCount, newCount);
+  }
+  
   valueAspectInput.value = '';
   
   draw();
@@ -5587,13 +6925,30 @@ function deleteAspect(type, index) {
   if (!selectedPin) return;
   
   if (type === 'emotional' && selectedPin.emotionalAspects) {
+    // Store old count before removing
+    const oldCount = selectedPin.emotionalAspects.length;
     selectedPin.emotionalAspects.splice(index, 1);
+    const newCount = selectedPin.emotionalAspects.length;
+    
+    // Start dot repositioning animation if pin is expanded
+    if (expandedPinId === selectedPinId && newCount > 0) {
+      startDotRepositionAnimation(selectedPinId, 'emotional', oldCount, newCount);
+    }
+    
     // Disable value aspects if no emotional aspects remain
     if (selectedPin.emotionalAspects.length === 0) {
       updateControlPanelInputs();
     }
   } else if (type === 'value' && selectedPin.valueAspects) {
+    // Store old count before removing
+    const oldCount = selectedPin.valueAspects.length;
     selectedPin.valueAspects.splice(index, 1);
+    const newCount = selectedPin.valueAspects.length;
+    
+    // Start dot repositioning animation if pin is expanded
+    if (expandedPinId === selectedPinId && newCount > 0) {
+      startDotRepositionAnimation(selectedPinId, 'value', oldCount, newCount);
+    }
   }
   
   draw();
