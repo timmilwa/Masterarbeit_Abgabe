@@ -375,13 +375,15 @@
             font-size: 14px;
             font-weight: 500;
             color: oklch(0.145 0 0);
-            transition: all 0.2s;
+            transition: all 0.2s ease;
+            transform: scale(1);
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             position: relative;
         }
 
         .settings-tab:hover {
             background-color: rgba(0, 0, 0, 0.05);
+            transform: scale(1.01);
         }
 
         .settings-tab.active {
@@ -784,6 +786,19 @@
         #action-open-canvas-button .key-icon[data-key="alt"] {
             margin-right: 4px;
         }
+
+        /* Control Panel Input Animations */
+        #control-panel-inputs input,
+        #control-panel-inputs button,
+        #control-panel-inputs > div {
+            transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+        }
+
+        #control-panel-inputs input.animating,
+        #control-panel-inputs button.animating,
+        #control-panel-inputs > div.animating {
+            transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
     </style>
 </head>
 <body>
@@ -860,8 +875,23 @@
 
     <!-- Control Panel Input Fields -->
     <div id="control-panel-inputs" style="position: fixed; z-index: 2001; display: none; pointer-events: none;">
+        <!-- General Info Inputs -->
+        <div id="product-name-container" style="position: absolute; display: none; pointer-events: auto;">
+            <input type="text" id="product-name-input" value="demo object" style="padding: 8px 32px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: 100%; box-sizing: border-box;">
+            <div id="product-name-edit-icon" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: none; color: oklch(0.145 0 0); opacity: 0.6;"></div>
+        </div>
+        <div id="focus-input-container" style="position: absolute; display: none; pointer-events: auto;">
+            <input type="text" id="focus-input" placeholder="Optional" style="padding: 8px 40px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: calc(100% - 40px); box-sizing: border-box; display: inline-block;">
+            <button id="focus-save-button" style="position: absolute; right: 0; top: 0; width: 32px; height: 32px; padding: 0; background: #030213; color: white; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto;">
+                <div id="focus-save-icon" style="width: 16px; height: 16px; color: white;"></div>
+            </button>
+        </div>
+        <!-- Emotional and Value Aspect Inputs -->
         <input type="text" id="emotional-aspect-input" placeholder="Enter emotional aspect" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
         <button id="emotional-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
+        <!-- Emotions Tab Answer Input -->
+        <input type="text" id="emotions-answer-input" placeholder="Your Answer" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto; display: none;">
+        <button id="emotions-answer-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto; display: none;">+</button>
         <input type="text" id="value-aspect-input" placeholder="Enter value aspect" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
         <button id="value-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
     </div>

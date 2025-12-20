@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { Fullscreen, Camera, ChevronDown } = require('lucide');
+const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X } = require('lucide');
 const fs = require('fs');
 const path = require('path');
 
@@ -44,8 +44,17 @@ const pinConfirmButton = document.getElementById('pin-confirm-button');
 const controlPanelInputs = document.getElementById('control-panel-inputs');
 const emotionalAspectInput = document.getElementById('emotional-aspect-input');
 const emotionalAspectAddButton = document.getElementById('emotional-aspect-add-button');
+const emotionsAnswerInput = document.getElementById('emotions-answer-input');
+const emotionsAnswerAddButton = document.getElementById('emotions-answer-add-button');
 const valueAspectInput = document.getElementById('value-aspect-input');
 const valueAspectAddButton = document.getElementById('value-aspect-add-button');
+const productNameContainer = document.getElementById('product-name-container');
+const productNameInput = document.getElementById('product-name-input');
+const productNameEditIcon = document.getElementById('product-name-edit-icon');
+const focusInputContainer = document.getElementById('focus-input-container');
+const focusInput = document.getElementById('focus-input');
+const focusSaveButton = document.getElementById('focus-save-button');
+const focusSaveIcon = document.getElementById('focus-save-icon');
 const fpsCounter = document.getElementById('fps-counter');
 const fpsCounterText = document.getElementById('fps-counter-text');
 const fpsCounterDpr = document.getElementById('fps-counter-dpr');
@@ -99,7 +108,56 @@ let previousCanvasTranslateY = 0;
 let reflectionButtonBounds = null; // Store button bounds for click detection
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
 let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
+let emotionsAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for emotions tab
+let emotionsStarred = false; // Whether the current AI text is starred
+let emotionsIconBounds = {}; // Store icon bounds for click detection: { shuffle: {x, y, width, height}, star: {x, y, width, height} }
+let valuesAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for values tab
+let valuesStarred = false; // Whether the current AI text is starred
+let valuesIconBounds = {}; // Store icon bounds for click detection: { shuffle: {x, y, width, height}, star: {x, y, width, height} }
+let currentQuestionId = 0; // Current question ID (increments when "Next question" is clicked)
+let featuresQuestionText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?"; // Current question text for features
 const ACCORDION_ANIMATION_DURATION = 300; // Animation duration in milliseconds (increased for smoother animation)
+let currentTabSpacing = 22; // Current animated tab spacing value
+let targetTabSpacing = 22; // Target tab spacing value
+let tabSpacingAnimationStartTime = null; // Start time for tab spacing animation
+let tabSpacingAnimationStartValue = 22; // Starting value when animation begins
+const TAB_SPACING_ANIMATION_DURATION = 300; // Animation duration for tab spacing in milliseconds
+const TAB_SPACING_DEFAULT = 22; // Default spacing between tabs
+const TAB_SPACING_SELECTED = 5; // Spacing between tabs when a feature is selected
+let featuresIconRotation = 0; // Current rotation angle for features-pinned icon (0 = Plus, 45 = X)
+let featuresIconTargetRotation = 0; // Target rotation angle
+let featuresIconRotationStartTime = null; // Start time for rotation animation
+let featuresIconRotationStartValue = 0; // Starting rotation when animation begins
+const FEATURES_ICON_ROTATION_DURATION = 300; // Animation duration for icon rotation in milliseconds
+let featuresHeaderBottomRadius = 12; // Current animated bottom border radius for features-pinned header
+let featuresHeaderBottomRadiusTarget = 12; // Target bottom border radius
+let featuresHeaderBottomRadiusStartTime = null; // Start time for border radius animation
+let featuresHeaderBottomRadiusStartValue = 12; // Starting value when animation begins
+const FEATURES_HEADER_BOTTOM_RADIUS_DURATION = 300; // Animation duration for border radius in milliseconds
+const FEATURES_HEADER_BOTTOM_RADIUS_SELECTED = 0; // Bottom border radius when feature is selected
+const FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT = 12; // Default bottom border radius
+let emotionsHeaderRadius = 12; // Current animated border radius for emotions header (all corners)
+let emotionsHeaderRadiusTarget = 12; // Target border radius
+let emotionsHeaderRadiusStartTime = null; // Start time for border radius animation
+let emotionsHeaderRadiusStartValue = 12; // Starting value when animation begins
+const EMOTIONS_HEADER_RADIUS_DURATION = 300; // Animation duration for border radius in milliseconds
+const EMOTIONS_HEADER_RADIUS_SELECTED = 0; // Border radius when feature is selected (all corners)
+const EMOTIONS_HEADER_RADIUS_DEFAULT = 12; // Default border radius
+let valuesHeaderTopRadius = 12; // Current animated top border radius for values header
+let valuesHeaderTopRadiusTarget = 12; // Target top border radius
+let valuesHeaderTopRadiusStartTime = null; // Start time for border radius animation
+let valuesHeaderTopRadiusStartValue = 12; // Starting value when animation begins
+const VALUES_HEADER_TOP_RADIUS_DURATION = 300; // Animation duration for border radius in milliseconds
+const VALUES_HEADER_TOP_RADIUS_SELECTED = 0; // Top border radius when feature is selected
+const VALUES_HEADER_TOP_RADIUS_DEFAULT = 12; // Default top border radius
+let hoveredAccordionId = null; // Track which accordion is currently hovered
+let animatingAccordionId = null; // Track which accordion is currently animating (for scale-down)
+let accordionHoverScale = 1.0; // Current scale for hover effect (animated)
+let accordionHoverAnimationStartTime = null; // Start time for hover scale animation
+let accordionHoverAnimationStartScale = 1.0; // Starting scale when animation begins
+let accordionHoverAnimationTargetScale = 1.0; // Target scale for current animation
+const ACCORDION_HOVER_SCALE_TARGET = 1.01; // Target scale on hover (1% increase)
+const ACCORDION_HOVER_ANIMATION_DURATION = 120; // Animation duration in milliseconds (reduced for faster animation)
 let isAnimating = false;
 let animationStartTime = 0;
 let animationDuration = 500; // Animation duration in milliseconds
@@ -149,6 +207,8 @@ let fpsCounterVisible = true; // Default: FPS counter is visible
 // Pin system state
 let selectedPinId = null; // Currently selected pin ID
 let expandedPinId = null; // Currently expanded pin ID (for showing aspect dots in orbits)
+let tooltipPinId = null; // Currently pinned tooltip pin ID (tooltip stays visible until closed)
+let hoveredPinId = null; // Currently hovered pin ID (for hover tooltip)
 let isPlacingPin = false; // Whether currently placing a pin
 let tempPinLocation = null; // Temporary pin location during placement {x, y} in normalized coordinates
 let pinFeatureText = ''; // Text for feature during pin placement
@@ -158,7 +218,7 @@ let pinExpansionAnimation = null; // { pinId, startTime, duration, fromState: 'c
 const PIN_EXPANSION_DURATION = 350; // Animation duration in milliseconds
 
 // Hovered aspect dot state - tracks which dot is currently hovered
-let hoveredAspectDot = null; // { pinId, type: 'emotional'|'value', index, text, x, y }
+let hoveredAspectDot = null; // { pinId, type: 'emotional'|'value', index, text, x, y, isValue: boolean }
 
 // Dot position animation state - tracks repositioning animations for aspect dots
 // Structure: { pinId: { emotional: { startTime, duration, oldAngles: [], newAngles: [], isNewDot: [] }, value: { ... } } }
@@ -256,9 +316,11 @@ function loadLabelImages() {
 // Initialize label images on load
 if (typeof window !== 'undefined') {
   window.addEventListener('load', loadLabelImages);
+  window.addEventListener('load', initializeGeneralInfoIcons);
   // Also try loading immediately in case window is already loaded
   if (document.readyState === 'complete') {
     loadLabelImages();
+    initializeGeneralInfoIcons();
   } else {
     // Try loading after a short delay
     setTimeout(loadLabelImages, 100);
@@ -316,9 +378,8 @@ function getDevicePixelRatio() {
   
   // Check if accordion animation is active - use lower DPR for smooth animation
   if (Object.keys(accordionAnimations).length > 0) {
-    const baseDPR = getBaseDevicePixelRatio();
-    // Use animation DPR, but don't go below base DPR
-    return Math.max(ANIMATION_DPR, baseDPR);
+    // Use lower DPR during accordion animations for smooth performance
+    return ANIMATION_DPR;
   }
   
   // Dynamic mode: use interaction-based DPR
@@ -864,6 +925,18 @@ function toggleOverlay() {
         img.hidden = false;
       });
       
+      // Reset accordion hover state
+      hoveredAccordionId = null;
+      animatingAccordionId = null;
+      accordionHoverScale = 1.0;
+      accordionHoverAnimationStartTime = null;
+      
+      // Reset accordion hover state
+      hoveredAccordionId = null;
+      animatingAccordionId = null;
+      accordionHoverScale = 1.0;
+      accordionHoverAnimationStartTime = null;
+      
       // Exit reflection mode without animation
       isReflectionMode = false;
       reflectionImageIndex = -1;
@@ -923,6 +996,18 @@ function toggleOverlay() {
       hoverAnimationStartTime = Date.now();
       hoverAnimationProgress = 1; // Start from 1 to animate to 0
     }
+    
+    // Clear pin tooltip when overlay closes
+    tooltipPinId = null;
+    hoveredPinId = null;
+    hoveredAspectDot = null;
+    // Clear all tooltip bounds
+    for (let k in window) {
+      if (k.startsWith('tooltipBounds_')) {
+        delete window[k];
+      }
+    }
+    window.pinTooltipBounds = null;
     
     // Check if mouse is still over UI before enabling click-through
     if (!isMouseOverUI(lastMouseX, lastMouseY)) {
@@ -1611,11 +1696,184 @@ function draw() {
     } else {
       // Animation complete - clean up
       delete accordionAnimations[accordionId];
+      // Restore normal DPR when animation ends
+      canvasNeedsReinit = true;
       // Update inputs if this was the expanded accordion
       if (expandedAccordionId === accordionId) {
         updateControlPanelInputs();
       }
+    } else {
+      // Animation still in progress - update inputs to animate them
+      if (isReflectionMode && (accordionId === 'general-info' || accordionId === 'emotions' || accordionId === 'values')) {
+        updateControlPanelInputs();
+      }
     }
+  }
+  
+  // Update tab spacing animation
+  if (tabSpacingAnimationStartTime !== null) {
+    const elapsed = Date.now() - tabSpacingAnimationStartTime;
+    const progress = Math.min(elapsed / TAB_SPACING_ANIMATION_DURATION, 1);
+    
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+      // Interpolate from start value to target
+      currentTabSpacing = tabSpacingAnimationStartValue + (targetTabSpacing - tabSpacingAnimationStartValue) * easedProgress;
+      
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      currentTabSpacing = targetTabSpacing;
+      tabSpacingAnimationStartTime = null;
+    }
+  } else if (Math.abs(currentTabSpacing - targetTabSpacing) > 0.1) {
+    // If no animation but spacing doesn't match target, snap to target
+    currentTabSpacing = targetTabSpacing;
+  }
+  
+  // Update features icon rotation animation
+  if (featuresIconRotationStartTime !== null) {
+    const elapsed = Date.now() - featuresIconRotationStartTime;
+    const progress = Math.min(elapsed / FEATURES_ICON_ROTATION_DURATION, 1);
+    
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+      // Interpolate from start value to target
+      featuresIconRotation = featuresIconRotationStartValue + (featuresIconTargetRotation - featuresIconRotationStartValue) * easedProgress;
+      
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      featuresIconRotation = featuresIconTargetRotation;
+      featuresIconRotationStartTime = null;
+    }
+  } else if (Math.abs(featuresIconRotation - featuresIconTargetRotation) > 0.1) {
+    // If no animation but rotation doesn't match target, snap to target
+    featuresIconRotation = featuresIconTargetRotation;
+  }
+  
+  // Update features header bottom border radius animation
+  if (featuresHeaderBottomRadiusStartTime !== null) {
+    const elapsed = Date.now() - featuresHeaderBottomRadiusStartTime;
+    const progress = Math.min(elapsed / FEATURES_HEADER_BOTTOM_RADIUS_DURATION, 1);
+    
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+      // Interpolate from start value to target
+      featuresHeaderBottomRadius = featuresHeaderBottomRadiusStartValue + (featuresHeaderBottomRadiusTarget - featuresHeaderBottomRadiusStartValue) * easedProgress;
+      
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      featuresHeaderBottomRadius = featuresHeaderBottomRadiusTarget;
+      featuresHeaderBottomRadiusStartTime = null;
+    }
+  } else if (Math.abs(featuresHeaderBottomRadius - featuresHeaderBottomRadiusTarget) > 0.1) {
+    // If no animation but radius doesn't match target, snap to target
+    featuresHeaderBottomRadius = featuresHeaderBottomRadiusTarget;
+  }
+  
+  // Update emotions header border radius animation
+  if (emotionsHeaderRadiusStartTime !== null) {
+    const elapsed = Date.now() - emotionsHeaderRadiusStartTime;
+    const progress = Math.min(elapsed / EMOTIONS_HEADER_RADIUS_DURATION, 1);
+    
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+      // Interpolate from start value to target
+      emotionsHeaderRadius = emotionsHeaderRadiusStartValue + (emotionsHeaderRadiusTarget - emotionsHeaderRadiusStartValue) * easedProgress;
+      
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      emotionsHeaderRadius = emotionsHeaderRadiusTarget;
+      emotionsHeaderRadiusStartTime = null;
+    }
+  } else if (Math.abs(emotionsHeaderRadius - emotionsHeaderRadiusTarget) > 0.1) {
+    // If no animation but radius doesn't match target, snap to target
+    emotionsHeaderRadius = emotionsHeaderRadiusTarget;
+  }
+  
+  // Update values header top border radius animation
+  if (valuesHeaderTopRadiusStartTime !== null) {
+    const elapsed = Date.now() - valuesHeaderTopRadiusStartTime;
+    const progress = Math.min(elapsed / VALUES_HEADER_TOP_RADIUS_DURATION, 1);
+    
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+      // Interpolate from start value to target
+      valuesHeaderTopRadius = valuesHeaderTopRadiusStartValue + (valuesHeaderTopRadiusTarget - valuesHeaderTopRadiusStartValue) * easedProgress;
+      
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      valuesHeaderTopRadius = valuesHeaderTopRadiusTarget;
+      valuesHeaderTopRadiusStartTime = null;
+    }
+  } else if (Math.abs(valuesHeaderTopRadius - valuesHeaderTopRadiusTarget) > 0.1) {
+    // If no animation but radius doesn't match target, snap to target
+    valuesHeaderTopRadius = valuesHeaderTopRadiusTarget;
+  }
+  
+  // Animate accordion hover scale (only in reflection mode)
+  if (isReflectionMode) {
+    if (accordionHoverAnimationStartTime !== null) {
+      const elapsed = Date.now() - accordionHoverAnimationStartTime;
+      const progress = Math.min(elapsed / ACCORDION_HOVER_ANIMATION_DURATION, 1);
+      
+      // Ease in-out for smooth transition
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+      // Interpolate from start scale to target scale
+      accordionHoverScale = accordionHoverAnimationStartScale + 
+        (accordionHoverAnimationTargetScale - accordionHoverAnimationStartScale) * easedProgress;
+      
+      if (progress < 1.0) {
+        requestDraw();
+      } else {
+        // Animation complete
+        accordionHoverScale = accordionHoverAnimationTargetScale;
+        accordionHoverAnimationStartTime = null;
+        animatingAccordionId = null; // Clear animating accordion when done
+      }
+    } else if (hoveredAccordionId === null && accordionHoverScale !== 1.0) {
+      // If not hovering and scale is not 1.0, but no animation is running, start one
+      accordionHoverAnimationStartScale = accordionHoverScale;
+      accordionHoverAnimationTargetScale = 1.0;
+      accordionHoverAnimationStartTime = Date.now();
+      requestDraw();
+    }
+  } else if (!isReflectionMode && accordionHoverScale !== 1.0) {
+    // Reset scale when not in reflection mode
+    accordionHoverScale = 1.0;
+    accordionHoverAnimationStartTime = null;
   }
 }
 
@@ -1633,11 +1891,45 @@ function drawPinPlacementUI() {
   
   ctx.save();
   
-  // Draw temporary pin marker (in CSS pixels - context is already scaled by dpr)
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.7)'; // Semi-transparent blue
-  ctx.beginPath();
-  ctx.arc(screenPos.x, screenPos.y, 6, 0, Math.PI * 2);
-  ctx.fill();
+  // Use same size as the actual pin (12px radius when not selected)
+  const baseBlueRadius = 12; // Same as pin baseBlueRadius when not selected
+  const whiteStrokeWidth = 3; // Same as pin white stroke width
+  
+  // Draw dot in front of text box and dashed line connecting pin to dot
+  if (pinPlacementUI && pinPlacementUI.style.display !== 'none' && pinFeatureInput) {
+    const uiRect = pinPlacementUI.getBoundingClientRect();
+    const inputRect = pinFeatureInput.getBoundingClientRect();
+    
+    // Calculate dot position: left edge of the input box with gap, vertically centered
+    const gapBetweenDotAndInput = 20; // Gap between dot and input box
+    const dotX = inputRect.left - gapBetweenDotAndInput;
+    const dotY = inputRect.top + inputRect.height / 2;
+    
+    // Draw dashed line from pin to dot
+    ctx.strokeStyle = '#3b82f6'; // Blue color matching pin
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]); // Dashed line
+    ctx.beginPath();
+    ctx.moveTo(screenPos.x, screenPos.y);
+    ctx.lineTo(dotX, dotY);
+    ctx.stroke();
+    ctx.setLineDash([]); // Reset line dash
+    
+    // Draw dot in front of text box (same size as pin)
+    ctx.fillStyle = '#008CFF'; // Same blue as actual pin
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, baseBlueRadius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Draw white stroke around dot - dashed when feature is not saved (isPlacingPin is true)
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = whiteStrokeWidth;
+    ctx.setLineDash([5, 5]); // Dashed stroke when not saved
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, baseBlueRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]); // Reset line dash
+  }
   
   ctx.restore();
 }
@@ -2079,13 +2371,43 @@ function getPinExpansionProgress(pinId) {
 
 // Draw pins on an image (called after transform is restored, so we draw in screen coordinates)
 function drawPins(img, isImageSelected) {
-  if (!img || !img.pins || img.pins.length === 0) return;
+  if (!img || !img.pins || img.pins.length === 0) {
+    // Clear tooltip if no pins
+    if (tooltipPinId) {
+      tooltipPinId = null;
+      window.pinTooltipBounds = null;
+    }
+    return;
+  }
   
   const dpr = getDevicePixelRatio();
   ctx.save();
   
-  // Clear hovered dot at start of each draw (will be set if mouse is over a dot)
-  hoveredAspectDot = null;
+  // Clear hovered states at start of each draw (will be set if mouse is over items)
+  // But preserve hover state if mouse is over tooltip area (for hover persistence)
+  let shouldKeepAspectDotHover = false;
+  let shouldKeepPinHover = false;
+  
+  // Check if mouse is over any existing tooltip to preserve hover state
+  if (isMouseOverTooltip(lastMouseX, lastMouseY)) {
+    // Mouse is over tooltip area, don't clear hover states yet
+    // (will be cleared only if mouse moves away from both item and tooltip)
+    shouldKeepAspectDotHover = hoveredAspectDot !== null;
+    shouldKeepPinHover = hoveredPinId !== null;
+  }
+  
+  // Clear hover states if not preserving
+  if (!shouldKeepAspectDotHover) {
+    hoveredAspectDot = null;
+  }
+  if (!shouldKeepPinHover) {
+    hoveredPinId = null;
+  }
+  
+  // Get mouse position in canvas-relative screen coordinates for hover detection
+  const rect = canvas.getBoundingClientRect();
+  const canvasRelativeX = lastMouseX - rect.left;
+  const canvasRelativeY = lastMouseY - rect.top;
   
   img.pins.forEach(pin => {
     // Filter pins based on reflection mode
@@ -2395,11 +2717,11 @@ function drawPins(img, isImageSelected) {
             
             // Store dot position for hover detection (only if expanded and visible)
             if (combinedProgress > 0.5) {
-              // Check if mouse is hovering over this dot
-              const dx = lastMouseX - dotX;
-              const dy = lastMouseY - dotY;
+              // Check if mouse is hovering over this dot (use canvas-relative coordinates)
+              const dx = canvasRelativeX - dotX;
+              const dy = canvasRelativeY - dotY;
               const distance = Math.sqrt(dx * dx + dy * dy);
-              if (distance <= dotRadius + 5) { // 5px hover margin
+              if (distance <= dotRadius + 5 && !hoveredAspectDot) { // 5px hover margin
                 hoveredAspectDot = {
                   pinId: pin.id,
                   type: 'value',
@@ -2555,11 +2877,11 @@ function drawPins(img, isImageSelected) {
             
             // Store dot position for hover detection (only if expanded and visible)
             if (expansionProgress > 0.5) {
-              // Check if mouse is hovering over this dot
-              const dx = lastMouseX - dotX;
-              const dy = lastMouseY - dotY;
+              // Check if mouse is hovering over this dot (use canvas-relative coordinates)
+              const dx = canvasRelativeX - dotX;
+              const dy = canvasRelativeY - dotY;
               const distance = Math.sqrt(dx * dx + dy * dy);
-              if (distance <= dotRadius + 5) { // 5px hover margin
+              if (distance <= dotRadius + 5 && !hoveredAspectDot) { // 5px hover margin
                 hoveredAspectDot = {
                   pinId: pin.id,
                   type: 'emotional',
@@ -2646,65 +2968,277 @@ function drawPins(img, isImageSelected) {
     ctx.beginPath();
     ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
     ctx.stroke();
+    
+    // Check if mouse is hovering over this pin (for hover tooltip)
+    const dx = canvasRelativeX - screenX;
+    const dy = canvasRelativeY - screenY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const pinHitRadius = blueRadius + 10; // Hover radius with margin
+    if (distance <= pinHitRadius && !hoveredPinId) {
+      hoveredPinId = pin.id;
+    }
   });
   
-  // Draw tooltip for hovered aspect dot
+  // Draw tooltip for hovered aspect dot (using unified function)
   if (hoveredAspectDot) {
-    ctx.save();
+    const tooltipId = `aspect_${hoveredAspectDot.pinId}_${hoveredAspectDot.type}_${hoveredAspectDot.index}`;
+    drawUnifiedTooltip(
+      hoveredAspectDot.text,
+      hoveredAspectDot.x,
+      hoveredAspectDot.y,
+      hoveredAspectDot.pinId,
+      'aspect-dot',
+      tooltipId
+    );
     
-    // Tooltip styling
-    const tooltipPadding = 8;
-    const tooltipFontSize = 14;
-    const tooltipMaxWidth = 200;
-    
-    ctx.font = `${tooltipFontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    
-    // Measure text
-    const textMetrics = ctx.measureText(hoveredAspectDot.text);
-    const textWidth = Math.min(textMetrics.width, tooltipMaxWidth);
-    const textHeight = tooltipFontSize;
-    
-    // Calculate tooltip position (offset from dot)
-    const tooltipOffsetX = 20; // Offset to the right of dot (increased from 15 to 20)
-    const tooltipOffsetY = -textHeight / 2 - 10; // Center vertically with dot, then move 10px up
-    const tooltipX = hoveredAspectDot.x + tooltipOffsetX;
-    const tooltipY = hoveredAspectDot.y + tooltipOffsetY;
-    
-    // Tooltip background
-    const tooltipWidth = textWidth + tooltipPadding * 2;
-    const tooltipHeight = textHeight + tooltipPadding * 2;
-    
-    // Draw tooltip background with rounded corners
-    ctx.fillStyle = 'rgba(128, 128, 128, 0.9)'; // Gray background
-    const cornerRadius = 6;
-    ctx.beginPath();
-    ctx.moveTo(tooltipX + cornerRadius, tooltipY);
-    ctx.lineTo(tooltipX + tooltipWidth - cornerRadius, tooltipY);
-    ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY, tooltipX + tooltipWidth, tooltipY + cornerRadius);
-    ctx.lineTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight - cornerRadius);
-    ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight, tooltipX + tooltipWidth - cornerRadius, tooltipY + tooltipHeight);
-    ctx.lineTo(tooltipX + cornerRadius, tooltipY + tooltipHeight);
-    ctx.quadraticCurveTo(tooltipX, tooltipY + tooltipHeight, tooltipX, tooltipY + tooltipHeight - cornerRadius);
-    ctx.lineTo(tooltipX, tooltipY + cornerRadius);
-    ctx.quadraticCurveTo(tooltipX, tooltipY, tooltipX + cornerRadius, tooltipY);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Draw tooltip border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    
-    // Draw tooltip text
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(hoveredAspectDot.text, tooltipX + tooltipPadding, tooltipY + tooltipPadding);
-    
-    ctx.restore();
+    // Keep tooltip visible if mouse is over tooltip area (hover persistence)
+    const tooltipBounds = window[`tooltipBounds_${tooltipId}`];
+    if (tooltipBounds && isMouseOverTooltip(lastMouseX, lastMouseY)) {
+      // Mouse is over tooltip, keep it visible (hoveredAspectDot stays set)
+    }
+  }
+  
+  // Draw tooltip for hovered pin (if not already shown via click)
+  if (hoveredPinId && tooltipPinId !== hoveredPinId) {
+    const hoveredPin = img.pins.find(p => p.id === hoveredPinId);
+    if (hoveredPin) {
+      // Calculate pin position in screen coordinates
+      const canvasX = img.x + (hoveredPin.location.x * img.width);
+      const canvasY = img.y + (hoveredPin.location.y * img.height);
+      const screenPos = canvasToScreen(canvasX, canvasY);
+      
+      // Check if mouse is over tooltip area to keep it visible
+      const tooltipId = `hover_pin_${hoveredPinId}`;
+      const isOverTooltip = isMouseOverTooltip(lastMouseX, lastMouseY);
+      
+      // Only show hover tooltip if mouse is over pin or tooltip area
+      const dx = canvasRelativeX - screenPos.x;
+      const dy = canvasRelativeY - screenPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const pinHitRadius = 25; // Hover radius with margin
+      
+      if (isOverTooltip || distance <= pinHitRadius) {
+        const pinText = hoveredPin.feature && hoveredPin.feature.trim().length > 0 
+          ? hoveredPin.feature 
+          : 'Pin';
+        drawUnifiedTooltip(
+          pinText,
+          screenPos.x,
+          screenPos.y,
+          hoveredPin.id,
+          'pin',
+          tooltipId
+        );
+      }
+    }
+  }
+  
+  // Draw tooltip for clicked pin (persistent tooltip with delete button)
+  if (tooltipPinId) {
+    const tooltipPin = img.pins.find(p => p.id === tooltipPinId);
+    if (tooltipPin) {
+      // Calculate pin position in canvas coordinates
+      const canvasX = img.x + (tooltipPin.location.x * img.width);
+      const canvasY = img.y + (tooltipPin.location.y * img.height);
+      
+      // Convert to screen coordinates
+      const screenPos = canvasToScreen(canvasX, canvasY);
+      
+      const pinText = tooltipPin.feature && tooltipPin.feature.trim().length > 0 
+        ? tooltipPin.feature 
+        : 'Pin';
+      
+      drawUnifiedTooltip(
+        pinText,
+        screenPos.x,
+        screenPos.y,
+        tooltipPin.id,
+        'pin',
+        `clicked_pin_${tooltipPinId}`
+      );
+      
+      // Also store in old format for backwards compatibility with click handler
+      const tooltipId = `clicked_pin_${tooltipPinId}`;
+      const bounds = window[`tooltipBounds_${tooltipId}`];
+      if (bounds) {
+        window.pinTooltipBounds = {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          deleteButtonX: bounds.deleteButtonX,
+          deleteButtonY: bounds.deleteButtonY,
+          deleteButtonWidth: bounds.deleteButtonWidth,
+          deleteButtonHeight: bounds.deleteButtonHeight,
+          pinId: tooltipPinId
+        };
+      }
+    } else {
+      // Pin not found, clear tooltip
+      tooltipPinId = null;
+      window.pinTooltipBounds = null;
+    }
   }
   
   ctx.restore();
+}
+
+// Unified tooltip drawing function for pins and aspect dots
+// Parameters:
+//   text: Text to display in tooltip
+//   anchorX, anchorY: Position to anchor tooltip to (screen coordinates)
+//   pinId: ID of the pin this tooltip belongs to (for delete button)
+//   tooltipType: 'pin' | 'aspect-dot' - determines positioning
+//   tooltipId: Unique identifier for this tooltip (for bounds tracking)
+function drawUnifiedTooltip(text, anchorX, anchorY, pinId, tooltipType, tooltipId) {
+  if (!text) return;
+  
+  ctx.save();
+  
+  // Unified tooltip styling (same for all tooltips)
+  const tooltipPadding = 10;
+  const tooltipFontSize = 14;
+  const tooltipMaxWidth = 250;
+  const deleteButtonSize = 20;
+  const deleteButtonPadding = 4;
+  
+  ctx.font = `${tooltipFontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  
+  // Measure text
+  const textMetrics = ctx.measureText(text);
+  const textWidth = Math.min(textMetrics.width, tooltipMaxWidth);
+  
+  // Calculate tooltip dimensions (text + delete button)
+  const tooltipContentWidth = textWidth + deleteButtonSize + deleteButtonPadding * 3;
+  const tooltipWidth = tooltipContentWidth + tooltipPadding * 2;
+  const tooltipHeight = Math.max(tooltipFontSize + tooltipPadding * 2, deleteButtonSize + tooltipPadding * 2);
+  
+  // Calculate tooltip position based on type
+  let tooltipX, tooltipY;
+  if (tooltipType === 'pin') {
+    // For pins: to the right of anchor, vertically centered
+    const tooltipOffsetX = 20; // Offset to the right of pin
+    tooltipX = anchorX + tooltipOffsetX;
+    tooltipY = anchorY - tooltipHeight / 2; // Center vertically with pin
+  } else {
+    // For aspect dots: to the right of anchor, vertically centered
+    const tooltipOffsetX = 20; // Offset to the right of dot
+    tooltipY = anchorY - tooltipHeight / 2; // Center vertically with dot
+    tooltipX = anchorX + tooltipOffsetX;
+  }
+  
+  // Calculate vertical center for alignment (center both text and icon vertically)
+  const contentCenterY = tooltipY + tooltipHeight / 2;
+  
+  // Position delete button vertically centered
+  const deleteButtonX = tooltipX + tooltipWidth - deleteButtonSize - tooltipPadding - deleteButtonPadding;
+  const deleteButtonY = contentCenterY - deleteButtonSize / 2;
+  
+  // Store tooltip bounds for click detection and hover persistence (in viewport coordinates)
+  const rect = canvas.getBoundingClientRect();
+  const boundsKey = `tooltipBounds_${tooltipId}`;
+  window[boundsKey] = {
+    x: tooltipX + rect.left,
+    y: tooltipY + rect.top,
+    width: tooltipWidth,
+    height: tooltipHeight,
+    deleteButtonX: deleteButtonX + rect.left,
+    deleteButtonY: deleteButtonY + rect.top,
+    deleteButtonWidth: deleteButtonSize,
+    deleteButtonHeight: deleteButtonSize,
+    pinId: pinId,
+    anchorX: anchorX,
+    anchorY: anchorY
+  };
+  
+  // Draw tooltip background with rounded corners (unified dark style)
+  ctx.fillStyle = 'rgba(30, 30, 30, 0.95)'; // Dark background
+  const cornerRadius = 8;
+  ctx.beginPath();
+  ctx.moveTo(tooltipX + cornerRadius, tooltipY);
+  ctx.lineTo(tooltipX + tooltipWidth - cornerRadius, tooltipY);
+  ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY, tooltipX + tooltipWidth, tooltipY + cornerRadius);
+  ctx.lineTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight - cornerRadius);
+  ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight, tooltipX + tooltipWidth - cornerRadius, tooltipY + tooltipHeight);
+  ctx.lineTo(tooltipX + cornerRadius, tooltipY + tooltipHeight);
+  ctx.quadraticCurveTo(tooltipX, tooltipY + tooltipHeight, tooltipX, tooltipY + tooltipHeight - cornerRadius);
+  ctx.lineTo(tooltipX, tooltipY + cornerRadius);
+  ctx.quadraticCurveTo(tooltipX, tooltipY, tooltipX + cornerRadius, tooltipY);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Draw tooltip border (unified style)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  
+  // Calculate text Y position (vertically centered, accounting for text baseline)
+  // Use textBaseline 'middle' for proper vertical centering
+  ctx.textBaseline = 'middle';
+  const textY = contentCenterY;
+  
+  // Draw tooltip text (vertically centered)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, tooltipX + tooltipPadding, textY);
+  
+  // Draw delete button (trashcan) - always present, vertically centered
+  const deleteCenterX = deleteButtonX + deleteButtonSize / 2;
+  const deleteCenterY = contentCenterY; // Use same center as text for perfect alignment
+  
+  // Check if mouse is hovering over delete button (use viewport coordinates)
+  const bounds = window[boundsKey];
+  const isHoveringDelete = bounds && 
+    lastMouseX >= bounds.deleteButtonX &&
+    lastMouseX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+    lastMouseY >= bounds.deleteButtonY &&
+    lastMouseY <= bounds.deleteButtonY + bounds.deleteButtonHeight;
+  
+  // Delete button background (slightly visible on hover)
+  if (isHoveringDelete) {
+    ctx.fillStyle = 'rgba(220, 38, 38, 0.2)'; // Light red background on hover
+    ctx.beginPath();
+    ctx.arc(deleteCenterX, deleteCenterY, deleteButtonSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  // Draw Trash2 icon from Lucide (vertically centered in button)
+  if (Trash2 && Array.isArray(Trash2)) {
+    const iconColor = isHoveringDelete ? '#ef4444' : 'rgba(255, 255, 255, 0.7)';
+    const iconSize = deleteButtonSize * 0.65; // Icon size relative to button
+    drawLucideIcon(ctx, Trash2, deleteCenterX, deleteCenterY, iconSize, iconColor);
+  }
+  
+  ctx.restore();
+}
+
+// Check if mouse is over a tooltip area (for hover persistence)
+function isMouseOverTooltip(mouseX, mouseY) {
+  // Check all tooltip bounds
+  for (let key in window) {
+    if (key.startsWith('tooltipBounds_')) {
+      const bounds = window[key];
+      if (bounds && 
+          mouseX >= bounds.x && 
+          mouseX <= bounds.x + bounds.width &&
+          mouseY >= bounds.y && 
+          mouseY <= bounds.y + bounds.height) {
+        return true;
+      }
+    }
+  }
+  // Also check old pinTooltipBounds for backwards compatibility
+  if (window.pinTooltipBounds) {
+    const bounds = window.pinTooltipBounds;
+    if (mouseX >= bounds.x && 
+        mouseX <= bounds.x + bounds.width &&
+        mouseY >= bounds.y && 
+        mouseY <= bounds.y + bounds.height) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Get pin at screen coordinates
@@ -2776,24 +3310,258 @@ function getPinAt(screenX, screenY, img) {
   return null;
 }
 
+// Delete a pin from an image
+function deletePin(img, pinId) {
+  if (!img || !img.pins) return;
+  
+  // Remove pin from array
+  const pinIndex = img.pins.findIndex(p => p.id === pinId);
+  if (pinIndex >= 0) {
+    img.pins.splice(pinIndex, 1);
+    
+    // Clean up state if this pin was selected/expanded
+    if (selectedPinId === pinId) {
+      selectedPinId = null;
+      tooltipPinId = null;
+      window.pinTooltipBounds = null;
+      startTabSpacingAnimation(TAB_SPACING_DEFAULT);
+      startFeaturesIconRotation(0); // Rotate X back to Plus
+      startFeaturesHeaderBottomRadiusAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+      startEmotionsHeaderRadiusAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+      startValuesHeaderTopRadiusAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+      closeEmotionsAndValuesAccordions();
+    }
+    if (expandedPinId === pinId) {
+      expandedPinId = null;
+    }
+    if (tooltipPinId === pinId) {
+      tooltipPinId = null;
+      window.pinTooltipBounds = null;
+    }
+    if (hoveredPinId === pinId) {
+      hoveredPinId = null;
+    }
+    
+    // Clean up animations for this pin
+    if (dotPositionAnimations[pinId]) {
+      delete dotPositionAnimations[pinId];
+    }
+    if (valuesAreaAnimations[pinId]) {
+      delete valuesAreaAnimations[pinId];
+    }
+    if (pinExpansionAnimation && pinExpansionAnimation.pinId === pinId) {
+      pinExpansionAnimation = null;
+    }
+  }
+}
+
 // Helper functions to count features, emotions, and values
 function countFeaturesPinned(img) {
   if (!img || !img.pins) return 0;
   return img.pins.filter(pin => pin.feature && pin.feature.trim().length > 0).length;
 }
 
-function countEmotionsExternalized(img) {
+// Helper function to close emotions and values accordions when pin is deselected
+function closeEmotionsAndValuesAccordions() {
+  // Close emotions accordion if it's expanded
+  if (expandedAccordionId === 'emotions' || expandedAccordionId === 'values') {
+    const currentAnimation = accordionAnimations[expandedAccordionId];
+    const calculatedHeight = calculateAccordionContentHeight(expandedAccordionId);
+    const currentHeight = currentAnimation
+      ? (currentAnimation.fromHeight + (currentAnimation.toHeight - currentAnimation.fromHeight) * Math.min((Date.now() - currentAnimation.startTime) / currentAnimation.duration, 1))
+      : (calculatedHeight + 20);
+    
+    accordionAnimations[expandedAccordionId] = {
+      startTime: Date.now(),
+      duration: ACCORDION_ANIMATION_DURATION,
+      fromHeight: currentHeight,
+      toHeight: 0
+    };
+    
+    expandedAccordionId = null;
+    canvasNeedsReinit = true;
+    updateControlPanelInputs();
+  }
+}
+
+// Helper function to automatically open the first empty aspect panel when a pin is selected
+function autoOpenEmptyAspectPanel(pin) {
+  if (!pin) return;
+  
+  const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
+  const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
+  
+  // Determine which accordion to open
+  let accordionToOpen = null;
+  
+  if (!hasEmotionalAspects) {
+    // No emotions added → open emotions panel
+    accordionToOpen = 'emotions';
+  } else if (!hasValueAspects) {
+    // Emotions added but no values → open values panel
+    accordionToOpen = 'values';
+  }
+  // If both exist, don't open any panel (accordionToOpen stays null)
+  // Also close any currently open emotions/values accordion when both aspects exist
+  if (hasEmotionalAspects && hasValueAspects) {
+    // Both aspects exist - close any open emotions/values accordion
+    if (expandedAccordionId === 'emotions' || expandedAccordionId === 'values') {
+      const previousAnimation = accordionAnimations[expandedAccordionId];
+      const previousCalculatedHeight = calculateAccordionContentHeight(expandedAccordionId);
+      const previousCurrentHeight = previousAnimation 
+        ? (previousAnimation.fromHeight + (previousAnimation.toHeight - previousAnimation.fromHeight) * Math.min((Date.now() - previousAnimation.startTime) / previousAnimation.duration, 1))
+        : (previousCalculatedHeight + 20);
+      
+      accordionAnimations[expandedAccordionId] = {
+        startTime: Date.now(),
+        duration: ACCORDION_ANIMATION_DURATION,
+        fromHeight: previousCurrentHeight,
+        toHeight: 0
+      };
+      
+      expandedAccordionId = null;
+      canvasNeedsReinit = true;
+      updateControlPanelInputs();
+    }
+    return; // Don't open any accordion when both aspects exist
+  }
+  
+  // Only open if there's an accordion to open and it's not already open
+  if (accordionToOpen && expandedAccordionId !== accordionToOpen) {
+    // Close any currently open accordion first
+    if (expandedAccordionId && expandedAccordionId !== accordionToOpen) {
+      const previousAnimation = accordionAnimations[expandedAccordionId];
+      const previousCalculatedHeight = calculateAccordionContentHeight(expandedAccordionId);
+      const previousCurrentHeight = previousAnimation 
+        ? (previousAnimation.fromHeight + (previousAnimation.toHeight - previousAnimation.fromHeight) * Math.min((Date.now() - previousAnimation.startTime) / previousAnimation.duration, 1))
+        : (previousCalculatedHeight + 20);
+      
+      accordionAnimations[expandedAccordionId] = {
+        startTime: Date.now(),
+        duration: ACCORDION_ANIMATION_DURATION,
+        fromHeight: previousCurrentHeight,
+        toHeight: 0
+      };
+    }
+    
+    // Start animation for the accordion to open
+    const currentAnimation = accordionAnimations[accordionToOpen];
+    const calculatedHeight = calculateAccordionContentHeight(accordionToOpen);
+    const currentHeight = currentAnimation
+      ? (currentAnimation.fromHeight + (currentAnimation.toHeight - currentAnimation.fromHeight) * Math.min((Date.now() - currentAnimation.startTime) / currentAnimation.duration, 1))
+      : 0;
+    
+    accordionAnimations[accordionToOpen] = {
+      startTime: Date.now(),
+      duration: ACCORDION_ANIMATION_DURATION,
+      fromHeight: currentHeight,
+      toHeight: calculatedHeight + 20
+    };
+    
+    expandedAccordionId = accordionToOpen;
+    canvasNeedsReinit = true;
+    updateControlPanelInputs();
+  }
+}
+
+// Helper function to open the features-pinned accordion
+function openFeaturesAccordion() {
+  const accordionToOpen = 'features-pinned';
+  
+  // Only open if it's not already open
+  if (expandedAccordionId !== accordionToOpen) {
+    // Close any currently open accordion first
+    if (expandedAccordionId && expandedAccordionId !== accordionToOpen) {
+      const previousAnimation = accordionAnimations[expandedAccordionId];
+      const previousCalculatedHeight = calculateAccordionContentHeight(expandedAccordionId);
+      const previousCurrentHeight = previousAnimation 
+        ? (previousAnimation.fromHeight + (previousAnimation.toHeight - previousAnimation.fromHeight) * Math.min((Date.now() - previousAnimation.startTime) / previousAnimation.duration, 1))
+        : (previousCalculatedHeight + 20);
+      
+      accordionAnimations[expandedAccordionId] = {
+        startTime: Date.now(),
+        duration: ACCORDION_ANIMATION_DURATION,
+        fromHeight: previousCurrentHeight,
+        toHeight: 0
+      };
+    }
+    
+    // Start animation for the features accordion
+    const currentAnimation = accordionAnimations[accordionToOpen];
+    const calculatedHeight = calculateAccordionContentHeight(accordionToOpen);
+    const currentHeight = currentAnimation
+      ? (currentAnimation.fromHeight + (currentAnimation.toHeight - currentAnimation.fromHeight) * Math.min((Date.now() - currentAnimation.startTime) / currentAnimation.duration, 1))
+      : 0;
+    
+    accordionAnimations[accordionToOpen] = {
+      startTime: Date.now(),
+      duration: ACCORDION_ANIMATION_DURATION,
+      fromHeight: currentHeight,
+      toHeight: calculatedHeight + 20
+    };
+    
+    expandedAccordionId = accordionToOpen;
+    canvasNeedsReinit = true;
+    
+    // Rotate features icon to X when features-pinned accordion is opened (only when no feature is selected)
+    if (accordionToOpen === 'features-pinned' && selectedPinId === null) {
+      startFeaturesIconRotation(45); // Rotate Plus to X
+    }
+    
+    updateControlPanelInputs();
+  }
+}
+
+function countEmotionsExternalized(img, selectedPinId = null) {
   if (!img || !img.pins) return 0;
+  
+  // If a pin is selected, count only emotions for that pin
+  if (selectedPinId !== null) {
+    const selectedPin = img.pins.find(p => p.id === selectedPinId);
+    if (selectedPin && selectedPin.emotionalAspects) {
+      return selectedPin.emotionalAspects.length;
+    }
+    return 0;
+  }
+  
+  // Otherwise, count all emotions across all pins
   return img.pins.reduce((total, pin) => {
     return total + (pin.emotionalAspects && pin.emotionalAspects.length ? pin.emotionalAspects.length : 0);
   }, 0);
 }
 
-function countValuesInferred(img) {
+function countValuesInferred(img, selectedPinId = null) {
   if (!img || !img.pins) return 0;
+  
+  // If a pin is selected, count only values for that pin
+  if (selectedPinId !== null) {
+    const selectedPin = img.pins.find(p => p.id === selectedPinId);
+    if (selectedPin && selectedPin.valueAspects) {
+      return selectedPin.valueAspects.length;
+    }
+    return 0;
+  }
+  
+  // Otherwise, count all values across all pins
   return img.pins.reduce((total, pin) => {
     return total + (pin.valueAspects && pin.valueAspects.length ? pin.valueAspects.length : 0);
   }, 0);
+}
+
+function countAnswersPinned(img, questionId = null) {
+  if (!img || !img.pins) return 0;
+  // Count pins that have answers (features)
+  // If questionId is provided, only count answers for that question
+  // If questionId is null, count all answers (for header counter)
+  return img.pins.filter(pin => {
+    if (!pin.feature || pin.feature.trim().length === 0) return false;
+    if (questionId !== null) {
+      // Only count if pin belongs to the specified question
+      // Handle backward compatibility: if questionId is undefined, don't count it for specific question
+      return pin.questionId === questionId;
+    }
+    return true; // Count all answers when questionId is null
+  }).length;
 }
 
 // Helper function to draw rounded rectangle
@@ -2821,6 +3589,50 @@ function drawRoundedRectBottomOnly(ctx, x, y, width, height, radius) {
   ctx.lineTo(x + radius, y + height); // Bottom edge
   ctx.quadraticCurveTo(x, y + height, x, y + height - radius); // Bottom-left curve
   ctx.lineTo(x, y); // Left side back to top
+  ctx.closePath();
+}
+
+// Helper function to draw rounded rectangle with different bottom corner radius
+function drawRoundedRectWithBottomRadius(ctx, x, y, width, height, topRadius, bottomRadius) {
+  ctx.beginPath();
+  // Top-left corner
+  ctx.moveTo(x + topRadius, y);
+  ctx.lineTo(x + width - topRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + topRadius);
+  // Right side
+  ctx.lineTo(x + width, y + height - bottomRadius);
+  // Bottom-right corner
+  ctx.quadraticCurveTo(x + width, y + height, x + width - bottomRadius, y + height);
+  // Bottom edge
+  ctx.lineTo(x + bottomRadius, y + height);
+  // Bottom-left corner
+  ctx.quadraticCurveTo(x, y + height, x, y + height - bottomRadius);
+  // Left side
+  ctx.lineTo(x, y + topRadius);
+  // Top-left corner
+  ctx.quadraticCurveTo(x, y, x + topRadius, y);
+  ctx.closePath();
+}
+
+// Helper function to draw rounded rectangle with different top and bottom corner radii
+function drawRoundedRectWithTopBottomRadius(ctx, x, y, width, height, topRadius, bottomRadius) {
+  ctx.beginPath();
+  // Top-left corner
+  ctx.moveTo(x + topRadius, y);
+  ctx.lineTo(x + width - topRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + topRadius);
+  // Right side
+  ctx.lineTo(x + width, y + height - bottomRadius);
+  // Bottom-right corner
+  ctx.quadraticCurveTo(x + width, y + height, x + width - bottomRadius, y + height);
+  // Bottom edge
+  ctx.lineTo(x + bottomRadius, y + height);
+  // Bottom-left corner
+  ctx.quadraticCurveTo(x, y + height, x, y + height - bottomRadius);
+  // Left side
+  ctx.lineTo(x, y + topRadius);
+  // Top-left corner
+  ctx.quadraticCurveTo(x, y, x + topRadius, y);
   ctx.closePath();
 }
 
@@ -2867,6 +3679,266 @@ function drawChevronIcon(ctx, x, y, size, color, rotated = false) {
   ctx.restore();
 }
 
+// Helper function to draw any Lucide icon on canvas
+function drawLucideIcon(ctx, icon, x, y, size, color) {
+  if (!icon || !Array.isArray(icon)) return;
+  
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  
+  // Center the icon at x, y
+  const iconSize = 24; // Lucide icons are 24x24
+  const scale = size / iconSize;
+  const offsetX = x - (iconSize / 2) * scale;
+  const offsetY = y - (iconSize / 2) * scale;
+  
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(scale, scale);
+  
+  // Draw each element from the icon
+  icon.forEach((element) => {
+    const [type, attrs] = element;
+    
+    if (type === 'path') {
+      const path = new Path2D(attrs.d);
+      if (attrs.fill && attrs.fill !== 'none' && attrs.fill !== 'transparent') {
+        ctx.fill(path);
+      }
+      if (!attrs.fill || attrs.fill === 'none' || attrs.stroke !== 'none') {
+        ctx.stroke(path);
+      }
+    }
+  });
+  
+  ctx.restore();
+}
+
+// Helper function to wrap text to fit within a maximum width
+function wrapText(ctx, text, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let currentLine = words[0];
+  
+  for (let i = 1; i < words.length; i++) {
+    const word = words[i];
+    const width = ctx.measureText(currentLine + ' ' + word).width;
+    if (width < maxWidth) {
+      currentLine += ' ' + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  lines.push(currentLine);
+  return lines;
+}
+
+// Helper function to render Lucide icon as SVG in HTML element
+function renderLucideIconAsSVG(icon, element, size = 16, color = 'currentColor') {
+  if (!icon || !Array.isArray(icon) || !element) return;
+  
+  let svg = '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">';
+  
+  icon.forEach((elementData) => {
+    const [type, attrs] = elementData;
+    if (type === 'path') {
+      const d = attrs.d || '';
+      const fill = attrs.fill && attrs.fill !== 'none' && attrs.fill !== 'transparent' ? attrs.fill : 'none';
+      const stroke = attrs.stroke && attrs.stroke !== 'none' ? attrs.stroke : color;
+      const strokeWidth = attrs['stroke-width'] || 2;
+      const strokeLinecap = attrs['stroke-linecap'] || 'round';
+      const strokeLinejoin = attrs['stroke-linejoin'] || 'round';
+      
+      svg += '<path d="' + d + '"';
+      if (fill !== 'none') svg += ' fill="' + fill + '"';
+      svg += ' stroke="' + stroke + '"';
+      svg += ' stroke-width="' + strokeWidth + '"';
+      svg += ' stroke-linecap="' + strokeLinecap + '"';
+      svg += ' stroke-linejoin="' + strokeLinejoin + '"';
+      svg += '/>';
+    }
+  });
+  
+  svg += '</svg>';
+  element.innerHTML = svg;
+}
+
+// Initialize icons for general info inputs
+function initializeGeneralInfoIcons() {
+  if (productNameEditIcon && Pencil) {
+    renderLucideIconAsSVG(Pencil, productNameEditIcon, 16, 'oklch(0.145 0 0)');
+  }
+  if (focusSaveIcon && Save) {
+    renderLucideIconAsSVG(Save, focusSaveIcon, 16, 'white');
+  }
+}
+
+// Start tab spacing animation when pin selection changes
+function startTabSpacingAnimation(newTargetSpacing) {
+  if (Math.abs(targetTabSpacing - newTargetSpacing) > 0.1) {
+    // Store current value as starting point for animation
+    tabSpacingAnimationStartValue = currentTabSpacing;
+    targetTabSpacing = newTargetSpacing;
+    tabSpacingAnimationStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Start features icon rotation animation when pin selection changes
+function startFeaturesIconRotation(targetRotation) {
+  if (Math.abs(featuresIconTargetRotation - targetRotation) > 0.1) {
+    // Store current value as starting point for animation
+    featuresIconRotationStartValue = featuresIconRotation;
+    featuresIconTargetRotation = targetRotation;
+    featuresIconRotationStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Start features header bottom border radius animation when pin selection changes
+function startFeaturesHeaderBottomRadiusAnimation(targetRadius) {
+  if (Math.abs(featuresHeaderBottomRadiusTarget - targetRadius) > 0.1) {
+    // Store current value as starting point for animation
+    featuresHeaderBottomRadiusStartValue = featuresHeaderBottomRadius;
+    featuresHeaderBottomRadiusTarget = targetRadius;
+    featuresHeaderBottomRadiusStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Start emotions header border radius animation when pin selection changes
+function startEmotionsHeaderRadiusAnimation(targetRadius) {
+  if (Math.abs(emotionsHeaderRadiusTarget - targetRadius) > 0.1) {
+    // Store current value as starting point for animation
+    emotionsHeaderRadiusStartValue = emotionsHeaderRadius;
+    emotionsHeaderRadiusTarget = targetRadius;
+    emotionsHeaderRadiusStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Start values header top border radius animation when pin selection changes
+function startValuesHeaderTopRadiusAnimation(targetRadius) {
+  if (Math.abs(valuesHeaderTopRadiusTarget - targetRadius) > 0.1) {
+    // Store current value as starting point for animation
+    valuesHeaderTopRadiusStartValue = valuesHeaderTopRadius;
+    valuesHeaderTopRadiusTarget = targetRadius;
+    valuesHeaderTopRadiusStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Calculate content height for accordion based on its content
+function calculateAccordionContentHeight(accordionId) {
+  const MIN_HEIGHT = 100; // Minimum height in pixels
+  const contentPadding = 20;
+  const topOffset = 20;
+  const bottomPadding = 20;
+  
+  let contentHeight = topOffset;
+  
+  if (accordionId === 'general-info') {
+    // General info: 2 labels + 2 inputs
+    const labelHeight = 12;
+    const labelToInputSpacing = 4;
+    const fieldHeight = 32;
+    const inputToLabelSpacing = 24;
+    
+    // First label
+    contentHeight += labelHeight;
+    // First input
+    contentHeight += labelToInputSpacing + fieldHeight;
+    // Second label
+    contentHeight += inputToLabelSpacing + labelHeight;
+    // Second input
+    contentHeight += labelToInputSpacing + fieldHeight;
+  } else if (accordionId === 'emotions') {
+    // Emotions: chat bubble + icons + answer input field
+    const messagePadding = 12;
+    const lineHeight = 18;
+    const panelWidth = 400;
+    const contentPadding = 20;
+    const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons
+    const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+    
+    // Use a temporary canvas context to measure text
+    let tempCtx = ctx;
+    if (!tempCtx) {
+      const tempCanvas = document.createElement('canvas');
+      tempCtx = tempCanvas.getContext('2d');
+    }
+    
+    // Default AI-generated text for height calculation
+    tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const defaultAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+    const lines = wrapText(tempCtx, defaultAIText, maxTextWidth);
+    const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+    
+    const bubbleToInputSpacing = 16; // Spacing between bubble/icons and input
+    const fieldHeight = 32;
+    contentHeight += messageBubbleHeight + bubbleToInputSpacing + fieldHeight;
+  } else if (accordionId === 'values') {
+    // Values: chat bubble + icons + answer input field (similar to emotions)
+    const messagePadding = 12;
+    const lineHeight = 18;
+    const panelWidth = 400;
+    const contentPadding = 20;
+    const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons
+    const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+    
+    // Use a temporary canvas context to measure text
+    let tempCtx = ctx;
+    if (!tempCtx) {
+      const tempCanvas = document.createElement('canvas');
+      tempCtx = tempCanvas.getContext('2d');
+    }
+    
+    // Default AI-generated text for height calculation
+    tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const defaultAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+    const lines = wrapText(tempCtx, defaultAIText, maxTextWidth);
+    const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+    
+    const bubbleToInputSpacing = 16; // Spacing between bubble/icons and input
+    const fieldHeight = 32;
+    contentHeight += messageBubbleHeight + bubbleToInputSpacing + fieldHeight;
+  } else if (accordionId === 'features-pinned') {
+    // Features pinned: message with stars icon + bottom row with pin icon, count, and button
+    // Calculate actual message height based on wrapped text
+    const messagePadding = 12;
+    const lineHeight = 18;
+    const panelWidth = 400; // Same as in drawReflectionControlPanel
+    const contentPadding = 20;
+    const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for stars icon
+    const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+    
+    // Use a temporary canvas context to measure text (if ctx is not available, use a temporary one)
+    let tempCtx = ctx;
+    if (!tempCtx) {
+      const tempCanvas = document.createElement('canvas');
+      tempCtx = tempCanvas.getContext('2d');
+    }
+    
+    tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const demoMessage = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?";
+    const lines = wrapText(tempCtx, demoMessage, maxTextWidth);
+    const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+    
+    const messageToBottomSpacing = 16; // Spacing between message and bottom row
+    const bottomRowHeight = 32; // Pin icon + text + button row
+    contentHeight += messageBubbleHeight + messageToBottomSpacing + bottomRowHeight;
+  }
+  
+  contentHeight += bottomPadding;
+  
+  // Apply minimum height
+  return Math.max(contentHeight, MIN_HEIGHT);
+}
+
 // Draw accordion sidebar in reflection mode
 function drawReflectionControlPanel(img) {
   if (!img || !isReflectionMode) return;
@@ -2886,16 +3958,21 @@ function drawReflectionControlPanel(img) {
   
   // Accordion bar dimensions
   const barHeight = 40;
-  const barSpacing = 22; // Increased from 17 by another 5px
+  
+  // Use current animated tab spacing (for spacing between features-pinned, emotions, and values)
+  const animatedTabSpacing = currentTabSpacing;
+  
+  const barSpacing = TAB_SPACING_DEFAULT; // Default spacing (used for general-info to features-pinned)
   const borderRadius = 12; // Increased from 8 for more rounded corners
-  const chevronSize = 16;
+  const chevronSize = 24;
   const chevronPadding = 16;
   const textPadding = 16;
   
   // Calculate counts
   const featuresCount = countFeaturesPinned(img);
-  const emotionsCount = countEmotionsExternalized(img);
-  const valuesCount = countValuesInferred(img);
+  // Pass selectedPinId to count only for selected pin, or all pins if none selected
+  const emotionsCount = countEmotionsExternalized(img, selectedPinId);
+  const valuesCount = countValuesInferred(img, selectedPinId);
   
   // Accordion bars configuration
   const accordions = [
@@ -2907,7 +3984,7 @@ function drawReflectionControlPanel(img) {
     },
     {
       id: 'features-pinned',
-      label: `${featuresCount} Features pinned`,
+      label: selectedPinId !== null ? 'Feature selected' : `${featuresCount} Features pinned`,
       color: '#3b82f6', // Blue
       textColor: '#ffffff'
     },
@@ -2929,13 +4006,73 @@ function drawReflectionControlPanel(img) {
   window.accordionBarBounds = [];
   // Store accordion content area bounds for input positioning
   window.accordionContentBounds = {};
+  // Initialize button bounds for features-pinned accordion
+  if (!window.featuresPinnedButtonBounds) {
+    window.featuresPinnedButtonBounds = {};
+  }
+  // Initialize icon bounds for features-pinned accordion X icon
+  if (!window.featuresPinnedIconBounds) {
+    window.featuresPinnedIconBounds = null;
+  }
   
   let currentY = panelY;
   
+  // Pre-calculate animated positions for all accordions (for moving tabs below)
+  // This allows us to smoothly animate tabs when accordions above them expand/collapse
+  const accordionAnimatedPositions = {};
+  let cumulativeOffset = 0;
+  
+  accordions.forEach((accordion, index) => {
+    const isExpanded = expandedAccordionId === accordion.id;
+    const animation = accordionAnimations[accordion.id];
+    const isAnimatingThis = animation !== undefined;
+    const shouldDrawContent = isExpanded || isAnimatingThis;
+    
+    // Calculate animated content height
+    let animatedVisibleHeight = 0;
+    if (isAnimatingThis && animation) {
+      const elapsed = Date.now() - animation.startTime;
+      const progress = Math.min(elapsed / animation.duration, 1);
+      
+      // Use same easing as drawing
+      let easedProgress;
+      if (progress < 1) {
+        const t = progress;
+        easedProgress = 1 - Math.pow(1 - t, 3);
+        if (animation.toHeight > animation.fromHeight && progress > 0.7) {
+          const overshoot = (progress - 0.7) / 0.3;
+          const bounce = Math.sin(overshoot * Math.PI) * 0.1;
+          easedProgress = Math.min(1, easedProgress + bounce);
+        }
+      } else {
+        easedProgress = 1;
+      }
+      
+      const animatedTotalHeight = animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress;
+      animatedVisibleHeight = Math.max(0, animatedTotalHeight - 20); // Subtract overlap
+    } else if (isExpanded) {
+      const calculatedHeight = calculateAccordionContentHeight(accordion.id);
+      animatedVisibleHeight = calculatedHeight;
+    }
+    
+    // Store animated position info for this accordion
+    accordionAnimatedPositions[accordion.id] = {
+      barY: panelY + cumulativeOffset,
+      contentHeight: animatedVisibleHeight,
+      isAnimating: isAnimatingThis
+    };
+    
+    // Update cumulative offset for next accordion
+    const spacingToUse = (index === 0) ? barSpacing : animatedTabSpacing;
+    cumulativeOffset += barHeight + spacingToUse + animatedVisibleHeight;
+  });
+  
   // Draw each accordion bar
   accordions.forEach((accordion, index) => {
-    const barY = currentY;
     const isExpanded = expandedAccordionId === accordion.id;
+    // Use pre-calculated animated position
+    const animatedPos = accordionAnimatedPositions[accordion.id];
+    const barY = animatedPos ? animatedPos.barY : currentY;
     
     // Draw expanded content area background FIRST (behind the header) if this accordion is expanded or animating
     const animation = accordionAnimations[accordion.id];
@@ -2943,21 +4080,23 @@ function drawReflectionControlPanel(img) {
     const shouldDrawContent = isExpanded || isAnimatingThis;
     
     if (shouldDrawContent) {
-      // Calculate animated height
+      // Calculate animated height (use pre-calculated if available, otherwise calculate)
       let animatedHeight = 0;
-      if (isAnimatingThis) {
+      let animationProgress = 1.0;
+      
+      if (isAnimatingThis && animation) {
         const elapsed = Date.now() - animation.startTime;
-        const progress = Math.min(elapsed / animation.duration, 1);
+        animationProgress = Math.min(elapsed / animation.duration, 1);
         
         // Bouncy ease-out easing function (cubic ease-out with slight overshoot)
         let easedProgress;
-        if (progress < 1) {
+        if (animationProgress < 1) {
           // Cubic ease-out with bounce
-          const t = progress;
+          const t = animationProgress;
           easedProgress = 1 - Math.pow(1 - t, 3);
           // Add slight overshoot for bounce effect (only when opening)
-          if (animation.toHeight > animation.fromHeight && progress > 0.7) {
-            const overshoot = (progress - 0.7) / 0.3;
+          if (animation.toHeight > animation.fromHeight && animationProgress > 0.7) {
+            const overshoot = (animationProgress - 0.7) / 0.3;
             const bounce = Math.sin(overshoot * Math.PI) * 0.1; // 10% bounce
             easedProgress = Math.min(1, easedProgress + bounce);
           }
@@ -2968,12 +4107,17 @@ function drawReflectionControlPanel(img) {
         animatedHeight = animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress;
         
         // Clean up animation if complete
-        if (progress >= 1) {
+        if (animationProgress >= 1) {
           delete accordionAnimations[accordion.id];
-          animatedHeight = isExpanded ? 400 + 20 : 0;
+          const calculatedHeight = calculateAccordionContentHeight(accordion.id);
+          animatedHeight = isExpanded ? calculatedHeight + 20 : 0; // +20 for overlap
+          animationProgress = 1.0;
+          // Restore normal DPR when animation ends (will be handled in main draw loop, but set flag here too)
+          canvasNeedsReinit = true;
         }
       } else if (isExpanded) {
-        animatedHeight = 400 + 20; // Full height when fully expanded
+        const calculatedHeight = calculateAccordionContentHeight(accordion.id);
+        animatedHeight = calculatedHeight + 20; // +20 for overlap with header
       }
       
       if (animatedHeight > 0) {
@@ -2982,54 +4126,743 @@ function drawReflectionControlPanel(img) {
         const contentHeight = animatedHeight;
         const contentPadding = 20;
         
+        // Calculate scale factor for content during animation (for smooth compression/expansion)
+        // When closing: scale from 1.0 to 0, when opening: scale from 0 to 1.0
+        let contentScaleY = 1.0;
+        if (isAnimatingThis && animation) {
+          const calculatedHeight = calculateAccordionContentHeight(accordion.id);
+          const targetHeight = isExpanded ? calculatedHeight : 0;
+          const startHeight = animation.fromHeight - 20; // Subtract overlap
+          const endHeight = animation.toHeight - 20; // Subtract overlap
+          
+          if (endHeight > 0) {
+            // Opening or expanding
+            const currentVisibleHeight = Math.max(0, animatedHeight - 20);
+            contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
+          } else {
+            // Closing
+            if (startHeight > 0) {
+              const currentVisibleHeight = Math.max(0, animatedHeight - 20);
+              contentScaleY = currentVisibleHeight / startHeight;
+            }
+          }
+          // Clamp to valid range
+          contentScaleY = Math.max(0, Math.min(1, contentScaleY));
+        }
+        
         // Draw gray content rectangle with only bottom corners rounded (behind the header)
+        // For emotions accordion, use 0 border radius
         ctx.save();
         ctx.fillStyle = '#f3f3f5';
-        drawRoundedRectBottomOnly(ctx, panelX, contentY, panelWidth, contentHeight, borderRadius);
-        ctx.fill();
+        if (accordion.id === 'emotions') {
+          // Draw rectangle with 0 border radius for emotions
+          ctx.beginPath();
+          ctx.rect(panelX, contentY, panelWidth, contentHeight);
+          ctx.fill();
+        } else {
+          drawRoundedRectBottomOnly(ctx, panelX, contentY, panelWidth, contentHeight, borderRadius);
+          ctx.fill();
+        }
         ctx.restore();
         
         // Store content area bounds for input positioning (use the visible content area, not the overlap)
-        // Only show inputs when fully expanded (not during animation)
-        if (isExpanded && !isAnimatingThis) {
+        // Store bounds even during animation so inputs can be positioned immediately
+        if (isExpanded || isAnimatingThis) {
+          const calculatedHeight = calculateAccordionContentHeight(accordion.id);
+          // Use animated visible height if animating, otherwise use calculated height
+          const visibleHeight = isAnimatingThis ? Math.max(0, animatedHeight - 20) : calculatedHeight;
+          
           window.accordionContentBounds[accordion.id] = {
             x: panelX,
             y: barY + barHeight, // Start positioning from below the bar (not the overlap)
             width: panelWidth,
-            height: 400, // Use the visible height (without the overlap)
-            padding: contentPadding
+            height: visibleHeight, // Use visible height (without the overlap)
+            padding: contentPadding,
+            isAnimating: isAnimatingThis // Flag to indicate if animating
           };
+          
+          // Draw labels for general-info accordion (always draw if expanded or animating)
+          if (accordion.id === 'general-info' && (isExpanded || isAnimatingThis)) {
+            // Calculate animation progress for fade-in/fade-out effect
+            let labelOpacity = 1.0;
+            if (isAnimatingThis && animation) {
+              const elapsed = Date.now() - animation.startTime;
+              const progress = Math.min(elapsed / animation.duration, 1);
+              if (animation.toHeight > animation.fromHeight) {
+                // Opening: fade in labels as accordion opens (start appearing at 20% progress)
+                labelOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
+              } else {
+                // Closing: fade out quickly as accordion closes
+                labelOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster (1.5x speed)
+              }
+            }
+            
+            // Combine content scale with opacity for smoother animation
+            const effectiveOpacity = labelOpacity * Math.max(0, Math.min(1, contentScaleY));
+            
+            if (effectiveOpacity > 0) {
+              // Apply scale transform for content during animation
+              ctx.save();
+              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
+              ctx.translate(panelX, contentOriginY);
+              ctx.scale(1, contentScaleY);
+              ctx.translate(-panelX, -contentOriginY);
+              
+              const labelY = barY + barHeight + 20; // Start 20px below the bar
+              const labelToInputSpacing = 4; // Reduced spacing between label and input
+              const fieldHeight = 32;
+              const inputToLabelSpacing = 24; // Increased spacing between first input and second label
+              
+              // Draw "Detected Product" label
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; // Lighter grey for label
+              ctx.font = `400 12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+              ctx.textBaseline = 'top';
+              ctx.textAlign = 'left';
+              ctx.fillText('Detected Product', panelX + contentPadding, labelY);
+              ctx.restore();
+              
+              // Draw "Is there something you want to focus on?" label
+              // Position: first label + label height (12px) + gap to input (4px) + input height (32px) + gap to second label (24px)
+              const secondLabelY = labelY + 12 + labelToInputSpacing + fieldHeight + inputToLabelSpacing;
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; // Lighter grey for label
+              ctx.font = `400 12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+              ctx.textBaseline = 'top';
+              ctx.textAlign = 'left';
+              ctx.fillText('Is there something you want to focus on?', panelX + contentPadding, secondLabelY);
+              ctx.restore(); // Close label opacity save
+              
+              ctx.restore(); // Close scale transform save
+            }
+          }
+          
+          // Draw features-pinned accordion content
+          if (accordion.id === 'features-pinned' && (isExpanded || isAnimatingThis)) {
+            // Calculate animation progress for fade-in/fade-out effect
+            let contentOpacity = 1.0;
+            if (isAnimatingThis && animation) {
+              const elapsed = Date.now() - animation.startTime;
+              const progress = Math.min(elapsed / animation.duration, 1);
+              if (animation.toHeight > animation.fromHeight) {
+                // Opening: fade in content as accordion opens (start appearing at 20% progress)
+                contentOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
+              } else {
+                // Closing: fade out quickly as accordion closes
+                contentOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster (1.5x speed)
+              }
+            }
+            
+            // Combine content scale with opacity for smoother animation
+            const effectiveOpacity = contentOpacity * Math.max(0, Math.min(1, contentScaleY));
+            
+            if (effectiveOpacity > 0) {
+              // Apply scale transform for content during animation
+              ctx.save();
+              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
+              ctx.translate(panelX, contentOriginY);
+              ctx.scale(1, contentScaleY);
+              ctx.translate(-panelX, -contentOriginY);
+              
+              const contentY = barY + barHeight + 20; // Start 20px below the bar
+              const messagePadding = 12;
+              const messageToBottomSpacing = 16;
+              const bottomRowHeight = 32;
+              
+              // Prepare text for measurement
+              ctx.save();
+              ctx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+              
+              // Calculate message bubble dimensions based on text
+              const messageBubbleX = panelX + contentPadding;
+              const messageBubbleY = contentY;
+              const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for stars icon
+              const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+              
+              // Wrap text to fit in bubble (use current question text)
+              const lines = wrapText(ctx, featuresQuestionText, maxTextWidth);
+              const lineHeight = 18; // Line height for text
+              const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+              const messageBubbleRadius = 8;
+              
+              // Draw message text bubble (white background with rounded corners)
+              ctx.globalAlpha = effectiveOpacity;
+              ctx.fillStyle = '#ffffff';
+              drawRoundedRect(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, messageBubbleRadius);
+              ctx.fill();
+              
+              // Draw message text
+              ctx.fillStyle = '#3b82f6'; // Blue text
+              ctx.textBaseline = 'top';
+              ctx.textAlign = 'left';
+              lines.forEach((line, index) => {
+                ctx.fillText(line, messageBubbleX + messagePadding, messageBubbleY + messagePadding + (index * lineHeight));
+              });
+              ctx.restore();
+              
+              // Draw stars icon next to message bubble (aligned with chevron)
+              // Chevron is at: panelX + panelWidth - chevronPadding - chevronSize / 2
+              // chevronPadding = 16, chevronSize = 24, so chevron center is at panelX + panelWidth - 28
+              const chevronPadding = 16;
+              const chevronSize = 24;
+              const starsIconX = panelX + panelWidth - chevronPadding - chevronSize / 2;
+              const starsIconY = contentY + messageBubbleHeight / 2;
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              drawLucideIcon(ctx, Stars, starsIconX, starsIconY, 24, '#3b82f6');
+              ctx.restore();
+              
+              // Draw bottom row: pin icon + count text + next question button
+              const bottomRowY = contentY + messageBubbleHeight + messageToBottomSpacing;
+              const pinIconSize = 16;
+              const pinIconX = panelX + contentPadding + 4; // Moved 4px to the right
+              
+              // Calculate text position first to align pin icon with it
+              // Count answers for the current question only (for bottom left counter)
+              const answersCount = countAnswersPinned(img, currentQuestionId);
+              const countTextY = bottomRowY + bottomRowHeight / 2;
+              const countTextX = pinIconX + pinIconSize + 8 - 10; // Moved 10px to the left
+              
+              // Draw pin icon (centered vertically with text)
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              drawLucideIcon(ctx, Pin, pinIconX, countTextY, pinIconSize, '#3b82f6');
+              ctx.restore();
+              
+              // Draw count text or instruction text
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              ctx.fillStyle = '#3b82f6';
+              ctx.font = `400 16px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+              ctx.textBaseline = 'middle';
+              ctx.textAlign = 'left';
+              
+              if (answersCount === 0) {
+                // Show instruction text when no answers
+                ctx.fillText('Click on the image to answer', countTextX, countTextY);
+              } else {
+                // Show count when there are answers
+                const answerText = answersCount === 1 ? 'Answer pinned' : 'Answers pinned';
+                ctx.fillText(`${answersCount} ${answerText}`, countTextX, countTextY);
+              }
+              ctx.restore();
+              
+              // Draw "Next question" or "Skip Question" button
+              const buttonPadding = 12;
+              const buttonHeight = bottomRowHeight;
+              const hasAnswers = answersCount > 0;
+              const buttonText = hasAnswers ? "Next question" : "Skip Question";
+              ctx.save();
+              // Use semi-bold font weight (600) for "Skip Question", medium (500) for "Next question"
+              const fontWeight = hasAnswers ? '500' : '600';
+              ctx.font = `${fontWeight} 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+              const buttonTextMetrics = ctx.measureText(buttonText);
+              const buttonWidth = buttonTextMetrics.width + buttonPadding * 2;
+              const buttonX = panelX + panelWidth - contentPadding - buttonWidth;
+              const buttonY = bottomRowY;
+              const buttonRadius = 6;
+              
+              ctx.globalAlpha = effectiveOpacity;
+              
+              if (hasAnswers) {
+                // Draw button background (filled blue button)
+                ctx.fillStyle = '#3b82f6';
+                drawRoundedRect(ctx, buttonX, buttonY, buttonWidth, buttonHeight, buttonRadius);
+                ctx.fill();
+                
+                // Draw button text (white)
+                ctx.fillStyle = '#ffffff';
+              } else {
+                // Draw button outline only (no fill, blue stroke matching feature header)
+                ctx.strokeStyle = '#3b82f6'; // Same blue as feature header
+                ctx.lineWidth = 2; // 2px stroke
+                drawRoundedRect(ctx, buttonX, buttonY, buttonWidth, buttonHeight, buttonRadius);
+                ctx.stroke();
+                
+                // Draw button text (same blue as feature header)
+                ctx.fillStyle = '#3b82f6'; // Same blue as feature header
+              }
+              
+              ctx.textBaseline = 'middle';
+              ctx.textAlign = 'left';
+              ctx.fillText(buttonText, buttonX + buttonPadding, buttonY + buttonHeight / 2);
+              ctx.restore();
+              
+              // Store button bounds for click detection
+              if (!window.featuresPinnedButtonBounds) window.featuresPinnedButtonBounds = {};
+              window.featuresPinnedButtonBounds['next-question'] = {
+                x: buttonX,
+                y: buttonY,
+                width: buttonWidth,
+                height: buttonHeight
+              };
+              
+              ctx.restore(); // Close content opacity save
+              
+              ctx.restore(); // Close scale transform save
+            }
+          }
+          
+          // Draw emotions accordion content
+          if (accordion.id === 'emotions' && (isExpanded || isAnimatingThis)) {
+            // Calculate animation progress for fade-in/fade-out effect
+            let contentOpacity = 1.0;
+            if (isAnimatingThis && animation) {
+              const elapsed = Date.now() - animation.startTime;
+              const progress = Math.min(elapsed / animation.duration, 1);
+              if (animation.toHeight > animation.fromHeight) {
+                // Opening: fade in content as accordion opens (start appearing at 20% progress)
+                contentOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
+              } else {
+                // Closing: fade out quickly as accordion closes
+                contentOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster (1.5x speed)
+              }
+            }
+            
+            // Combine content scale with opacity for smoother animation
+            const effectiveOpacity = contentOpacity * Math.max(0, Math.min(1, contentScaleY));
+            
+            if (effectiveOpacity > 0) {
+              // Apply scale transform for content during animation
+              ctx.save();
+              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
+              ctx.translate(panelX, contentOriginY);
+              ctx.scale(1, contentScaleY);
+              ctx.translate(-panelX, -contentOriginY);
+              
+              const contentY = barY + barHeight + 20; // Start 20px below the bar
+              const messagePadding = 12;
+              const bubbleToInputSpacing = 16;
+              const fieldHeight = 32;
+              
+              // Prepare text for measurement
+              ctx.save();
+              ctx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+              
+              // Calculate message bubble dimensions based on text
+              const messageBubbleX = panelX + contentPadding;
+              const messageBubbleY = contentY;
+              const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons (40px for icons + 20px spacing)
+              const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+              
+              // Wrap text to fit in bubble
+              const lines = wrapText(ctx, emotionsAIText, maxTextWidth);
+              const lineHeight = 18; // Line height for text
+              const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+              const messageBubbleRadius = 8;
+              
+              // Draw message text bubble (white background with rounded corners)
+              ctx.globalAlpha = effectiveOpacity;
+              ctx.fillStyle = '#ffffff';
+              drawRoundedRect(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, messageBubbleRadius);
+              ctx.fill();
+              
+              // Draw message text (muted olive green color as per image description)
+              ctx.fillStyle = '#6b7280'; // Muted olive green equivalent
+              ctx.textBaseline = 'top';
+              ctx.textAlign = 'left';
+              lines.forEach((line, index) => {
+                ctx.fillText(line, messageBubbleX + messagePadding, messageBubbleY + messagePadding + (index * lineHeight));
+              });
+              ctx.restore();
+              
+              // Draw shuffle and star icons to the right of message bubble (vertically aligned)
+              const iconSize = 20;
+              const iconSpacing = 8; // Spacing between icons
+              const iconsX = panelX + panelWidth - contentPadding - iconSize / 2;
+              const shuffleIconY = contentY + messageBubbleHeight / 2 - iconSize / 2 - iconSpacing / 2;
+              const starIconY = contentY + messageBubbleHeight / 2 + iconSize / 2 + iconSpacing / 2;
+              
+              // Draw shuffle icon
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              drawLucideIcon(ctx, Shuffle, iconsX, shuffleIconY + iconSize / 2, iconSize, '#6b7280'); // Muted olive green
+              ctx.restore();
+              
+              // Store shuffle icon bounds for click detection
+              emotionsIconBounds.shuffle = {
+                x: iconsX - iconSize / 2,
+                y: shuffleIconY,
+                width: iconSize,
+                height: iconSize
+              };
+              
+              // Draw star icon (filled if starred)
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              const starColor = emotionsStarred ? '#fbbf24' : '#6b7280'; // Yellow if starred, muted olive green otherwise
+              drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
+              if (emotionsStarred) {
+                // Fill the star if starred
+                ctx.fillStyle = starColor;
+                ctx.globalAlpha = effectiveOpacity * 0.3; // Semi-transparent fill
+                // Re-draw with fill
+                drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
+              }
+              ctx.restore();
+              
+              // Store star icon bounds for click detection
+              emotionsIconBounds.star = {
+                x: iconsX - iconSize / 2,
+                y: starIconY,
+                width: iconSize,
+                height: iconSize
+              };
+              
+              // Draw input field area (visual representation, actual input is HTML)
+              const inputY = contentY + messageBubbleHeight + bubbleToInputSpacing;
+              const inputX = panelX + contentPadding;
+              const inputWidth = panelWidth - contentPadding * 2 - 40; // Leave space for plus button
+              
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              ctx.fillStyle = '#fef3c7'; // Light yellow background
+              ctx.strokeStyle = '#6b7280'; // Muted olive green border
+              ctx.lineWidth = 1;
+              drawRoundedRect(ctx, inputX, inputY, inputWidth, fieldHeight, 6);
+              ctx.fill();
+              ctx.stroke();
+              
+              // Draw plus button (visual representation)
+              const plusButtonX = panelX + panelWidth - contentPadding - 30;
+              ctx.fillStyle = '#78716c'; // Dark olive green/brown
+              drawRoundedRect(ctx, plusButtonX, inputY, 30, fieldHeight, 6);
+              ctx.fill();
+              
+              // Draw plus icon
+              ctx.fillStyle = '#ffffff';
+              ctx.font = `16px ui-sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText('+', plusButtonX + 15, inputY + fieldHeight / 2);
+              ctx.restore(); // Close input drawing save
+              
+              ctx.restore(); // Close scale transform save
+            }
+          }
+          
+          // Draw values accordion content
+          if (accordion.id === 'values' && (isExpanded || isAnimatingThis)) {
+            // Calculate animation progress for fade-in/fade-out effect
+            let contentOpacity = 1.0;
+            if (isAnimatingThis && animation) {
+              const elapsed = Date.now() - animation.startTime;
+              const progress = Math.min(elapsed / animation.duration, 1);
+              if (animation.toHeight > animation.fromHeight) {
+                // Opening: fade in content as accordion opens (start appearing at 20% progress)
+                contentOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
+              } else {
+                // Closing: fade out quickly as accordion closes
+                contentOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster (1.5x speed)
+              }
+            }
+            
+            // Combine content scale with opacity for smoother animation
+            const effectiveOpacity = contentOpacity * Math.max(0, Math.min(1, contentScaleY));
+            
+            if (effectiveOpacity > 0) {
+              // Apply scale transform for content during animation
+              ctx.save();
+              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
+              ctx.translate(panelX, contentOriginY);
+              ctx.scale(1, contentScaleY);
+              ctx.translate(-panelX, -contentOriginY);
+              
+              const contentY = barY + barHeight + 20; // Start 20px below the bar
+              const messagePadding = 12;
+              const bubbleToInputSpacing = 16;
+              const fieldHeight = 32;
+              
+              // Prepare text for measurement
+              ctx.save();
+              ctx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+              
+              // Calculate message bubble dimensions based on text
+              const messageBubbleX = panelX + contentPadding;
+              const messageBubbleY = contentY;
+              const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons (40px for icons + 20px spacing)
+              const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+              
+              // Wrap text to fit in bubble
+              const lines = wrapText(ctx, valuesAIText, maxTextWidth);
+              const lineHeight = 18; // Line height for text
+              const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+              const messageBubbleRadius = 8;
+              
+              // Draw message text bubble (light green background with rounded corners)
+              ctx.globalAlpha = effectiveOpacity;
+              ctx.fillStyle = '#d1fae5'; // Light green background
+              drawRoundedRect(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, messageBubbleRadius);
+              ctx.fill();
+              
+              // Draw message text (darker green color for values)
+              ctx.fillStyle = '#059669'; // Darker green color for text (better contrast on light green background)
+              ctx.textBaseline = 'top';
+              ctx.textAlign = 'left';
+              lines.forEach((line, index) => {
+                ctx.fillText(line, messageBubbleX + messagePadding, messageBubbleY + messagePadding + (index * lineHeight));
+              });
+              ctx.restore();
+              
+              // Draw shuffle and star icons to the right of message bubble (vertically aligned)
+              const iconSize = 20;
+              const iconSpacing = 8; // Spacing between icons
+              const iconsX = panelX + panelWidth - contentPadding - iconSize / 2;
+              const shuffleIconY = contentY + messageBubbleHeight / 2 - iconSize / 2 - iconSpacing / 2;
+              const starIconY = contentY + messageBubbleHeight / 2 + iconSize / 2 + iconSpacing / 2;
+              
+              // Draw shuffle icon
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              drawLucideIcon(ctx, Shuffle, iconsX, shuffleIconY + iconSize / 2, iconSize, '#059669'); // Darker green
+              ctx.restore();
+              
+              // Store shuffle icon bounds for click detection
+              valuesIconBounds.shuffle = {
+                x: iconsX - iconSize / 2,
+                y: shuffleIconY,
+                width: iconSize,
+                height: iconSize
+              };
+              
+              // Draw star icon (filled if starred)
+              ctx.save();
+              ctx.globalAlpha = effectiveOpacity;
+              const starColor = valuesStarred ? '#fbbf24' : '#059669'; // Yellow if starred, darker green otherwise
+              drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
+              if (valuesStarred) {
+                // Fill the star if starred
+                ctx.fillStyle = starColor;
+                ctx.globalAlpha = effectiveOpacity * 0.3; // Semi-transparent fill
+                // Re-draw with fill
+                drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
+              }
+              ctx.restore();
+              
+              // Store star icon bounds for click detection
+              valuesIconBounds.star = {
+                x: iconsX - iconSize / 2,
+                y: starIconY,
+                width: iconSize,
+                height: iconSize
+              };
+              
+              // Note: Input field is HTML element, not drawn on canvas
+              
+              ctx.restore(); // Close scale transform save
+            }
+          }
         }
       } else {
         // Clear content bounds if collapsed
         window.accordionContentBounds[accordion.id] = null;
+        // Clear button bounds for features-pinned accordion
+        if (accordion.id === 'features-pinned' && window.featuresPinnedButtonBounds) {
+          window.featuresPinnedButtonBounds = {};
+        }
+        // Clear icon bounds for features-pinned accordion
+        if (accordion.id === 'features-pinned') {
+          window.featuresPinnedIconBounds = null;
+        }
+        // Clear icon bounds for values accordion
+        if (accordion.id === 'values' && valuesIconBounds) {
+          valuesIconBounds = {};
+        }
       }
     } else {
       // Clear content bounds if not expanded
       window.accordionContentBounds[accordion.id] = null;
     }
     
+    // Apply hover scale transform if this accordion is hovered or animating
+    // Disable hover animation for emotions and values when no pin is selected
+    const shouldAllowHover = !((accordion.id === 'emotions' || accordion.id === 'values') && selectedPinId === null);
+    const isHovered = shouldAllowHover && hoveredAccordionId === accordion.id;
+    const isAnimating = shouldAllowHover && animatingAccordionId === accordion.id && accordionHoverAnimationStartTime !== null;
+    // Use animated scale if hovering or animating
+    const currentScale = (isHovered || isAnimating) ? accordionHoverScale : 1.0;
+    const barCenterX = panelX + panelWidth / 2;
+    const barCenterY = barY + barHeight / 2;
+    
+    // Calculate opacity for emotions and values headers based on content availability
+    let opacity = 1.0;
+    if (accordion.id === 'emotions' || accordion.id === 'values') {
+      if (selectedPinId === null) {
+        // No pin selected: check global counts
+        const globalEmotionsCount = countEmotionsExternalized(img, null);
+        const globalValuesCount = countValuesInferred(img, null);
+        
+        if (accordion.id === 'emotions') {
+          // Emotions header: 100% opacity if emotions exist globally, else 50%
+          opacity = globalEmotionsCount > 0 ? 1.0 : 0.5;
+        } else if (accordion.id === 'values') {
+          // Values header: 100% opacity if both emotions AND values exist globally, else 50%
+          opacity = (globalEmotionsCount > 0 && globalValuesCount > 0) ? 1.0 : 0.5;
+        }
+      } else {
+        // Pin selected: check counts for selected pin
+        const selectedPin = img.pins.find(p => p.id === selectedPinId);
+        const pinEmotionsCount = selectedPin && selectedPin.emotionalAspects ? selectedPin.emotionalAspects.length : 0;
+        
+        if (accordion.id === 'emotions') {
+          // Emotions header: always 100% opacity when pin is selected
+          opacity = 1.0;
+        } else if (accordion.id === 'values') {
+          // Values header: 100% opacity if emotions exist for selected pin, 50% otherwise
+          opacity = pinEmotionsCount > 0 ? 1.0 : 0.5;
+        }
+      }
+    }
+    
     // Draw rounded rectangle for bar (on top of background)
     ctx.save();
+    ctx.globalAlpha = opacity;
+    if (currentScale !== 1.0) {
+      // Apply scale transform centered on the bar
+      ctx.translate(barCenterX, barCenterY);
+      ctx.scale(currentScale, currentScale);
+      ctx.translate(-barCenterX, -barCenterY);
+    }
     ctx.fillStyle = accordion.color;
-    drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, borderRadius);
+    // Use animated border radius based on accordion type and pin selection
+    if (accordion.id === 'features-pinned') {
+      // Features-pinned: animated bottom border radius
+      drawRoundedRectWithBottomRadius(ctx, panelX, barY, panelWidth, barHeight, borderRadius, featuresHeaderBottomRadius);
+    } else if (accordion.id === 'emotions') {
+      // Emotions: animated border radius for all corners
+      drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, emotionsHeaderRadius);
+    } else if (accordion.id === 'values') {
+      // Values: animated top border radius, default bottom radius
+      drawRoundedRectWithTopBottomRadius(ctx, panelX, barY, panelWidth, barHeight, valuesHeaderTopRadius, borderRadius);
+    } else {
+      // Other accordions: default border radius
+      drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, borderRadius);
+    }
     ctx.fill();
     ctx.restore();
     
+    // Draw blue circle with white stroke before text for features-pinned when pin is selected
+    let textStartX = panelX + textPadding;
+    if (accordion.id === 'features-pinned' && selectedPinId !== null) {
+      ctx.save();
+      ctx.globalAlpha = opacity;
+      if (currentScale !== 1.0) {
+        ctx.translate(barCenterX, barCenterY);
+        ctx.scale(currentScale, currentScale);
+        ctx.translate(-barCenterX, -barCenterY);
+      }
+      const circleRadius = 6;
+      const circleX = panelX + textPadding + circleRadius;
+      const circleY = barY + barHeight / 2;
+      const circleSpacing = 8; // Space between circle and text
+      
+      // Draw blue filled circle
+      ctx.fillStyle = '#3b82f6';
+      ctx.beginPath();
+      ctx.arc(circleX, circleY, circleRadius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Draw white stroke around circle
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      
+      ctx.restore();
+      
+      // Adjust text start position to account for circle
+      textStartX = panelX + textPadding + circleRadius * 2 + circleSpacing;
+    }
+    
     // Draw text
     ctx.save();
+    ctx.globalAlpha = opacity;
+    if (currentScale !== 1.0) {
+      // Apply scale transform centered on the bar
+      ctx.translate(barCenterX, barCenterY);
+      ctx.scale(currentScale, currentScale);
+      ctx.translate(-barCenterX, -barCenterY);
+    }
     ctx.fillStyle = accordion.textColor;
     ctx.font = `500 16px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText(accordion.label, panelX + textPadding, barY + barHeight / 2);
+    ctx.fillText(accordion.label, textStartX, barY + barHeight / 2);
     ctx.restore();
     
-    // Draw chevron icon - use white on colored bars, dark on white bar and emotions accordion
-    const chevronX = panelX + panelWidth - chevronPadding - chevronSize / 2;
-    const chevronY = barY + barHeight / 2;
-    const chevronColor = accordion.id === 'emotions' ? accordion.textColor : (accordion.id === 'general-info' ? '#000000' : '#ffffff');
-    drawChevronIcon(ctx, chevronX, chevronY, chevronSize, chevronColor, isExpanded);
+    // Draw icon or chevron at the right side position
+    const iconX = panelX + panelWidth - chevronPadding - chevronSize / 2;
+    const iconY = barY + barHeight / 2;
+    
+    // For features-pinned accordion: show Plus icon rotated to X when pin is selected
+    if (accordion.id === 'features-pinned') {
+      ctx.save();
+      ctx.globalAlpha = opacity;
+      if (currentScale !== 1.0) {
+        ctx.translate(barCenterX, barCenterY);
+        ctx.scale(currentScale, currentScale);
+        ctx.translate(-barCenterX, -barCenterY);
+      }
+      const iconSize = 20;
+      const iconColor = accordion.textColor;
+      
+      // Always draw Plus icon, but rotate it when a pin is selected
+      ctx.save();
+      ctx.translate(iconX, iconY);
+      ctx.rotate((featuresIconRotation * Math.PI) / 180); // Convert degrees to radians
+      drawLucideIcon(ctx, Plus, 0, 0, iconSize, iconColor);
+      ctx.restore();
+      
+      // Store icon bounds for click detection (always clickable, but behavior depends on rotation)
+      const iconClickArea = iconSize + 8; // Add padding for easier clicking
+      window.featuresPinnedIconBounds = {
+        x: iconX - iconClickArea / 2,
+        y: iconY - iconClickArea / 2,
+        width: iconClickArea,
+        height: iconClickArea
+      };
+      
+      ctx.restore();
+    } else {
+      // Draw chevron icon for other accordions - use white on colored bars, dark on white bar and emotions accordion
+      // Determine chevron visibility based on content availability
+      let shouldShowChevron = true; // Default: show chevron
+      
+      if (accordion.id === 'emotions' || accordion.id === 'values') {
+        if (selectedPinId === null) {
+          // No pin selected: hide chevron for emotions and values
+          shouldShowChevron = false;
+        } else {
+          // Pin selected: check content for selected pin
+          const selectedPin = img.pins.find(p => p.id === selectedPinId);
+          const pinEmotionsCount = selectedPin && selectedPin.emotionalAspects ? selectedPin.emotionalAspects.length : 0;
+          const pinValuesCount = selectedPin && selectedPin.valueAspects ? selectedPin.valueAspects.length : 0;
+          
+          if (accordion.id === 'emotions') {
+            // Emotions header: always show chevron when pin is selected
+            shouldShowChevron = true;
+          } else if (accordion.id === 'values') {
+            // Values header: show chevron only if emotions exist for selected pin
+            shouldShowChevron = pinEmotionsCount > 0;
+          }
+        }
+      }
+      
+      if (shouldShowChevron) {
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        if (currentScale !== 1.0) {
+          // Apply scale transform centered on the bar
+          ctx.translate(barCenterX, barCenterY);
+          ctx.scale(currentScale, currentScale);
+          ctx.translate(-barCenterX, -barCenterY);
+        }
+        const chevronColor = accordion.id === 'emotions' ? accordion.textColor : (accordion.id === 'general-info' ? '#000000' : '#ffffff');
+        drawChevronIcon(ctx, iconX, iconY, chevronSize, chevronColor, isExpanded);
+        ctx.restore();
+      }
+    }
     
     // Store bar bounds for click detection
     window.accordionBarBounds.push({
@@ -3040,35 +4873,21 @@ function drawReflectionControlPanel(img) {
       height: barHeight
     });
     
-    // Move to next bar position
-    currentY += barHeight + barSpacing;
-    if (shouldDrawContent) {
-      // Use animated height for spacing calculation
-      let animatedVisibleHeight = 0;
-      if (isAnimatingThis && animation) {
-        const elapsed = Date.now() - animation.startTime;
-        const progress = Math.min(elapsed / animation.duration, 1);
-        
-        // Use same easing as drawing
-        let easedProgress;
-        if (progress < 1) {
-          const t = progress;
-          easedProgress = 1 - Math.pow(1 - t, 3);
-          if (animation.toHeight > animation.fromHeight && progress > 0.7) {
-            const overshoot = (progress - 0.7) / 0.3;
-            const bounce = Math.sin(overshoot * Math.PI) * 0.1;
-            easedProgress = Math.min(1, easedProgress + bounce);
-          }
-        } else {
-          easedProgress = 1;
-        }
-        
-        const animatedTotalHeight = animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress;
-        animatedVisibleHeight = Math.max(0, animatedTotalHeight - 20); // Subtract overlap
-      } else if (isExpanded) {
-        animatedVisibleHeight = 400; // Full visible height when fully expanded
+    // Move to next bar position using pre-calculated animated positions
+    // This ensures tabs below smoothly animate when accordions above expand/collapse
+    const spacingToUse = (index === 0) ? barSpacing : animatedTabSpacing;
+    if (animatedPos && index < accordions.length - 1) {
+      // Use pre-calculated position for next accordion
+      const nextAnimatedPos = accordionAnimatedPositions[accordions[index + 1].id];
+      if (nextAnimatedPos) {
+        currentY = nextAnimatedPos.barY;
+      } else {
+        // Fallback: calculate from current position
+        currentY = barY + barHeight + spacingToUse + (animatedPos.contentHeight || 0);
       }
-      currentY += animatedVisibleHeight; // Add expanded content height
+    } else {
+      // Last accordion or no animated position available
+      currentY = barY + barHeight + spacingToUse + (animatedPos ? animatedPos.contentHeight : 0);
     }
   });
   
@@ -3505,6 +5324,29 @@ function enterReflectionMode(fromScreenshot = false) {
   // Reset pin placement state
   hidePinPlacementUI();
   selectedPinId = null;
+  // Reset question ID when entering reflection mode
+  currentQuestionId = 0;
+  featuresQuestionText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?";
+  // Reset tab spacing to default when entering reflection mode
+  currentTabSpacing = TAB_SPACING_DEFAULT;
+  targetTabSpacing = TAB_SPACING_DEFAULT;
+  tabSpacingAnimationStartTime = null;
+  // Reset icon rotation to Plus (0 degrees)
+  featuresIconRotation = 0;
+  featuresIconTargetRotation = 0;
+  featuresIconRotationStartTime = null;
+  // Reset header bottom border radius to default
+  featuresHeaderBottomRadius = FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT;
+  featuresHeaderBottomRadiusTarget = FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT;
+  featuresHeaderBottomRadiusStartTime = null;
+  // Reset emotions header border radius to default
+  emotionsHeaderRadius = EMOTIONS_HEADER_RADIUS_DEFAULT;
+  emotionsHeaderRadiusTarget = EMOTIONS_HEADER_RADIUS_DEFAULT;
+  emotionsHeaderRadiusStartTime = null;
+  // Reset values header top border radius to default
+  valuesHeaderTopRadius = VALUES_HEADER_TOP_RADIUS_DEFAULT;
+  valuesHeaderTopRadiusTarget = VALUES_HEADER_TOP_RADIUS_DEFAULT;
+  valuesHeaderTopRadiusStartTime = null;
   // Clear expanded pin state
   if (expandedPinId !== null) {
     expandedPinId = null;
@@ -3547,30 +5389,94 @@ function enterReflectionMode(fromScreenshot = false) {
   const panelWidth = 500; // Fixed 500px width
   const spacing = 40; // Responsive spacing between image and panel
   
-  // Calculate zoom to fit image + control panel in viewport (with 90% padding)
-  // Account for control panel width and spacing (all in CSS pixels)
-  const availableWidth = (cssDims.width * 0.9) - panelWidth - spacing;
-  const scaleX = availableWidth / img.width;
-  const scaleY = (cssDims.height * 0.9) / img.height;
-  const fitScale = Math.min(scaleX, scaleY);
+  // Calculate accordion panel collapsed height (just the tabs, not expanded content)
+  // 4 accordion bars × 40px + 3 spacings × 22px = 160 + 66 = 226px
+  const accordionBarHeight = 40;
+  const accordionBarSpacing = 22;
+  const accordionCount = 4;
+  const accordionPanelHeight = accordionCount * accordionBarHeight + (accordionCount - 1) * accordionBarSpacing;
+  
+  // Calculate exit button height
+  const buttonTextHeight = 20;
+  const buttonPadding = 10;
+  const buttonSpacing = 10;
+  const buttonTotalHeight = buttonTextHeight + buttonPadding * 2 + buttonSpacing; // 50px total
+  
+  // Calculate target total group height (85% of viewport: 100% - 10% top gap - 5% bottom gap)
+  const targetTotalHeight = cssDims.height * 0.85;
+  
+  // Calculate available height for image/accordion (total minus button)
+  const availableContentHeight = targetTotalHeight - buttonTotalHeight;
+  
+  // Calculate scale based on height constraint (prioritize 85% height)
+  // We want the content area to fill availableContentHeight
+  // Start by assuming image will be taller than accordions
+  let scaleY = availableContentHeight / img.height;
+  
+  // Check if accordions would be taller than the scaled image
+  const imageScreenHeightAtScaleY = img.height * scaleY;
+  if (accordionPanelHeight > imageScreenHeightAtScaleY) {
+    // Accordions are taller, so content height is accordionPanelHeight
+    // Scale image proportionally to match, or use available space
+    // We want to maximize size while keeping total close to 85%
+    // If accordions + button > targetTotalHeight, we need to scale down
+    const accordionTotalHeight = accordionPanelHeight + buttonTotalHeight;
+    if (accordionTotalHeight > targetTotalHeight) {
+      // Scale everything down proportionally
+      const scaleDown = targetTotalHeight / accordionTotalHeight;
+      scaleY = (availableContentHeight * scaleDown) / img.height;
+    } else {
+      // Accordions fit, scale image to fill available space
+      scaleY = availableContentHeight / img.height;
+    }
+  }
+  
+  // Calculate max width for image + panel (90% of viewport)
+  const maxTotalWidth = cssDims.width * 0.9;
+  
+  // Check if this scale would make width exceed max width
+  // First calculate what scale would fit within maxTotalWidth
+  const availableWidthForImage = maxTotalWidth - panelWidth - spacing;
+  const scaleX = availableWidthForImage / img.width;
+  
+  // Prioritize height constraint, but ensure width doesn't exceed max
+  // Only use width constraint if it's significantly more restrictive
+  const fitScale = scaleX < scaleY * 0.9 ? scaleX : scaleY; // Only constrain by width if it's 10%+ smaller
   
   // Calculate total width of image + spacing + panel in screen coordinates (CSS pixels)
   const imageScreenWidth = img.width * fitScale;
+  const imageScreenHeight = img.height * fitScale;
   const totalGroupWidth = imageScreenWidth + spacing + panelWidth;
   
-  // Calculate image center in canvas coordinates
-  const imageCenterX = img.x + img.width / 2;
-  const imageCenterY = img.y + img.height / 2;
+  // Ensure total width doesn't exceed max (scale down if needed)
+  let finalScale = fitScale;
+  if (totalGroupWidth > maxTotalWidth) {
+    finalScale = (maxTotalWidth - panelWidth - spacing) / img.width;
+  }
   
-  // Calculate target position to center the group (image + spacing + panel) horizontally
-  // The group should be centered, so the left edge of the image in screen coordinates should be at:
-  // (cssDims.width - totalGroupWidth) / 2
-  const groupLeftScreenX = (cssDims.width - totalGroupWidth) / 2;
+  // Recalculate with final scale
+  const finalImageScreenWidth = img.width * finalScale;
+  const finalImageScreenHeight = img.height * finalScale;
+  const finalTotalGroupWidth = finalImageScreenWidth + spacing + panelWidth;
+  
+  // Calculate total group height (taller of image or accordions, plus button)
+  const contentHeight = Math.max(finalImageScreenHeight, accordionPanelHeight);
+  const totalGroupHeight = contentHeight + buttonTotalHeight;
+  
+  // Calculate target position to center the group horizontally
+  const groupLeftScreenX = (cssDims.width - finalTotalGroupWidth) / 2;
+  
+  // Calculate target position to center the group vertically
+  // The group should be centered, but respect max height (85% of viewport)
+  const maxTotalHeight = cssDims.height * 0.85;
+  const actualGroupHeight = Math.min(totalGroupHeight, maxTotalHeight);
+  const groupTopScreenY = (cssDims.height - actualGroupHeight) / 2;
   
   // Convert to canvas coordinates: screenX = canvasX * scale + translateX
   // So: translateX = screenX - canvasX * scale (all in CSS pixels)
-  const targetTranslateX = groupLeftScreenX - img.x * fitScale;
-  const targetTranslateY = cssDims.height / 2 - imageCenterY * fitScale;
+  const targetTranslateX = groupLeftScreenX - img.x * finalScale;
+  // Position image so its top edge is at groupTopScreenY
+  const targetTranslateY = groupTopScreenY - img.y * finalScale;
   
   // Set animation start values (current state)
   animationStartScale = canvasScale;
@@ -3578,7 +5484,7 @@ function enterReflectionMode(fromScreenshot = false) {
   animationStartTranslateY = canvasTranslateY;
   
   // Set animation end values (target state)
-  animationEndScale = fitScale;
+  animationEndScale = finalScale;
   animationEndTranslateX = targetTranslateX;
   animationEndTranslateY = targetTranslateY;
   
@@ -3631,6 +5537,16 @@ function exitReflectionMode() {
   // Reset pin-related state
   hidePinPlacementUI();
   selectedPinId = null;
+  tooltipPinId = null;
+  hoveredPinId = null;
+  hoveredAspectDot = null;
+  // Clear all tooltip bounds
+  for (let k in window) {
+    if (k.startsWith('tooltipBounds_')) {
+      delete window[k];
+    }
+  }
+  window.pinTooltipBounds = null;
   // Clear expanded pin state
   if (expandedPinId !== null) {
     expandedPinId = null;
@@ -3713,6 +5629,12 @@ function exitReflectionMode() {
   animationEndScale = previousCanvasScale;
   animationEndTranslateX = targetTranslateX;
   animationEndTranslateY = targetTranslateY;
+  
+  // Reset accordion hover state
+  hoveredAccordionId = null;
+  animatingAccordionId = null;
+  accordionHoverScale = 1.0;
+  accordionHoverAnimationStartTime = null;
   
   // Clear reflection mode state
   isReflectionMode = false;
@@ -4148,6 +6070,74 @@ canvas.addEventListener('mousedown', (e) => {
     const reflectionImg = images[reflectionImageIndex];
     if (!reflectionImg) return;
     
+    // Check if clicking on emotions icons (shuffle or star)
+    if (emotionsIconBounds && emotionsIconBounds.shuffle) {
+      const shuffleBounds = emotionsIconBounds.shuffle;
+      if (e.clientX >= shuffleBounds.x && e.clientX <= shuffleBounds.x + shuffleBounds.width &&
+          e.clientY >= shuffleBounds.y && e.clientY <= shuffleBounds.y + shuffleBounds.height) {
+        // Clicked on shuffle icon - regenerate AI text
+        regenerateEmotionsAIText();
+        requestDraw();
+        return;
+      }
+    }
+    if (emotionsIconBounds && emotionsIconBounds.star) {
+      const starBounds = emotionsIconBounds.star;
+      if (e.clientX >= starBounds.x && e.clientX <= starBounds.x + starBounds.width &&
+          e.clientY >= starBounds.y && e.clientY <= starBounds.y + starBounds.height) {
+        // Clicked on star icon - toggle star
+        emotionsStarred = !emotionsStarred;
+        requestDraw();
+        return;
+      }
+    }
+    
+    // Check if clicking on the delete button in any tooltip
+    for (let key in window) {
+      if (key.startsWith('tooltipBounds_')) {
+        const bounds = window[key];
+        if (bounds && bounds.pinId) {
+          // Check if clicking on delete button
+          if (e.clientX >= bounds.deleteButtonX &&
+              e.clientX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+              e.clientY >= bounds.deleteButtonY &&
+              e.clientY <= bounds.deleteButtonY + bounds.deleteButtonHeight) {
+            // Clicked on delete button
+            deletePin(reflectionImg, bounds.pinId);
+            tooltipPinId = null;
+            hoveredPinId = null;
+            // Clear all tooltip bounds
+            for (let k in window) {
+              if (k.startsWith('tooltipBounds_')) {
+                delete window[k];
+              }
+            }
+            window.pinTooltipBounds = null;
+            updateControlPanelInputs();
+            requestDraw();
+            return;
+          }
+        }
+      }
+    }
+    // Also check old pinTooltipBounds for backwards compatibility
+    if (window.pinTooltipBounds) {
+      const bounds = window.pinTooltipBounds;
+      if (e.clientX >= bounds.deleteButtonX &&
+          e.clientX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+          e.clientY >= bounds.deleteButtonY &&
+          e.clientY <= bounds.deleteButtonY + bounds.deleteButtonHeight) {
+        // Clicked on delete button
+        deletePin(reflectionImg, bounds.pinId);
+        tooltipPinId = null;
+        hoveredPinId = null;
+        window.pinTooltipBounds = null;
+        updateControlPanelInputs();
+        requestDraw();
+        return;
+      }
+    }
+    
     // Check if clicking on an existing pin
     const clickedPin = getPinAt(e.clientX, e.clientY, reflectionImg);
     if (clickedPin) {
@@ -4156,9 +6146,18 @@ canvas.addEventListener('mousedown', (e) => {
       const canExpand = hasEmotionalAspects || hasValueAspects;
       const isCurrentlyExpanded = expandedPinId === clickedPin.id;
       
-      // Select the pin and hide pin placement UI if it's showing
+      // Select the pin and show tooltip
       selectedPinId = clickedPin.id;
+      startTabSpacingAnimation(TAB_SPACING_SELECTED);
+      startFeaturesIconRotation(45); // Rotate Plus to X
+      startFeaturesHeaderBottomRadiusAnimation(FEATURES_HEADER_BOTTOM_RADIUS_SELECTED);
+      startEmotionsHeaderRadiusAnimation(EMOTIONS_HEADER_RADIUS_SELECTED);
+      startValuesHeaderTopRadiusAnimation(VALUES_HEADER_TOP_RADIUS_SELECTED);
+      tooltipPinId = clickedPin.id; // Show persistent tooltip
       hidePinPlacementUI();
+      
+      // Automatically open the first empty aspect panel
+      autoOpenEmptyAspectPanel(clickedPin);
       
       // Handle pin expansion
       if (canExpand) {
@@ -4234,6 +6233,27 @@ canvas.addEventListener('mousedown', (e) => {
       // Deselect any previously selected pin when clicking on image (but not on a pin)
       if (selectedPinId !== null) {
         selectedPinId = null;
+        tooltipPinId = null;
+        window.pinTooltipBounds = null;
+        startTabSpacingAnimation(TAB_SPACING_DEFAULT);
+        startFeaturesIconRotation(0); // Rotate X back to Plus
+        startFeaturesHeaderBottomRadiusAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+        startEmotionsHeaderRadiusAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+        startValuesHeaderTopRadiusAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+        closeEmotionsAndValuesAccordions();
+      }
+      
+      // Close tooltip when clicking on image (but not on a pin or tooltip)
+      if (tooltipPinId !== null && !isMouseOverTooltip(e.clientX, e.clientY)) {
+        tooltipPinId = null;
+        hoveredPinId = null;
+        // Clear all tooltip bounds
+        for (let k in window) {
+          if (k.startsWith('tooltipBounds_')) {
+            delete window[k];
+          }
+        }
+        window.pinTooltipBounds = null;
       }
       
       isPlacingPin = true;
@@ -4250,6 +6270,10 @@ canvas.addEventListener('mousedown', (e) => {
       
       // Show pin placement UI
       showPinPlacementUI(e.clientX, e.clientY);
+      
+      // Automatically open the features-pinned accordion when clicking on image
+      openFeaturesAccordion();
+      
       updateControlPanelInputs();
       requestDraw();
       return;
@@ -4262,6 +6286,22 @@ canvas.addEventListener('mousedown', (e) => {
         e.clientY < window.reflectionPanelBounds.y ||
         e.clientY > window.reflectionPanelBounds.y + window.reflectionPanelBounds.height) {
       selectedPinId = null;
+      startTabSpacingAnimation(TAB_SPACING_DEFAULT);
+      startFeaturesIconRotation(0); // Rotate X back to Plus
+      startFeaturesHeaderBottomRadiusAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+      startEmotionsHeaderRadiusAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+      startValuesHeaderTopRadiusAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+      closeEmotionsAndValuesAccordions();
+      // Close tooltip
+      tooltipPinId = null;
+      hoveredPinId = null;
+      // Clear all tooltip bounds
+      for (let k in window) {
+        if (k.startsWith('tooltipBounds_')) {
+          delete window[k];
+        }
+      }
+      window.pinTooltipBounds = null;
       // Collapse expanded pin
       if (expandedPinId !== null) {
         startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
@@ -4343,8 +6383,54 @@ canvas.addEventListener('mousemove', (e) => {
   // Prevent interactions during animation
   if (isAnimating) return;
 
-  // In reflection mode, disable all interactions
+  // In reflection mode, check for accordion hover
   if (isReflectionMode) {
+    // Check if mouse is over an accordion bar
+    let newHoveredAccordionId = null;
+    if (window.accordionBarBounds && window.accordionBarBounds.length > 0) {
+      for (let i = 0; i < window.accordionBarBounds.length; i++) {
+        const bar = window.accordionBarBounds[i];
+        if (e.clientX >= bar.x && e.clientX <= bar.x + bar.width &&
+            e.clientY >= bar.y && e.clientY <= bar.y + bar.height) {
+          newHoveredAccordionId = bar.id;
+          break;
+        }
+      }
+    }
+    
+    // Prevent hover animation for emotions and values tabs when no pin is selected
+    if (newHoveredAccordionId === 'emotions' || newHoveredAccordionId === 'values') {
+      if (selectedPinId === null) {
+        newHoveredAccordionId = null; // Don't allow hover when no pin is selected
+      }
+    }
+    
+    // Update cursor based on hover state
+    if (newHoveredAccordionId !== null) {
+      canvas.style.cursor = 'pointer';
+    } else {
+      canvas.style.cursor = createCustomCursor();
+    }
+    
+    // Update hover state if changed
+    if (newHoveredAccordionId !== hoveredAccordionId) {
+      // Always start animation from current scale, even if animation is in progress
+      accordionHoverAnimationStartScale = accordionHoverScale; // Start from current scale
+      accordionHoverAnimationTargetScale = newHoveredAccordionId !== null ? ACCORDION_HOVER_SCALE_TARGET : 1.0;
+      accordionHoverAnimationStartTime = Date.now(); // Restart animation
+      
+      // Track which accordion is animating (for scale-down, remember the one that was hovered)
+      if (newHoveredAccordionId !== null) {
+        animatingAccordionId = newHoveredAccordionId;
+      } else {
+        // Mouse left - keep animating the accordion that was just hovered
+        animatingAccordionId = hoveredAccordionId;
+      }
+      
+      hoveredAccordionId = newHoveredAccordionId;
+      requestDraw();
+    }
+    
     return;
   }
 
@@ -7037,14 +9123,18 @@ function confirmPinPlacement() {
     location: { x: tempPinLocation.x, y: tempPinLocation.y },
     semanticLocation: '',
     feature: featureText,
+    questionId: currentQuestionId, // Store the question ID this pin belongs to
     emotionalAspects: [],
     valueAspects: []
   };
   
   reflectionImg.pins.push(newPin);
   
-  // Automatically select the newly created pin
-  selectedPinId = newPin.id;
+  // Don't automatically select the newly created pin - user must click to select it
+  selectedPinId = null;
+  tooltipPinId = null;
+  window.pinTooltipBounds = null;
+  closeEmotionsAndValuesAccordions();
   
   // Collapse any expanded pin when a new pin is placed
   if (expandedPinId !== null) {
@@ -7069,54 +9159,368 @@ function updateControlPanelInputs() {
   const fieldHeight = 32;
   const padding = 20;
   const inputTopOffset = 20; // Offset from top of content area
+  const labelHeight = 20; // Height for labels
+  const fieldSpacing = 12; // Spacing between fields
   
-  // Position emotional aspect input in yellow accordion (emotions)
-  const emotionsContentBounds = window.accordionContentBounds && window.accordionContentBounds['emotions'];
-  const isEmotionsExpanded = expandedAccordionId === 'emotions' && emotionsContentBounds;
+  // Position general info inputs in white accordion (general-info)
+  const generalInfoContentBounds = window.accordionContentBounds && window.accordionContentBounds['general-info'];
+  const isGeneralInfoExpanded = expandedAccordionId === 'general-info';
+  const isGeneralInfoAnimating = generalInfoContentBounds && generalInfoContentBounds.isAnimating;
+  const shouldShowGeneralInfo = isGeneralInfoExpanded && generalInfoContentBounds;
   
-  if (emotionalAspectInput && emotionalAspectAddButton) {
-    if (isEmotionsExpanded) {
-      // Position in yellow accordion content area
+  if (productNameContainer && productNameInput && focusInputContainer && focusInput) {
+    if (shouldShowGeneralInfo || isGeneralInfoAnimating) {
       controlPanelInputs.style.display = 'block';
-      emotionalAspectInput.style.position = 'absolute';
-      emotionalAspectInput.style.left = (emotionsContentBounds.x + emotionsContentBounds.padding) + 'px';
-      emotionalAspectInput.style.top = (emotionsContentBounds.y + inputTopOffset) + 'px';
-      emotionalAspectInput.style.width = (emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 40) + 'px';
-      emotionalAspectInput.style.display = 'block';
       
-      emotionalAspectAddButton.style.position = 'absolute';
-      emotionalAspectAddButton.style.left = (emotionsContentBounds.x + emotionsContentBounds.width - emotionsContentBounds.padding - 30) + 'px';
-      emotionalAspectAddButton.style.top = (emotionsContentBounds.y + inputTopOffset) + 'px';
-      emotionalAspectAddButton.style.width = '30px';
-      emotionalAspectAddButton.style.height = fieldHeight + 'px';
-      emotionalAspectAddButton.style.display = 'block';
+      // Calculate animation progress for fade-in/fade-out effect (matching accordion animation)
+      let inputOpacity = 1.0;
+      let contentScaleY = 1.0;
+      let animatedOffsetY = 0;
+      
+      if (isGeneralInfoAnimating) {
+        const animation = accordionAnimations['general-info'];
+        if (animation) {
+          const elapsed = Date.now() - animation.startTime;
+          const progress = Math.min(elapsed / animation.duration, 1);
+          
+          // Use same easing as accordion animation
+          let easedProgress;
+          if (progress < 1) {
+            const t = progress;
+            easedProgress = 1 - Math.pow(1 - t, 3);
+            if (animation.toHeight > animation.fromHeight && progress > 0.7) {
+              const overshoot = (progress - 0.7) / 0.3;
+              const bounce = Math.sin(overshoot * Math.PI) * 0.1;
+              easedProgress = Math.min(1, easedProgress + bounce);
+            }
+          } else {
+            easedProgress = 1;
+          }
+          
+          // Calculate scale factor for content during animation
+          const calculatedHeight = calculateAccordionContentHeight('general-info');
+          const startHeight = animation.fromHeight - 20;
+          const endHeight = animation.toHeight - 20;
+          
+          if (endHeight > 0) {
+            // Opening
+            const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
+            contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
+            inputOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
+          } else {
+            // Closing
+            if (startHeight > 0) {
+              const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
+              contentScaleY = currentVisibleHeight / startHeight;
+            }
+            inputOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster
+          }
+          
+          // Calculate animated Y offset for smooth movement
+          animatedOffsetY = (1 - easedProgress) * (animation.toHeight - animation.fromHeight) / 2;
+        }
+      }
+      
+      // Combine opacity with scale for smoother effect
+      const effectiveOpacity = inputOpacity * Math.max(0, Math.min(1, contentScaleY));
+      
+      // Only position if bounds are available
+      if (generalInfoContentBounds) {
+        // Position product name input (first field) - reduced gap from label
+        // generalInfoContentBounds.y = barY + barHeight, label is at barY + barHeight + 20
+        // So input should be at: labelY (barY + barHeight + 20) + label height (12px) + gap (4px)
+        const baseProductNameY = generalInfoContentBounds.y + 20 + 12 + 4; // 20px offset + 12px label + 4px gap = 36px from bounds start
+        const productNameY = baseProductNameY + animatedOffsetY;
+        
+        productNameContainer.style.position = 'absolute';
+        productNameContainer.style.left = (generalInfoContentBounds.x + generalInfoContentBounds.padding) + 'px';
+        productNameContainer.style.top = productNameY + 'px';
+        productNameContainer.style.width = (generalInfoContentBounds.width - generalInfoContentBounds.padding * 2) + 'px';
+        productNameContainer.style.display = 'block';
+        productNameContainer.style.opacity = effectiveOpacity.toString();
+        productNameContainer.style.transform = `scaleY(${contentScaleY})`;
+        productNameContainer.style.transformOrigin = 'top';
+        if (isGeneralInfoAnimating) {
+          productNameContainer.classList.add('animating');
+        } else {
+          productNameContainer.classList.remove('animating');
+        }
+        
+        // Position focus input (second field) - increased gap from first input to second label
+        // Second label is at: first label (20px) + label height (12px) + gap (4px) + input height (32px) + gap to second label (24px) = 92px from bounds start
+        // Input should be at: second label position + label height (12px) + gap (4px)
+        const baseFocusY = generalInfoContentBounds.y + 20 + 12 + 4 + fieldHeight + 24 + 12 + 4; // Aligned with second label + spacing
+        const focusY = baseFocusY + animatedOffsetY;
+        
+        focusInputContainer.style.position = 'absolute';
+        focusInputContainer.style.left = (generalInfoContentBounds.x + generalInfoContentBounds.padding) + 'px';
+        focusInputContainer.style.top = focusY + 'px';
+        focusInputContainer.style.width = (generalInfoContentBounds.width - generalInfoContentBounds.padding * 2) + 'px';
+        focusInputContainer.style.display = 'block';
+        focusInputContainer.style.opacity = effectiveOpacity.toString();
+        focusInputContainer.style.transform = `scaleY(${contentScaleY})`;
+        focusInputContainer.style.transformOrigin = 'top';
+        if (isGeneralInfoAnimating) {
+          focusInputContainer.classList.add('animating');
+        } else {
+          focusInputContainer.classList.remove('animating');
+        }
+      } else {
+        // Bounds not available yet, but show inputs with opacity 0 so they're ready
+        productNameContainer.style.display = 'block';
+        productNameContainer.style.opacity = '0';
+        focusInputContainer.style.display = 'block';
+        focusInputContainer.style.opacity = '0';
+      }
     } else {
       // Hide when accordion is closed
-      emotionalAspectInput.style.display = 'none';
-      emotionalAspectAddButton.style.display = 'none';
+      productNameContainer.style.display = 'none';
+      focusInputContainer.style.display = 'none';
+    }
+  }
+  
+  // Position emotional aspect input in yellow accordion (emotions) - OLD, now replaced by emotions answer input
+  const emotionsContentBounds = window.accordionContentBounds && window.accordionContentBounds['emotions'];
+  const isEmotionsExpanded = expandedAccordionId === 'emotions' && emotionsContentBounds;
+  const isEmotionsAnimating = emotionsContentBounds && emotionsContentBounds.isAnimating;
+  
+  // Hide old emotional aspect input (replaced by new emotions answer input)
+  if (emotionalAspectInput && emotionalAspectAddButton) {
+    emotionalAspectInput.style.display = 'none';
+    emotionalAspectAddButton.style.display = 'none';
+  }
+  
+  // Position emotions answer input in yellow accordion (emotions)
+  if (emotionsAnswerInput && emotionsAnswerAddButton) {
+    if (isEmotionsExpanded || isEmotionsAnimating) {
+      // Calculate animation progress for fade-in/fade-out effect (matching accordion animation)
+      let inputOpacity = 1.0;
+      let contentScaleY = 1.0;
+      let animatedOffsetY = 0;
+      
+      if (isEmotionsAnimating) {
+        const animation = accordionAnimations['emotions'];
+        if (animation) {
+          const elapsed = Date.now() - animation.startTime;
+          const progress = Math.min(elapsed / animation.duration, 1);
+          
+          // Use same easing as accordion animation
+          let easedProgress;
+          if (progress < 1) {
+            const t = progress;
+            easedProgress = 1 - Math.pow(1 - t, 3);
+            if (animation.toHeight > animation.fromHeight && progress > 0.7) {
+              const overshoot = (progress - 0.7) / 0.3;
+              const bounce = Math.sin(overshoot * Math.PI) * 0.1;
+              easedProgress = Math.min(1, easedProgress + bounce);
+            }
+          } else {
+            easedProgress = 1;
+          }
+          
+          // Calculate scale factor for content during animation
+          const calculatedHeight = calculateAccordionContentHeight('emotions');
+          const startHeight = animation.fromHeight - 20;
+          const endHeight = animation.toHeight - 20;
+          
+          if (endHeight > 0) {
+            // Opening
+            const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
+            contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
+            inputOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
+          } else {
+            // Closing
+            if (startHeight > 0) {
+              const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
+              contentScaleY = currentVisibleHeight / startHeight;
+            }
+            inputOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster
+          }
+          
+          // Calculate animated Y offset for smooth movement
+          animatedOffsetY = (1 - easedProgress) * (animation.toHeight - animation.fromHeight) / 2;
+        }
+      }
+      
+      // Combine opacity with scale for smoother effect
+      const effectiveOpacity = inputOpacity * Math.max(0, Math.min(1, contentScaleY));
+      
+      controlPanelInputs.style.display = 'block';
+      
+      // Calculate position: below chat bubble
+      // Chat bubble starts at contentY = barY + barHeight + 20
+      // Bubble height is calculated from text, but we'll use a reasonable estimate
+      const messagePadding = 12;
+      const lineHeight = 18;
+      const bubbleToInputSpacing = 16;
+      
+      // Estimate bubble height (will be calculated in draw, but we need estimate here)
+      let tempCtx = ctx;
+      if (!tempCtx) {
+        const tempCanvas = document.createElement('canvas');
+        tempCtx = tempCanvas.getContext('2d');
+      }
+      tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      const messageBubbleWidth = emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 60;
+      const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+      const lines = wrapText(tempCtx, emotionsAIText, maxTextWidth);
+      const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+      
+      // Input position: contentY (20px below bar) + bubble height + spacing
+      const baseInputY = emotionsContentBounds.y + 20 + messageBubbleHeight + bubbleToInputSpacing;
+      const inputY = baseInputY + animatedOffsetY;
+      
+      emotionsAnswerInput.style.position = 'absolute';
+      emotionsAnswerInput.style.left = (emotionsContentBounds.x + emotionsContentBounds.padding) + 'px';
+      emotionsAnswerInput.style.top = inputY + 'px';
+      emotionsAnswerInput.style.width = (emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 40) + 'px';
+      emotionsAnswerInput.style.display = 'block';
+      emotionsAnswerInput.style.opacity = effectiveOpacity.toString();
+      emotionsAnswerInput.style.background = '#fef3c7'; // Light yellow background
+      emotionsAnswerInput.style.borderColor = '#6b7280'; // Muted olive green border
+      emotionsAnswerInput.style.transform = `scaleY(${contentScaleY})`;
+      emotionsAnswerInput.style.transformOrigin = 'top';
+      if (isEmotionsAnimating) {
+        emotionsAnswerInput.classList.add('animating');
+      } else {
+        emotionsAnswerInput.classList.remove('animating');
+      }
+      
+      emotionsAnswerAddButton.style.position = 'absolute';
+      emotionsAnswerAddButton.style.left = (emotionsContentBounds.x + emotionsContentBounds.width - emotionsContentBounds.padding - 30) + 'px';
+      emotionsAnswerAddButton.style.top = inputY + 'px';
+      emotionsAnswerAddButton.style.width = '30px';
+      emotionsAnswerAddButton.style.height = fieldHeight + 'px';
+      emotionsAnswerAddButton.style.display = 'block';
+      emotionsAnswerAddButton.style.opacity = effectiveOpacity.toString();
+      emotionsAnswerAddButton.style.background = '#78716c'; // Dark olive green/brown
+      emotionsAnswerAddButton.style.color = '#ffffff';
+      emotionsAnswerAddButton.style.transform = `scaleY(${contentScaleY})`;
+      emotionsAnswerAddButton.style.transformOrigin = 'top';
+      if (isEmotionsAnimating) {
+        emotionsAnswerAddButton.classList.add('animating');
+      } else {
+        emotionsAnswerAddButton.classList.remove('animating');
+      }
+    } else {
+      // Hide when accordion is closed
+      emotionsAnswerInput.style.display = 'none';
+      emotionsAnswerAddButton.style.display = 'none';
     }
   }
   
   // Position value aspect input in green accordion (values)
   const valuesContentBounds = window.accordionContentBounds && window.accordionContentBounds['values'];
   const isValuesExpanded = expandedAccordionId === 'values' && valuesContentBounds;
+  const isValuesAnimating = valuesContentBounds && valuesContentBounds.isAnimating;
   
   if (valueAspectInput && valueAspectAddButton) {
-    if (isValuesExpanded) {
-      // Position in green accordion content area
+    if (isValuesExpanded && valuesContentBounds) {
+      // Calculate animation progress for fade-in/fade-out effect (matching accordion animation)
+      let inputOpacity = 1.0;
+      let contentScaleY = 1.0;
+      let animatedOffsetY = 0;
+      
+      if (isValuesAnimating && accordionAnimations && accordionAnimations['values']) {
+        const animation = accordionAnimations['values'];
+        const elapsed = Date.now() - animation.startTime;
+        const progress = Math.min(elapsed / animation.duration, 1);
+        
+        // Use same easing as accordion animation
+        let easedProgress;
+        if (progress < 1) {
+          const t = progress;
+          easedProgress = 1 - Math.pow(1 - t, 3);
+          if (animation.toHeight > animation.fromHeight && progress > 0.7) {
+            const overshoot = (progress - 0.7) / 0.3;
+            const bounce = Math.sin(overshoot * Math.PI) * 0.1;
+            easedProgress = Math.min(1, easedProgress + bounce);
+          }
+        } else {
+          easedProgress = 1;
+        }
+        
+        // Calculate scale factor for content during animation
+        const calculatedHeight = calculateAccordionContentHeight('values');
+        const startHeight = animation.fromHeight - 20;
+        const endHeight = animation.toHeight - 20;
+        
+        if (endHeight > 0) {
+          // Opening
+          const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
+          contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
+          inputOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
+        } else {
+          // Closing
+          if (startHeight > 0) {
+            const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
+            contentScaleY = currentVisibleHeight / startHeight;
+          }
+          inputOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster
+        }
+        
+        // Calculate animated Y offset for smooth movement
+        animatedOffsetY = (1 - easedProgress) * (animation.toHeight - animation.fromHeight) / 2;
+      }
+      
+      // Combine opacity with scale for smoother effect
+      const effectiveOpacity = inputOpacity * Math.max(0, Math.min(1, contentScaleY));
+      
+      // Chat bubble starts at contentY = barY + barHeight + 20
+      // Bubble height is calculated from text, but we'll use a reasonable estimate
+      const messagePadding = 12;
+      const lineHeight = 18;
+      const bubbleToInputSpacing = 16;
+      
+      // Estimate bubble height (will be calculated in draw, but we need estimate here)
+      let tempCtx = ctx;
+      if (!tempCtx) {
+        const tempCanvas = document.createElement('canvas');
+        tempCtx = tempCanvas.getContext('2d');
+      }
+      tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      const messageBubbleWidth = valuesContentBounds.width - valuesContentBounds.padding * 2 - 60;
+      const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+      const lines = wrapText(tempCtx, valuesAIText, maxTextWidth);
+      const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+      
+      // Input position: contentY (20px below bar) + bubble height + spacing
+      const baseInputY = valuesContentBounds.y + 20 + messageBubbleHeight + bubbleToInputSpacing;
+      const inputY = baseInputY + animatedOffsetY;
+      
       controlPanelInputs.style.display = 'block';
       valueAspectInput.style.position = 'absolute';
       valueAspectInput.style.left = (valuesContentBounds.x + valuesContentBounds.padding) + 'px';
-      valueAspectInput.style.top = (valuesContentBounds.y + inputTopOffset) + 'px';
+      valueAspectInput.style.top = inputY + 'px';
       valueAspectInput.style.width = (valuesContentBounds.width - valuesContentBounds.padding * 2 - 40) + 'px';
       valueAspectInput.style.display = 'block';
+      valueAspectInput.style.opacity = effectiveOpacity.toString();
+      valueAspectInput.style.background = '#d1fae5'; // Light green background
+      valueAspectInput.style.borderColor = '#10b981'; // Green border
+      valueAspectInput.style.transform = `scaleY(${contentScaleY})`;
+      valueAspectInput.style.transformOrigin = 'top';
+      if (isValuesAnimating) {
+        valueAspectInput.classList.add('animating');
+      } else {
+        valueAspectInput.classList.remove('animating');
+      }
       
       valueAspectAddButton.style.position = 'absolute';
       valueAspectAddButton.style.left = (valuesContentBounds.x + valuesContentBounds.width - valuesContentBounds.padding - 30) + 'px';
-      valueAspectAddButton.style.top = (valuesContentBounds.y + inputTopOffset) + 'px';
+      valueAspectAddButton.style.top = inputY + 'px';
       valueAspectAddButton.style.width = '30px';
       valueAspectAddButton.style.height = fieldHeight + 'px';
       valueAspectAddButton.style.display = 'block';
+      valueAspectAddButton.style.opacity = effectiveOpacity.toString();
+      valueAspectAddButton.style.background = '#10b981'; // Green background
+      valueAspectAddButton.style.color = '#ffffff';
+      valueAspectAddButton.style.transform = `scaleY(${contentScaleY})`;
+      valueAspectAddButton.style.transformOrigin = 'top';
+      if (isValuesAnimating) {
+        valueAspectAddButton.classList.add('animating');
+      } else {
+        valueAspectAddButton.classList.remove('animating');
+      }
     } else {
       // Hide when accordion is closed
       valueAspectInput.style.display = 'none';
@@ -7125,7 +9529,8 @@ function updateControlPanelInputs() {
   }
   
   // Hide container if no inputs are visible
-  if ((!isEmotionsExpanded || !emotionalAspectInput || emotionalAspectInput.style.display === 'none') &&
+  if ((!isGeneralInfoExpanded || !productNameContainer || productNameContainer.style.display === 'none') &&
+      (!isEmotionsExpanded || !emotionsAnswerInput || emotionsAnswerInput.style.display === 'none') &&
       (!isValuesExpanded || !valueAspectInput || valueAspectInput.style.display === 'none')) {
     if (controlPanelInputs) controlPanelInputs.style.display = 'none';
   }
@@ -7135,9 +9540,17 @@ function updateControlPanelInputs() {
   const selectedPin = hasSelectedPin ? reflectionImg.pins.find(p => p.id === selectedPinId) : null;
   const hasEmotionalAspects = selectedPin && selectedPin.emotionalAspects && selectedPin.emotionalAspects.length > 0;
   
+  // Track previous selected pin to detect when it changes
+  if (!window.previousSelectedPinId) window.previousSelectedPinId = null;
+  const pinChanged = window.previousSelectedPinId !== selectedPinId;
+  window.previousSelectedPinId = selectedPinId;
+  
   if (emotionalAspectInput) {
     emotionalAspectInput.disabled = !hasSelectedPin;
-    emotionalAspectInput.value = '';
+    // Only clear when pin is deselected or changed
+    if (!hasSelectedPin || pinChanged) {
+      emotionalAspectInput.value = '';
+    }
     emotionalAspectInput.style.opacity = hasSelectedPin ? '1' : '0.5';
     emotionalAspectInput.style.pointerEvents = hasSelectedPin ? 'auto' : 'none';
   }
@@ -7148,8 +9561,12 @@ function updateControlPanelInputs() {
     emotionalAspectAddButton.style.pointerEvents = hasSelectedPin ? 'auto' : 'none';
   }
   if (valueAspectInput) {
+    const wasEnabled = !valueAspectInput.disabled;
     valueAspectInput.disabled = !hasEmotionalAspects;
-    valueAspectInput.value = '';
+    // Clear input when pin is deselected, changed, or when it becomes disabled
+    if (!hasSelectedPin || pinChanged || (wasEnabled && valueAspectInput.disabled)) {
+      valueAspectInput.value = '';
+    }
     valueAspectInput.style.opacity = hasEmotionalAspects ? '1' : '0.5';
     valueAspectInput.style.pointerEvents = hasEmotionalAspects ? 'auto' : 'none';
   }
@@ -7197,6 +9614,48 @@ function addEmotionalAspect() {
   }
   
   emotionalAspectInput.value = '';
+  
+  // Enable value aspects field if it wasn't already enabled
+  updateControlPanelInputs();
+  draw();
+}
+
+function addEmotionsAnswer() {
+  if (!selectedPinId || !emotionsAnswerInput) return;
+  
+  const reflectionImg = images[reflectionImageIndex];
+  if (!reflectionImg) return;
+  
+  const selectedPin = reflectionImg.pins.find(p => p.id === selectedPinId);
+  if (!selectedPin) return;
+  
+  const aspectText = emotionsAnswerInput.value.trim();
+  if (!aspectText) return;
+  
+  if (!selectedPin.emotionalAspects) {
+    selectedPin.emotionalAspects = [];
+  }
+  
+  // Store old count before adding
+  const oldCount = selectedPin.emotionalAspects.length;
+  selectedPin.emotionalAspects.push(aspectText);
+  const newCount = selectedPin.emotionalAspects.length;
+  
+  // Automatically expand pin if it's not already expanded and now has aspects
+  const hasValueAspects = selectedPin.valueAspects && selectedPin.valueAspects.length > 0;
+  const canExpand = newCount > 0 || hasValueAspects;
+  if (canExpand && expandedPinId !== selectedPinId) {
+    // Pin can now expand and isn't expanded yet - expand it
+    expandedPinId = selectedPinId;
+    startPinExpansionAnimation(selectedPinId, 'collapsed', 'expanded');
+  }
+  
+  // Start dot repositioning animation if pin is expanded
+  if (expandedPinId === selectedPinId) {
+    startDotRepositionAnimation(selectedPinId, 'emotional', oldCount, newCount);
+  }
+  
+  emotionsAnswerInput.value = '';
   
   // Enable value aspects field if it wasn't already enabled
   updateControlPanelInputs();
@@ -7331,6 +9790,22 @@ if (emotionalAspectInput) {
   });
 }
 
+if (emotionsAnswerAddButton) {
+  emotionsAnswerAddButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    addEmotionsAnswer();
+  });
+}
+
+if (emotionsAnswerInput) {
+  emotionsAnswerInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addEmotionsAnswer();
+    }
+  });
+}
+
 if (valueAspectAddButton) {
   valueAspectAddButton.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -7351,12 +9826,96 @@ if (valueAspectInput) {
 canvas.addEventListener('click', (e) => {
   if (!isReflectionMode) return;
   
+  // Check if clicking on icon in features-pinned accordion header
+  // If rotated to X (pin selected), clicking deselects the pin
+  if (window.featuresPinnedIconBounds) {
+    const iconBounds = window.featuresPinnedIconBounds;
+    if (e.clientX >= iconBounds.x && e.clientX <= iconBounds.x + iconBounds.width &&
+        e.clientY >= iconBounds.y && e.clientY <= iconBounds.y + iconBounds.height) {
+      // Only deselect if a pin is currently selected (icon is rotated to X)
+      if (selectedPinId !== null) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Deselect the currently selected pin
+        selectedPinId = null;
+        tooltipPinId = null;
+        window.pinTooltipBounds = null;
+        startTabSpacingAnimation(TAB_SPACING_DEFAULT);
+        startFeaturesIconRotation(0); // Rotate X back to Plus
+        startFeaturesHeaderBottomRadiusAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+        startEmotionsHeaderRadiusAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+        startValuesHeaderTopRadiusAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+        closeEmotionsAndValuesAccordions();
+        requestDraw();
+        return;
+      }
+    }
+  }
+  
+  // Check if clicking on "Next question" button in features-pinned accordion
+  if (window.featuresPinnedButtonBounds && window.featuresPinnedButtonBounds['next-question']) {
+    const button = window.featuresPinnedButtonBounds['next-question'];
+    if (e.clientX >= button.x && e.clientX <= button.x + button.width &&
+        e.clientY >= button.y && e.clientY <= button.y + button.height) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Move to next question: increment question ID and update question text
+      currentQuestionId++;
+      // TODO: In the future, this could fetch a new question from an API or array
+      // For now, we'll use a placeholder - you can replace this with actual question logic
+      featuresQuestionText = `Question ${currentQuestionId + 1}: Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?`;
+      // The bottom left counter will automatically reset because it filters by currentQuestionId
+      requestDraw();
+      return;
+    }
+  }
+  
   // Check if clicking on an accordion bar
   if (window.accordionBarBounds && window.accordionBarBounds.length > 0) {
     for (let i = 0; i < window.accordionBarBounds.length; i++) {
       const bar = window.accordionBarBounds[i];
       if (e.clientX >= bar.x && e.clientX <= bar.x + bar.width &&
           e.clientY >= bar.y && e.clientY <= bar.y + bar.height) {
+        // Prevent expansion of emotions and values tabs when no pin is selected
+        if ((bar.id === 'emotions' || bar.id === 'values') && selectedPinId === null) {
+          // Allow closing if already expanded, but prevent opening
+          if (expandedAccordionId === bar.id) {
+            // Allow closing
+          } else {
+            // Prevent opening - just return without doing anything
+            return;
+          }
+        }
+        
+        // Special handling for features-pinned accordion when a feature is selected
+        // Clicking the header should deselect the feature and collapse all pins
+        if (bar.id === 'features-pinned' && selectedPinId !== null) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Deselect the currently selected pin
+          selectedPinId = null;
+          tooltipPinId = null;
+          window.pinTooltipBounds = null;
+          
+          // Collapse all expanded pins
+          if (expandedPinId !== null) {
+            startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+            expandedPinId = null;
+          }
+          
+          // Reset all UI states
+          startTabSpacingAnimation(TAB_SPACING_DEFAULT);
+          startFeaturesIconRotation(0); // Rotate X back to Plus
+          startFeaturesHeaderBottomRadiusAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+          startEmotionsHeaderRadiusAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+          startValuesHeaderTopRadiusAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+          closeEmotionsAndValuesAccordions();
+          
+          requestDraw();
+          return;
+        }
+        
         // Toggle accordion: if clicking the open one, close it; otherwise open the clicked one
         const wasExpanded = expandedAccordionId === bar.id;
         const targetExpanded = !wasExpanded;
@@ -7365,9 +9924,10 @@ canvas.addEventListener('click', (e) => {
         // If there's a previously expanded accordion that's different, animate it closing
         if (previousExpandedId && previousExpandedId !== bar.id) {
           const previousAnimation = accordionAnimations[previousExpandedId];
+          const previousCalculatedHeight = calculateAccordionContentHeight(previousExpandedId);
           const previousCurrentHeight = previousAnimation 
             ? (previousAnimation.fromHeight + (previousAnimation.toHeight - previousAnimation.fromHeight) * Math.min((Date.now() - previousAnimation.startTime) / previousAnimation.duration, 1))
-            : (400 + 20);
+            : (previousCalculatedHeight + 20);
           
           accordionAnimations[previousExpandedId] = {
             startTime: Date.now(),
@@ -7379,24 +9939,40 @@ canvas.addEventListener('click', (e) => {
         
         // Start animation for clicked accordion
         const currentAnimation = accordionAnimations[bar.id];
+        const calculatedHeight = calculateAccordionContentHeight(bar.id);
         const currentHeight = currentAnimation
           ? (currentAnimation.fromHeight + (currentAnimation.toHeight - currentAnimation.fromHeight) * Math.min((Date.now() - currentAnimation.startTime) / currentAnimation.duration, 1))
-          : (wasExpanded ? 400 + 20 : 0);
+          : (wasExpanded ? calculatedHeight + 20 : 0);
         
         accordionAnimations[bar.id] = {
           startTime: Date.now(),
           duration: ACCORDION_ANIMATION_DURATION,
           fromHeight: currentHeight,
-          toHeight: targetExpanded ? 400 + 20 : 0
+          toHeight: targetExpanded ? calculatedHeight + 20 : 0
         };
+        
+        // Lower DPR during accordion animation for smooth performance
+        canvasNeedsReinit = true;
         
         // Update state
         if (targetExpanded) {
           expandedAccordionId = bar.id; // Open the clicked one (closes any other open one)
+          
+          // Rotate features icon to X when features-pinned accordion is opened (only when no feature is selected)
+          if (bar.id === 'features-pinned' && selectedPinId === null) {
+            startFeaturesIconRotation(45); // Rotate Plus to X
+          }
         } else {
           expandedAccordionId = null; // Close it
+          
+          // Rotate features icon back to Plus when features-pinned accordion is closed (only when no feature is selected)
+          if (bar.id === 'features-pinned' && selectedPinId === null) {
+            startFeaturesIconRotation(0); // Rotate X back to Plus
+          }
         }
         
+        // Immediately update inputs so they appear right away
+        updateControlPanelInputs();
         requestDraw();
         return;
       }
