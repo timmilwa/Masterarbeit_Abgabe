@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { Fullscreen, Camera } = require('lucide');
+const { Fullscreen, Camera, ChevronDown } = require('lucide');
 const fs = require('fs');
 const path = require('path');
 
@@ -97,6 +97,9 @@ let previousCanvasScale = 1.0;
 let previousCanvasTranslateX = 0;
 let previousCanvasTranslateY = 0;
 let reflectionButtonBounds = null; // Store button bounds for click detection
+let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
+let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
+const ACCORDION_ANIMATION_DURATION = 300; // Animation duration in milliseconds (increased for smoother animation)
 let isAnimating = false;
 let animationStartTime = 0;
 let animationDuration = 500; // Animation duration in milliseconds
@@ -306,6 +309,13 @@ function getDevicePixelRatio() {
   
   // Check if dot repositioning animation is active
   if (Object.keys(dotPositionAnimations).length > 0) {
+    const baseDPR = getBaseDevicePixelRatio();
+    // Use animation DPR, but don't go below base DPR
+    return Math.max(ANIMATION_DPR, baseDPR);
+  }
+  
+  // Check if accordion animation is active - use lower DPR for smooth animation
+  if (Object.keys(accordionAnimations).length > 0) {
     const baseDPR = getBaseDevicePixelRatio();
     // Use animation DPR, but don't go below base DPR
     return Math.max(ANIMATION_DPR, baseDPR);
@@ -1588,6 +1598,25 @@ function draw() {
     const currentDPR = getDevicePixelRatio();
     fpsCounterDpr.textContent = `DPR: ${currentDPR.toFixed(2)}`;
   }
+  
+  // Continue accordion animations if active
+  let hasActiveAnimations = false;
+  for (const accordionId in accordionAnimations) {
+    const animation = accordionAnimations[accordionId];
+    const elapsed = Date.now() - animation.startTime;
+    const progress = elapsed / animation.duration;
+    if (progress < 1.0) {
+      hasActiveAnimations = true;
+      requestDraw();
+    } else {
+      // Animation complete - clean up
+      delete accordionAnimations[accordionId];
+      // Update inputs if this was the expanded accordion
+      if (expandedAccordionId === accordionId) {
+        updateControlPanelInputs();
+      }
+    }
+  }
 }
 
 // Draw pin placement UI on canvas
@@ -2699,9 +2728,45 @@ function getPinAt(screenX, screenY, img) {
     const dy = canvasRelativeY - screenPos.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
-    // Use expanded hit radius if pin is expanded, otherwise use base hit radius
+    // Use expanded hit radius if pin is expanded
     const isExpanded = expandedPinId === pin.id;
-    const hitRadius = isExpanded ? expandedHitRadius : baseHitRadius;
+    let hitRadius = baseHitRadius;
+    
+    if (isExpanded) {
+      hitRadius = expandedHitRadius;
+    } else {
+      // Calculate collapsed ring outer radius for hit detection
+      const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
+      const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
+      const canExpand = hasEmotionalAspects || hasValueAspects;
+      
+      if (canExpand) {
+        // Calculate collapsed ring sizes (same logic as in drawPins)
+        const baseBlueRadius = 12; // Base blue circle size
+        const blueRadiusCollapsed = baseBlueRadius * 0.75; // 75% when collapsed
+        const collapsedRingThickness = 10; // Thickness of yellow rings
+        const collapsedGreenRingThickness = 10; // Thickness of green ring
+        
+        let collapsedYellowRingInnerRadius = blueRadiusCollapsed;
+        let collapsedYellowRingOuterRadius = collapsedYellowRingInnerRadius + collapsedRingThickness;
+        let collapsedGreenRingInnerRadius = hasEmotionalAspects ? collapsedYellowRingOuterRadius : blueRadiusCollapsed;
+        let collapsedGreenRingOuterRadius = collapsedGreenRingInnerRadius + collapsedGreenRingThickness;
+        
+        // Apply max size constraint if needed (same as in drawPins)
+        const imageTopLeft = canvasToScreen(img.x, img.y);
+        const imageTopRight = canvasToScreen(img.x + img.width, img.y);
+        const imageScreenWidth = Math.abs(imageTopRight.x - imageTopLeft.x);
+        const maxCollapsedRadius = imageScreenWidth * 0.25;
+        
+        if (collapsedGreenRingOuterRadius > maxCollapsedRadius && collapsedGreenRingOuterRadius > 0) {
+          const scaleFactor = maxCollapsedRadius / collapsedGreenRingOuterRadius;
+          collapsedGreenRingOuterRadius = maxCollapsedRadius;
+        }
+        
+        // Use the outer radius of the collapsed rings as hit radius
+        hitRadius = collapsedGreenRingOuterRadius + 5; // Add small margin for easier clicking
+      }
+    }
     
     if (distance <= hitRadius) {
       return pin;
@@ -2711,43 +2776,314 @@ function getPinAt(screenX, screenY, img) {
   return null;
 }
 
-// Draw red control panel in reflection mode
+// Helper functions to count features, emotions, and values
+function countFeaturesPinned(img) {
+  if (!img || !img.pins) return 0;
+  return img.pins.filter(pin => pin.feature && pin.feature.trim().length > 0).length;
+}
+
+function countEmotionsExternalized(img) {
+  if (!img || !img.pins) return 0;
+  return img.pins.reduce((total, pin) => {
+    return total + (pin.emotionalAspects && pin.emotionalAspects.length ? pin.emotionalAspects.length : 0);
+  }, 0);
+}
+
+function countValuesInferred(img) {
+  if (!img || !img.pins) return 0;
+  return img.pins.reduce((total, pin) => {
+    return total + (pin.valueAspects && pin.valueAspects.length ? pin.valueAspects.length : 0);
+  }, 0);
+}
+
+// Helper function to draw rounded rectangle
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+// Helper function to draw rounded rectangle with only bottom corners rounded
+function drawRoundedRectBottomOnly(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x, y); // Top-left (sharp)
+  ctx.lineTo(x + width, y); // Top-right (sharp)
+  ctx.lineTo(x + width, y + height - radius); // Right side down to bottom-right curve start
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height); // Bottom-right curve
+  ctx.lineTo(x + radius, y + height); // Bottom edge
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius); // Bottom-left curve
+  ctx.lineTo(x, y); // Left side back to top
+  ctx.closePath();
+}
+
+// Helper function to draw Lucide ChevronDown icon on canvas
+function drawChevronIcon(ctx, x, y, size, color, rotated = false) {
+  if (!ChevronDown || !Array.isArray(ChevronDown)) return;
+  
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  
+  // Center the icon at x, y
+  const iconSize = 24; // Lucide icons are 24x24
+  const scale = size / iconSize;
+  const offsetX = x - (iconSize / 2) * scale;
+  const offsetY = y - (iconSize / 2) * scale;
+  
+  ctx.translate(x, y);
+  if (rotated) {
+    ctx.rotate(Math.PI); // 180 degrees
+  }
+  ctx.translate(-x, -y);
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(scale, scale);
+  
+  // Draw each element from the ChevronDown icon
+  ChevronDown.forEach((element) => {
+    const [type, attrs] = element;
+    
+    if (type === 'path') {
+      const path = new Path2D(attrs.d);
+      if (attrs.fill && attrs.fill !== 'none' && attrs.fill !== 'transparent') {
+        ctx.fill(path);
+      }
+      if (!attrs.fill || attrs.fill === 'none' || attrs.stroke !== 'none') {
+        ctx.stroke(path);
+      }
+    }
+  });
+  
+  ctx.restore();
+}
+
+// Draw accordion sidebar in reflection mode
 function drawReflectionControlPanel(img) {
   if (!img || !isReflectionMode) return;
   
   const dpr = getDevicePixelRatio();
   // Control panel dimensions (in CSS pixels - context is already scaled by dpr)
-  const panelWidth = 500; // Fixed 500px width (CSS pixels)
+  const panelWidth = 400; // Fixed 400px width (CSS pixels)
   const spacing = 40; // Responsive spacing between image and panel (CSS pixels)
   
   // Get image position and dimensions in screen coordinates (CSS pixels)
   const imageTopLeft = canvasToScreen(img.x, img.y);
-  const imageBottomLeft = canvasToScreen(img.x, img.y + img.height);
   const imageTopRight = canvasToScreen(img.x + img.width, img.y);
-  
-  // Panel height matches image height (in CSS pixels)
-  const panelHeight = imageBottomLeft.y - imageTopLeft.y;
   
   // Calculate panel position (to the right of the image, aligned with top)
   const panelX = imageTopRight.x + spacing;
   const panelY = imageTopLeft.y; // Align with top of image
   
-  // Store panel bounds for input field positioning
+  // Accordion bar dimensions
+  const barHeight = 40;
+  const barSpacing = 22; // Increased from 17 by another 5px
+  const borderRadius = 12; // Increased from 8 for more rounded corners
+  const chevronSize = 16;
+  const chevronPadding = 16;
+  const textPadding = 16;
+  
+  // Calculate counts
+  const featuresCount = countFeaturesPinned(img);
+  const emotionsCount = countEmotionsExternalized(img);
+  const valuesCount = countValuesInferred(img);
+  
+  // Accordion bars configuration
+  const accordions = [
+    {
+      id: 'general-info',
+      label: 'General info',
+      color: '#ffffff', // White
+      textColor: '#000000'
+    },
+    {
+      id: 'features-pinned',
+      label: `${featuresCount} Features pinned`,
+      color: '#3b82f6', // Blue
+      textColor: '#ffffff'
+    },
+    {
+      id: 'emotions',
+      label: `${emotionsCount} Emotions externalized`,
+      color: '#fbbf24', // Yellow
+      textColor: '#000000'
+    },
+    {
+      id: 'values',
+      label: `${valuesCount} Values inferred`,
+      color: '#10b981', // Green
+      textColor: '#ffffff'
+    }
+  ];
+  
+  // Store accordion bar bounds for click detection
+  window.accordionBarBounds = [];
+  // Store accordion content area bounds for input positioning
+  window.accordionContentBounds = {};
+  
+  let currentY = panelY;
+  
+  // Draw each accordion bar
+  accordions.forEach((accordion, index) => {
+    const barY = currentY;
+    const isExpanded = expandedAccordionId === accordion.id;
+    
+    // Draw expanded content area background FIRST (behind the header) if this accordion is expanded or animating
+    const animation = accordionAnimations[accordion.id];
+    const isAnimatingThis = animation !== undefined;
+    const shouldDrawContent = isExpanded || isAnimatingThis;
+    
+    if (shouldDrawContent) {
+      // Calculate animated height
+      let animatedHeight = 0;
+      if (isAnimatingThis) {
+        const elapsed = Date.now() - animation.startTime;
+        const progress = Math.min(elapsed / animation.duration, 1);
+        
+        // Bouncy ease-out easing function (cubic ease-out with slight overshoot)
+        let easedProgress;
+        if (progress < 1) {
+          // Cubic ease-out with bounce
+          const t = progress;
+          easedProgress = 1 - Math.pow(1 - t, 3);
+          // Add slight overshoot for bounce effect (only when opening)
+          if (animation.toHeight > animation.fromHeight && progress > 0.7) {
+            const overshoot = (progress - 0.7) / 0.3;
+            const bounce = Math.sin(overshoot * Math.PI) * 0.1; // 10% bounce
+            easedProgress = Math.min(1, easedProgress + bounce);
+          }
+        } else {
+          easedProgress = 1;
+        }
+        
+        animatedHeight = animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress;
+        
+        // Clean up animation if complete
+        if (progress >= 1) {
+          delete accordionAnimations[accordion.id];
+          animatedHeight = isExpanded ? 400 + 20 : 0;
+        }
+      } else if (isExpanded) {
+        animatedHeight = 400 + 20; // Full height when fully expanded
+      }
+      
+      if (animatedHeight > 0) {
+        // Start content area 20px higher to cover the rounded corners of the header
+        const contentY = barY + barHeight - 20;
+        const contentHeight = animatedHeight;
+        const contentPadding = 20;
+        
+        // Draw gray content rectangle with only bottom corners rounded (behind the header)
+        ctx.save();
+        ctx.fillStyle = '#f3f3f5';
+        drawRoundedRectBottomOnly(ctx, panelX, contentY, panelWidth, contentHeight, borderRadius);
+        ctx.fill();
+        ctx.restore();
+        
+        // Store content area bounds for input positioning (use the visible content area, not the overlap)
+        // Only show inputs when fully expanded (not during animation)
+        if (isExpanded && !isAnimatingThis) {
+          window.accordionContentBounds[accordion.id] = {
+            x: panelX,
+            y: barY + barHeight, // Start positioning from below the bar (not the overlap)
+            width: panelWidth,
+            height: 400, // Use the visible height (without the overlap)
+            padding: contentPadding
+          };
+        }
+      } else {
+        // Clear content bounds if collapsed
+        window.accordionContentBounds[accordion.id] = null;
+      }
+    } else {
+      // Clear content bounds if not expanded
+      window.accordionContentBounds[accordion.id] = null;
+    }
+    
+    // Draw rounded rectangle for bar (on top of background)
+    ctx.save();
+    ctx.fillStyle = accordion.color;
+    drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, borderRadius);
+    ctx.fill();
+    ctx.restore();
+    
+    // Draw text
+    ctx.save();
+    ctx.fillStyle = accordion.textColor;
+    ctx.font = `500 16px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(accordion.label, panelX + textPadding, barY + barHeight / 2);
+    ctx.restore();
+    
+    // Draw chevron icon - use white on colored bars, dark on white bar and emotions accordion
+    const chevronX = panelX + panelWidth - chevronPadding - chevronSize / 2;
+    const chevronY = barY + barHeight / 2;
+    const chevronColor = accordion.id === 'emotions' ? accordion.textColor : (accordion.id === 'general-info' ? '#000000' : '#ffffff');
+    drawChevronIcon(ctx, chevronX, chevronY, chevronSize, chevronColor, isExpanded);
+    
+    // Store bar bounds for click detection
+    window.accordionBarBounds.push({
+      id: accordion.id,
+      x: panelX,
+      y: barY,
+      width: panelWidth,
+      height: barHeight
+    });
+    
+    // Move to next bar position
+    currentY += barHeight + barSpacing;
+    if (shouldDrawContent) {
+      // Use animated height for spacing calculation
+      let animatedVisibleHeight = 0;
+      if (isAnimatingThis && animation) {
+        const elapsed = Date.now() - animation.startTime;
+        const progress = Math.min(elapsed / animation.duration, 1);
+        
+        // Use same easing as drawing
+        let easedProgress;
+        if (progress < 1) {
+          const t = progress;
+          easedProgress = 1 - Math.pow(1 - t, 3);
+          if (animation.toHeight > animation.fromHeight && progress > 0.7) {
+            const overshoot = (progress - 0.7) / 0.3;
+            const bounce = Math.sin(overshoot * Math.PI) * 0.1;
+            easedProgress = Math.min(1, easedProgress + bounce);
+          }
+        } else {
+          easedProgress = 1;
+        }
+        
+        const animatedTotalHeight = animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress;
+        animatedVisibleHeight = Math.max(0, animatedTotalHeight - 20); // Subtract overlap
+      } else if (isExpanded) {
+        animatedVisibleHeight = 400; // Full visible height when fully expanded
+      }
+      currentY += animatedVisibleHeight; // Add expanded content height
+    }
+  });
+  
+  // Calculate total panel height
+  const totalPanelHeight = currentY - panelY;
+  
+  // Store panel bounds for click detection
   window.reflectionPanelBounds = {
     x: panelX,
     y: panelY,
     width: panelWidth,
-    height: panelHeight
+    height: totalPanelHeight
   };
   
-  // Draw red control panel (already in screen coordinates since transform is restored)
-  ctx.fillStyle = '#ef4444'; // Red background
-  ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
-  
-  // Draw input fields and aspect tags
-  drawControlPanelInputs(img, panelX, panelY, panelWidth, panelHeight);
-  
-  // Update control panel input positions after drawing
+  // Update control panel input positions after drawing (for backward compatibility)
   if (isReflectionMode) {
     updateControlPanelInputs();
   }
@@ -3300,6 +3636,9 @@ function exitReflectionMode() {
     expandedPinId = null;
     pinExpansionAnimation = null;
   }
+  // Reset accordion state
+  expandedAccordionId = null;
+  accordionAnimations = {}; // Clear all accordion animations
   if (controlPanelInputs) controlPanelInputs.style.display = 'none';
   
   // Reset escape hold state
@@ -6727,68 +7066,68 @@ function updateControlPanelInputs() {
     return;
   }
   
-  // Position control panel inputs in the red panel
-  // Calculate positions based on the drawn labels and fields
-  if (window.reflectionPanelBounds) {
-    const bounds = window.reflectionPanelBounds;
-    const padding = 20;
-    const labelHeight = 20;
-    const fieldHeight = 32;
-    const spacing = 10;
-    
-    // Position container at top-left of red panel
-    controlPanelInputs.style.display = 'block';
-    controlPanelInputs.style.left = bounds.x + 'px';
-    controlPanelInputs.style.top = bounds.y + 'px';
-    
-    // Emotional aspects input position (below "Emotional Aspects" label)
-    // Label starts at padding, then labelHeight, then 8px spacing, then input field
-    const emotionalInputTop = padding + labelHeight + 8;
-    
-    // Value aspects input position (below emotional aspects section)
-    // Need to account for emotional aspects tags if they exist
-    const selectedPin = selectedPinId ? reflectionImg.pins.find(p => p.id === selectedPinId) : null;
-    const emotionalTagsHeight = selectedPin && selectedPin.emotionalAspects && selectedPin.emotionalAspects.length > 0
-      ? Math.ceil(selectedPin.emotionalAspects.length / 3) * 35 + 10
-      : 0;
-    // Emotional section: label + input + tags + spacing, then value label + spacing, then value input
-    const valueInputTop = emotionalInputTop + fieldHeight + spacing + emotionalTagsHeight + 20 + labelHeight + 8;
-    
-    // Position emotional aspect input (relative to container)
-    if (emotionalAspectInput) {
+  const fieldHeight = 32;
+  const padding = 20;
+  const inputTopOffset = 20; // Offset from top of content area
+  
+  // Position emotional aspect input in yellow accordion (emotions)
+  const emotionsContentBounds = window.accordionContentBounds && window.accordionContentBounds['emotions'];
+  const isEmotionsExpanded = expandedAccordionId === 'emotions' && emotionsContentBounds;
+  
+  if (emotionalAspectInput && emotionalAspectAddButton) {
+    if (isEmotionsExpanded) {
+      // Position in yellow accordion content area
+      controlPanelInputs.style.display = 'block';
       emotionalAspectInput.style.position = 'absolute';
-      emotionalAspectInput.style.left = padding + 'px';
-      emotionalAspectInput.style.top = emotionalInputTop + 'px';
-      emotionalAspectInput.style.width = (bounds.width - padding * 2 - 40) + 'px';
-    }
-    if (emotionalAspectAddButton) {
+      emotionalAspectInput.style.left = (emotionsContentBounds.x + emotionsContentBounds.padding) + 'px';
+      emotionalAspectInput.style.top = (emotionsContentBounds.y + inputTopOffset) + 'px';
+      emotionalAspectInput.style.width = (emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 40) + 'px';
+      emotionalAspectInput.style.display = 'block';
+      
       emotionalAspectAddButton.style.position = 'absolute';
-      emotionalAspectAddButton.style.left = (bounds.width - padding - 30) + 'px';
-      emotionalAspectAddButton.style.top = emotionalInputTop + 'px';
+      emotionalAspectAddButton.style.left = (emotionsContentBounds.x + emotionsContentBounds.width - emotionsContentBounds.padding - 30) + 'px';
+      emotionalAspectAddButton.style.top = (emotionsContentBounds.y + inputTopOffset) + 'px';
       emotionalAspectAddButton.style.width = '30px';
       emotionalAspectAddButton.style.height = fieldHeight + 'px';
+      emotionalAspectAddButton.style.display = 'block';
+    } else {
+      // Hide when accordion is closed
+      emotionalAspectInput.style.display = 'none';
+      emotionalAspectAddButton.style.display = 'none';
     }
-    
-    // Position value aspect input (relative to container)
-    if (valueAspectInput) {
+  }
+  
+  // Position value aspect input in green accordion (values)
+  const valuesContentBounds = window.accordionContentBounds && window.accordionContentBounds['values'];
+  const isValuesExpanded = expandedAccordionId === 'values' && valuesContentBounds;
+  
+  if (valueAspectInput && valueAspectAddButton) {
+    if (isValuesExpanded) {
+      // Position in green accordion content area
+      controlPanelInputs.style.display = 'block';
       valueAspectInput.style.position = 'absolute';
-      valueAspectInput.style.left = padding + 'px';
-      valueAspectInput.style.top = valueInputTop + 'px';
-      valueAspectInput.style.width = (bounds.width - padding * 2 - 40) + 'px';
-    }
-    if (valueAspectAddButton) {
+      valueAspectInput.style.left = (valuesContentBounds.x + valuesContentBounds.padding) + 'px';
+      valueAspectInput.style.top = (valuesContentBounds.y + inputTopOffset) + 'px';
+      valueAspectInput.style.width = (valuesContentBounds.width - valuesContentBounds.padding * 2 - 40) + 'px';
+      valueAspectInput.style.display = 'block';
+      
       valueAspectAddButton.style.position = 'absolute';
-      valueAspectAddButton.style.left = (bounds.width - padding - 30) + 'px';
-      valueAspectAddButton.style.top = valueInputTop + 'px';
+      valueAspectAddButton.style.left = (valuesContentBounds.x + valuesContentBounds.width - valuesContentBounds.padding - 30) + 'px';
+      valueAspectAddButton.style.top = (valuesContentBounds.y + inputTopOffset) + 'px';
       valueAspectAddButton.style.width = '30px';
       valueAspectAddButton.style.height = fieldHeight + 'px';
+      valueAspectAddButton.style.display = 'block';
+    } else {
+      // Hide when accordion is closed
+      valueAspectInput.style.display = 'none';
+      valueAspectAddButton.style.display = 'none';
     }
-  } else {
-    // Fallback positioning if bounds not set yet
-    const imageTopRight = canvasToScreen(reflectionImg.x + reflectionImg.width, reflectionImg.y);
-    controlPanelInputs.style.display = 'block';
-    controlPanelInputs.style.left = (imageTopRight.x + 60) + 'px';
-    controlPanelInputs.style.top = (imageTopRight.y + 20) + 'px';
+  }
+  
+  // Hide container if no inputs are visible
+  if ((!isEmotionsExpanded || !emotionalAspectInput || emotionalAspectInput.style.display === 'none') &&
+      (!isValuesExpanded || !valueAspectInput || valueAspectInput.style.display === 'none')) {
+    if (controlPanelInputs) controlPanelInputs.style.display = 'none';
   }
   
   // Update enabled/disabled state
@@ -7010,21 +7349,75 @@ if (valueAspectInput) {
 
 // Handle clicks on aspect tag delete buttons
 canvas.addEventListener('click', (e) => {
-  if (!isReflectionMode || !window.aspectTagBounds) return;
+  if (!isReflectionMode) return;
   
-  // Check if clicking on a delete button
-  for (let i = 0; i < window.aspectTagBounds.length; i++) {
-    const tag = window.aspectTagBounds[i];
-    if (e.clientX >= tag.x && e.clientX <= tag.x + tag.width &&
-        e.clientY >= tag.y && e.clientY <= tag.y + tag.height) {
-      deleteAspect(tag.type, tag.index);
-      window.aspectTagBounds = [];
-      return;
+  // Check if clicking on an accordion bar
+  if (window.accordionBarBounds && window.accordionBarBounds.length > 0) {
+    for (let i = 0; i < window.accordionBarBounds.length; i++) {
+      const bar = window.accordionBarBounds[i];
+      if (e.clientX >= bar.x && e.clientX <= bar.x + bar.width &&
+          e.clientY >= bar.y && e.clientY <= bar.y + bar.height) {
+        // Toggle accordion: if clicking the open one, close it; otherwise open the clicked one
+        const wasExpanded = expandedAccordionId === bar.id;
+        const targetExpanded = !wasExpanded;
+        const previousExpandedId = expandedAccordionId;
+        
+        // If there's a previously expanded accordion that's different, animate it closing
+        if (previousExpandedId && previousExpandedId !== bar.id) {
+          const previousAnimation = accordionAnimations[previousExpandedId];
+          const previousCurrentHeight = previousAnimation 
+            ? (previousAnimation.fromHeight + (previousAnimation.toHeight - previousAnimation.fromHeight) * Math.min((Date.now() - previousAnimation.startTime) / previousAnimation.duration, 1))
+            : (400 + 20);
+          
+          accordionAnimations[previousExpandedId] = {
+            startTime: Date.now(),
+            duration: ACCORDION_ANIMATION_DURATION,
+            fromHeight: previousCurrentHeight,
+            toHeight: 0
+          };
+        }
+        
+        // Start animation for clicked accordion
+        const currentAnimation = accordionAnimations[bar.id];
+        const currentHeight = currentAnimation
+          ? (currentAnimation.fromHeight + (currentAnimation.toHeight - currentAnimation.fromHeight) * Math.min((Date.now() - currentAnimation.startTime) / currentAnimation.duration, 1))
+          : (wasExpanded ? 400 + 20 : 0);
+        
+        accordionAnimations[bar.id] = {
+          startTime: Date.now(),
+          duration: ACCORDION_ANIMATION_DURATION,
+          fromHeight: currentHeight,
+          toHeight: targetExpanded ? 400 + 20 : 0
+        };
+        
+        // Update state
+        if (targetExpanded) {
+          expandedAccordionId = bar.id; // Open the clicked one (closes any other open one)
+        } else {
+          expandedAccordionId = null; // Close it
+        }
+        
+        requestDraw();
+        return;
+      }
     }
   }
   
-  // Clear tag bounds after click
-  window.aspectTagBounds = [];
+  // Check if clicking on a delete button (only if aspectTagBounds exists)
+  if (window.aspectTagBounds) {
+    for (let i = 0; i < window.aspectTagBounds.length; i++) {
+      const tag = window.aspectTagBounds[i];
+      if (e.clientX >= tag.x && e.clientX <= tag.x + tag.width &&
+          e.clientY >= tag.y && e.clientY <= tag.y + tag.height) {
+        deleteAspect(tag.type, tag.index);
+        window.aspectTagBounds = [];
+        return;
+      }
+    }
+    
+    // Clear tag bounds after click
+    window.aspectTagBounds = [];
+  }
 });
 
 // Handle clicks outside pin placement UI to cancel (only on mousedown, not click)
