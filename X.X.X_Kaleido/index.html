@@ -245,6 +245,8 @@
         #selection-box {
             position: absolute;
             border: 3px solid #3b82f6;
+            outline: 2px solid #3b82f6;
+            outline-offset: -1px;
             background: transparent;
             pointer-events: none;
             z-index: 3001;
@@ -697,9 +699,9 @@
         .action-button {
             display: none;
             position: fixed;
-            right: 40px;
-            padding: 8px 16px;
-            background: #000000;
+            right: 45px;
+            padding: 8px 12px 8px 14px;
+            background: rgba(255, 0, 0, 0.8);
             border: none;
             border-radius: 30px;
             cursor: pointer;
@@ -710,6 +712,7 @@
             transition: box-shadow 0.2s ease-out, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             font-size: 14px;
+            font-weight: 500;
             align-items: center;
             justify-content: flex-end;
             flex-direction: row;
@@ -743,10 +746,10 @@
 
         .action-button:hover,
         .action-button.visible:hover {
-            box-shadow: 
+            box-shadow:
                 0 6px 16px rgba(0, 0, 0, 0.2),
                 0 2px 6px rgba(0, 0, 0, 0.15);
-            transform: scale(1.05) !important;
+            transform: scale(1.01) !important;
         }
 
         .action-button:active {
@@ -754,7 +757,7 @@
         }
 
         #action-settings-button {
-            bottom: 260px;
+            bottom: 250px;
         }
 
         #action-settings-button.visible {
@@ -767,7 +770,7 @@
         }
 
         #action-open-canvas-button {
-            bottom: 200px;
+            bottom: 195px;
         }
 
         #action-open-canvas-button.visible {
@@ -799,7 +802,7 @@
                 transform: scale(0.9);
             }
             to {
-                bottom: 260px;
+                bottom: 250px;
                 opacity: 1;
                 transform: scale(1);
             }
@@ -812,7 +815,7 @@
                 transform: scale(0.9);
             }
             to {
-                bottom: 200px;
+                bottom: 195px;
                 opacity: 1;
                 transform: scale(1);
             }
@@ -833,7 +836,7 @@
 
         @keyframes actionButtonSlideDown1 {
             from {
-                bottom: 260px;
+                bottom: 250px;
             }
             to {
                 bottom: 60px;
@@ -842,7 +845,7 @@
 
         @keyframes actionButtonSlideDown2 {
             from {
-                bottom: 200px;
+                bottom: 195px;
             }
             to {
                 bottom: 60px;
@@ -873,14 +876,17 @@
 
         .action-button-shortcut {
             margin-left: 10px;
-            padding: 4px 8px;
+            padding: 2px 8px;
             background-color: #E5E5E5;
             border: 1px solid rgba(0, 0, 0, 0.1);
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 30px;
+            font-size: 12px;
             font-family: ui-monospace, monospace;
             color: rgba(100, 100, 100, 1);
             transition: border-color 0.2s ease-out, color 0.2s ease-out;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
 
         .action-button[data-bg-light="true"] .action-button-shortcut {
@@ -900,6 +906,7 @@
             transition: transform 0.15s ease-out;
             font-size: 16px; /* Make icons bigger by default */
             line-height: 1;
+            vertical-align: middle;
         }
 
         .key-icon.pressed {
@@ -1066,9 +1073,9 @@
                         </div>
                         <div class="settings-section">
                             <label class="settings-label" for="circle-speed-slider">Circle Button Speed</label>
-                            <input type="range" id="circle-speed-slider" class="settings-slider" min="0" max="200" value="72" step="1">
+                            <input type="range" id="circle-speed-slider" class="settings-slider" min="0" max="300" value="216" step="1">
                             <div class="settings-slider-value">
-                                <span id="circle-speed-value">72%</span>
+                                <span id="circle-speed-value">216%</span>
                             </div>
                         </div>
                         <div class="settings-section">

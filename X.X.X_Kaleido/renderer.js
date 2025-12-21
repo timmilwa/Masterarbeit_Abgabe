@@ -173,6 +173,13 @@ let accordionHoverAnimationStartScale = 1.0; // Starting scale when animation be
 let accordionHoverAnimationTargetScale = 1.0; // Target scale for current animation
 const ACCORDION_HOVER_SCALE_TARGET = 1.01; // Target scale on hover (1% increase)
 const ACCORDION_HOVER_ANIMATION_DURATION = 120; // Animation duration in milliseconds (reduced for faster animation)
+// Header fade animation variables
+let headerFadeAnimation = {
+  startTime: null, // Start time of animation
+  duration: 400, // Total duration in milliseconds
+  direction: null, // 'in' for fade in, 'out' for fade out
+  headerDelays: [0, 100, 200, 300] // Staggered delays for each header (general-info, features-pinned, emotions, values)
+};
 let isAnimating = false;
 let animationStartTime = 0;
 let animationDuration = 500; // Animation duration in milliseconds
@@ -2515,7 +2522,23 @@ function draw() {
       }
     }
   }
-  
+
+  // Update header fade animation
+  if (headerFadeAnimation.startTime !== null) {
+    const elapsed = Date.now() - headerFadeAnimation.startTime;
+    // Check if the longest delay + duration has passed (last header delay is 300ms)
+    const totalDuration = headerFadeAnimation.headerDelays[3] + headerFadeAnimation.duration;
+    if (elapsed >= totalDuration) {
+      // Animation complete - clean up
+      headerFadeAnimation.startTime = null;
+      headerFadeAnimation.direction = null;
+    } else {
+      // Animation still in progress - request redraw
+      hasActiveAnimations = true;
+      requestDraw();
+    }
+  }
+
   // Update tab spacing animation
   if (tabSpacingAnimationStartTime !== null) {
     const elapsed = Date.now() - tabSpacingAnimationStartTime;
@@ -2690,18 +2713,37 @@ function draw() {
     const holdElapsed = Date.now() - deleteHoldStartTime;
     const progress = Math.min(holdElapsed / DELETE_HOLD_DURATION, 1);
     
-    // Center of screen
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
+    // Center of selected images (artifacts)
+    let totalCenterX = 0;
+    let totalCenterY = 0;
+    let imageCount = 0;
+
+    selectedImageIndices.forEach(index => {
+      if (index >= 0 && index < images.length) {
+        const img = images[index];
+        // Calculate center of image in canvas coordinates
+        const imgCenterX = img.x + img.width / 2;
+        const imgCenterY = img.y + img.height / 2;
+        // Convert to screen coordinates
+        const screenPos = canvasToScreen(imgCenterX, imgCenterY);
+        totalCenterX += screenPos.x;
+        totalCenterY += screenPos.y;
+        imageCount++;
+      }
+    });
+
+    // Use average center if multiple images, or single image center
+    const centerX = imageCount > 0 ? totalCenterX / imageCount : window.innerWidth / 2;
+    const centerY = imageCount > 0 ? totalCenterY / imageCount : window.innerHeight / 2;
     
-    // Delete button size
-    const buttonRadius = 60;
-    const strokeWidth = 8;
+    // Delete button size (scaled down by half)
+    const buttonRadius = 30;
+    const strokeWidth = 4;
     
     // Draw outer circle (background)
     ctx.beginPath();
     ctx.arc(centerX, centerY, buttonRadius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 1.0)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)'; // Light red border
     ctx.lineWidth = strokeWidth;
@@ -2715,40 +2757,10 @@ function draw() {
     ctx.lineCap = 'round';
     ctx.stroke();
     
-    // Draw trash icon in center
-    ctx.strokeStyle = 'rgba(239, 68, 68, 1.0)';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    
-    // Trash can icon (simplified)
-    const iconSize = 40;
-    const iconX = centerX;
-    const iconY = centerY;
-    
-    // Draw trash can body
-    ctx.beginPath();
-    ctx.moveTo(iconX - iconSize * 0.3, iconY - iconSize * 0.2);
-    ctx.lineTo(iconX - iconSize * 0.3, iconY + iconSize * 0.3);
-    ctx.lineTo(iconX + iconSize * 0.3, iconY + iconSize * 0.3);
-    ctx.lineTo(iconX + iconSize * 0.3, iconY - iconSize * 0.2);
-    ctx.stroke();
-    
-    // Draw trash can lid
-    ctx.beginPath();
-    ctx.moveTo(iconX - iconSize * 0.35, iconY - iconSize * 0.2);
-    ctx.lineTo(iconX - iconSize * 0.25, iconY - iconSize * 0.35);
-    ctx.lineTo(iconX + iconSize * 0.25, iconY - iconSize * 0.35);
-    ctx.lineTo(iconX + iconSize * 0.35, iconY - iconSize * 0.2);
-    ctx.stroke();
-    
-    // Draw handle
-    ctx.beginPath();
-    ctx.moveTo(iconX - iconSize * 0.15, iconY - iconSize * 0.35);
-    ctx.lineTo(iconX - iconSize * 0.15, iconY - iconSize * 0.45);
-    ctx.lineTo(iconX + iconSize * 0.15, iconY - iconSize * 0.45);
-    ctx.lineTo(iconX + iconSize * 0.15, iconY - iconSize * 0.35);
-    ctx.stroke();
+    // Draw trash icon using Lucide Trash2 icon (scaled down by half)
+    const iconSize = 20;
+    const iconColor = 'rgba(239, 68, 68, 1.0)'; // Red color to match the theme
+    drawLucideIcon(ctx, Trash2, centerX, centerY, iconSize, iconColor);
     
     // Continue animation by requesting redraw
     requestDraw();
@@ -5255,6 +5267,24 @@ function drawRoundedRectWithTopBottomRadius(ctx, x, y, width, height, topRadius,
   ctx.closePath();
 }
 
+// Helper function to draw rounded rectangle with only top corners rounded
+function drawRoundedRectWithTopRadius(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  // Top-left corner
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  // Right side (straight down)
+  ctx.lineTo(x + width, y + height);
+  // Bottom edge (straight left)
+  ctx.lineTo(x, y + height);
+  // Left side (straight up)
+  ctx.lineTo(x, y + radius);
+  // Top-left corner
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
 // Helper function to draw Lucide ChevronDown icon on canvas
 function drawChevronIcon(ctx, x, y, size, color, rotated = false) {
   if (!ChevronDown || !Array.isArray(ChevronDown)) return;
@@ -5775,19 +5805,23 @@ function drawReflectionControlPanel(img) {
         }
         
         // Draw gray content rectangle with only bottom corners rounded (behind the header)
-        // For emotions accordion, use 0 border radius
-        ctx.save();
-        ctx.fillStyle = '#f3f3f5';
-        if (accordion.id === 'emotions') {
-          // Draw rectangle with 0 border radius for emotions
-          ctx.beginPath();
-          ctx.rect(panelX, contentY, panelWidth, contentHeight);
-          ctx.fill();
-        } else {
-          drawRoundedRectBottomOnly(ctx, panelX, contentY, panelWidth, contentHeight, borderRadius);
-          ctx.fill();
+        // Skip drawing when header is hugging content (features-pinned, emotions, values when expanded)
+        const shouldDrawContentBackground = !(accordion.id === 'features-pinned' || accordion.id === 'emotions' || accordion.id === 'values');
+
+        if (shouldDrawContentBackground) {
+          ctx.save();
+          ctx.fillStyle = '#f3f3f5';
+          if (accordion.id === 'emotions') {
+            // Draw rectangle with 0 border radius for emotions
+            ctx.beginPath();
+            ctx.rect(panelX, contentY, panelWidth, contentHeight);
+            ctx.fill();
+          } else {
+            drawRoundedRectBottomOnly(ctx, panelX, contentY, panelWidth, contentHeight, borderRadius);
+            ctx.fill();
+          }
+          ctx.restore();
         }
-        ctx.restore();
         
         // Store content area bounds for input positioning (use the visible content area, not the overlap)
         // Store bounds even during animation so inputs can be positioned immediately
@@ -6346,8 +6380,28 @@ function drawReflectionControlPanel(img) {
         }
       }
     }
-    
-    // Draw rounded rectangle for bar (on top of background)
+
+    // Apply header fade animation opacity
+    if (headerFadeAnimation.startTime !== null && headerFadeAnimation.direction) {
+      const elapsed = Date.now() - headerFadeAnimation.startTime;
+      const headerIndex = ['general-info', 'features-pinned', 'emotions', 'values'].indexOf(accordion.id);
+      const delay = headerFadeAnimation.direction === 'in' ? headerFadeAnimation.headerDelays[headerIndex] : headerFadeAnimation.headerDelays[3 - headerIndex];
+      const effectiveElapsed = Math.max(0, elapsed - delay);
+      const progress = Math.min(effectiveElapsed / headerFadeAnimation.duration, 1);
+
+      let fadeOpacity;
+      if (headerFadeAnimation.direction === 'in') {
+        // Fade in: ease-in-out
+        fadeOpacity = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      } else {
+        // Fade out: ease-in-out reverse
+        fadeOpacity = progress < 0.5 ? 1 - (2 * progress * progress) : Math.pow(-2 * progress + 2, 2) / 2;
+      }
+
+      opacity *= fadeOpacity;
+    }
+
+    // Draw rounded rectangle for bar (hugs content when expanded)
     ctx.save();
     ctx.globalAlpha = opacity;
     if (currentScale !== 1.0) {
@@ -6357,19 +6411,50 @@ function drawReflectionControlPanel(img) {
       ctx.translate(-barCenterX, -barCenterY);
     }
     ctx.fillStyle = accordion.color;
+
+    // Calculate header height - hug content when expanded
+    let headerDrawHeight = barHeight;
+    let headerDrawY = barY;
+    if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
+      // When expanded, header background hugs the content
+      headerDrawHeight = barHeight + animatedPos.contentHeight;
+      headerDrawY = barY;
+    }
+
     // Use animated border radius based on accordion type and pin selection
     if (accordion.id === 'features-pinned') {
-      // Features-pinned: animated bottom border radius
-      drawRoundedRectWithBottomRadius(ctx, panelX, barY, panelWidth, barHeight, borderRadius, featuresHeaderBottomRadius);
+      // Features-pinned: animated bottom border radius, full height when expanded
+      if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
+        // When expanded, use full rounded rectangle for the entire header area
+        drawRoundedRect(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, borderRadius);
+      } else {
+        // When collapsed, use animated bottom border radius
+        drawRoundedRectWithBottomRadius(ctx, panelX, barY, panelWidth, barHeight, borderRadius, featuresHeaderBottomRadius);
+      }
     } else if (accordion.id === 'emotions') {
-      // Emotions: animated border radius for all corners
-      drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, emotionsHeaderRadius);
+      // Emotions: animated border radius for all corners, full height when expanded
+      if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
+        // When expanded, use 0 border radius for bottom to match content
+        drawRoundedRectWithTopRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, emotionsHeaderRadius);
+      } else {
+        drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, emotionsHeaderRadius);
+      }
     } else if (accordion.id === 'values') {
-      // Values: animated top border radius, default bottom radius
-      drawRoundedRectWithTopBottomRadius(ctx, panelX, barY, panelWidth, barHeight, valuesHeaderTopRadius, borderRadius);
+      // Values: animated top border radius, default bottom radius, full height when expanded
+      if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
+        // When expanded, use 0 border radius for bottom to match content
+        drawRoundedRectWithTopRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, valuesHeaderTopRadius);
+      } else {
+        drawRoundedRectWithTopBottomRadius(ctx, panelX, barY, panelWidth, barHeight, valuesHeaderTopRadius, borderRadius);
+      }
     } else {
-      // Other accordions: default border radius
-      drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, borderRadius);
+      // Other accordions: default border radius, full height when expanded
+      if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
+        // When expanded, use rounded top only to match content
+        drawRoundedRectWithTopRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, borderRadius);
+      } else {
+        drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, borderRadius);
+      }
     }
     ctx.fill();
     ctx.restore();
@@ -6509,13 +6594,14 @@ function drawReflectionControlPanel(img) {
       }
     }
     
-    // Store bar bounds for click detection
+    // Store bar bounds for click detection (use full header height when expanded)
+    const clickHeight = (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) ? headerDrawHeight : barHeight;
     window.accordionBarBounds.push({
       id: accordion.id,
       x: panelX,
       y: barY,
       width: panelWidth,
-      height: barHeight
+      height: clickHeight
     });
     
     // Move to next bar position using pre-calculated animated positions
@@ -7013,6 +7099,50 @@ function enterReflectionMode(fromScreenshot = false) {
     img.title = DEMO_TITLE;
     productNameInput.value = DEMO_TITLE;
   }
+  
+  // Generate initial features question if AI mode is enabled
+  if (isAIModeEnabled()) {
+    (async () => {
+      try {
+        // Wait a bit for title to be generated if it's being generated
+        // This ensures we have the title for context
+        let titleToUse = img.title;
+        if (!img.titleGenerated && img.title === null) {
+          // Wait for title generation to complete (max 5 seconds)
+          let waitCount = 0;
+          while (!img.titleGenerated && waitCount < 50) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            waitCount++;
+          }
+          titleToUse = img.title || DEMO_TITLE;
+        }
+        
+        // Build context for features question
+        const context = buildFeaturesContext(img);
+        
+        // Compress image
+        const imageBase64 = await compressImageToBase64(img.element, 500);
+        
+        // Generate initial question
+        const question = await generateFeatureQuestion(
+          imageBase64,
+          titleToUse,
+          img.focus,
+          context.existingPins,
+          [], // No previous questions for initial question
+          img.id
+        );
+        
+        featuresQuestionText = question;
+        requestDraw();
+      } catch (error) {
+        console.error('Error generating initial feature question:', error);
+        featuresQuestionText = DEMO_FEATURES_QUESTION;
+        requestDraw();
+      }
+    })();
+  }
+  
   // Reset tab spacing to default when entering reflection mode
   currentTabSpacing = TAB_SPACING_DEFAULT;
   targetTabSpacing = TAB_SPACING_DEFAULT;
@@ -7175,9 +7305,13 @@ function enterReflectionMode(fromScreenshot = false) {
   // Set reflection mode state
   isReflectionMode = true;
   reflectionImageIndex = selectedImageIndex;
-  
+
   // Clear transition flag since we're now in reflection mode
   isTransitioningToReflectionMode = false;
+
+  // Start header fade-in animation
+  headerFadeAnimation.startTime = Date.now();
+  headerFadeAnimation.direction = 'in';
   
   // Handle opacity of other images
   images.forEach((image, index) => {
@@ -7341,7 +7475,11 @@ function exitReflectionMode() {
   animatingAccordionId = null;
   accordionHoverScale = 1.0;
   accordionHoverAnimationStartTime = null;
-  
+
+  // Start header fade-out animation (reverse staggered order)
+  headerFadeAnimation.startTime = Date.now();
+  headerFadeAnimation.direction = 'out';
+
   // Clear reflection mode state
   isReflectionMode = false;
   reflectionImageIndex = -1;
@@ -7699,8 +7837,7 @@ window.addEventListener('keydown', (e) => {
       // Remove event listeners
       if (screenshotHandlers) {
         screenshotOverlay.removeEventListener('mousedown', screenshotHandlers.mousedown);
-        screenshotOverlay.removeEventListener('mousemove', screenshotHandlers.mousemove);
-        screenshotOverlay.removeEventListener('mouseup', screenshotHandlers.mouseup);
+        document.removeEventListener('mousemove', screenshotHandlers.mousemove);
         document.removeEventListener('mouseup', screenshotHandlers.mouseup);
         screenshotHandlers = null;
       }
@@ -9011,6 +9148,7 @@ function startScreenshotMode() {
   let lastHeight = -1;
 
   const handleMouseDown = (e) => {
+    e.preventDefault(); // Prevent default browser behavior
     startX = e.clientX;
     startY = e.clientY;
     lastMouseX = e.clientX;
@@ -9084,13 +9222,15 @@ function startScreenshotMode() {
   const handleMouseMove = (e) => {
     // Always maintain camera cursor when in screenshot mode
     applyCameraCursor();
-    
+
     if (isSelecting) {
+      e.preventDefault(); // Prevent default browser behavior during selection
       // Update mouse position immediately
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
-      
+
       // Throttle updates using requestAnimationFrame for smooth performance
+      // Only request new frame if previous one completed
       if (rafId === null) {
         rafId = requestAnimationFrame(updateSelection);
       }
@@ -9100,6 +9240,8 @@ function startScreenshotMode() {
   const handleMouseUp = async (e) => {
     // Prevent double execution if called from both overlay and document
     if (!isSelecting) return;
+
+    e.preventDefault(); // Prevent default browser behavior
     
     // Cancel any pending animation frame
     if (rafId !== null) {
@@ -9150,8 +9292,7 @@ function startScreenshotMode() {
       
       endScreenshotMode();
       screenshotOverlay.removeEventListener('mousedown', handleMouseDown);
-      screenshotOverlay.removeEventListener('mousemove', handleMouseMove);
-      screenshotOverlay.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       
       // Clear stored handlers
@@ -9160,9 +9301,8 @@ function startScreenshotMode() {
   };
 
   screenshotOverlay.addEventListener('mousedown', handleMouseDown);
-  screenshotOverlay.addEventListener('mousemove', handleMouseMove);
-  screenshotOverlay.addEventListener('mouseup', handleMouseUp);
-  // Also listen on document to ensure mouseup always fires, even if mouse leaves overlay
+  // Attach mousemove and mouseup to document for smooth dragging even when mouse leaves overlay
+  document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
   
   // Store handlers for cleanup
@@ -9244,8 +9384,7 @@ async function captureScreenshot(rect) {
         // Remove event listeners
         if (screenshotHandlers) {
           screenshotOverlay.removeEventListener('mousedown', screenshotHandlers.mousedown);
-          screenshotOverlay.removeEventListener('mousemove', screenshotHandlers.mousemove);
-          screenshotOverlay.removeEventListener('mouseup', screenshotHandlers.mouseup);
+          document.removeEventListener('mousemove', screenshotHandlers.mousemove);
           document.removeEventListener('mouseup', screenshotHandlers.mouseup);
           screenshotHandlers = null;
         }
@@ -10290,7 +10429,7 @@ saturationValue.textContent = saturationSlider.value + '%';
 // Handle circle speed slider
 circleSpeedSlider.addEventListener('input', (e) => {
   const speedPercent = parseInt(e.target.value);
-  circleSpeedMultiplier = speedPercent / 100; // Convert 0-200% to 0.0-2.0 multiplier
+  circleSpeedMultiplier = speedPercent / 100; // Convert 0-300% to 0.0-3.0 multiplier
   circleSpeedValue.textContent = speedPercent + '%';
 });
 
@@ -10424,6 +10563,18 @@ window.addEventListener('keydown', (e) => {
     isAltKeyPressed = true;
     updateKeyIcons();
   }
+
+  // Handle Escape key to hide action buttons when they're visible
+  if (e.key === 'Escape') {
+    const isAnyActionButtonVisible = actionSettingsButton.classList.contains('visible') ||
+                                     actionOpenCanvasButton.classList.contains('visible') ||
+                                     actionCaptureArtefactButton.classList.contains('visible');
+
+    if (isAnyActionButtonVisible) {
+      hideActionButtons();
+      e.preventDefault(); // Prevent default Escape behavior
+    }
+  }
 });
 
 window.addEventListener('keyup', (e) => {
@@ -10513,7 +10664,7 @@ let isCircleButtonPressed = false; // Track if mouse button is pressed down on c
 let circleAnimationFrameId = null;
 let animationTime = 0;
 let lastFrameTime = Date.now();
-let circleSpeedMultiplier = 0.72; // Default speed (72% of base speed)
+let circleSpeedMultiplier = 2.16; // Default speed (216% of base speed, tripled from 72%)
 let circuitBlendMode = 'lighter'; // Default blend mode for circuits (additive)
 let hoverAnimationProgress = 0; // 0 = not hovered, 1 = fully hovered
 let hoverAnimationStartTime = 0;
