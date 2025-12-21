@@ -59,3 +59,5 @@ try:
 except ImportError:
     print("PIL/Pillow not available. Please install it or use another method.")
     sys.exit(1)
+
+

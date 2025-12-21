@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X } = require('lucide');
+const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X, MousePointerClick } = require('lucide');
 const fs = require('fs');
 const path = require('path');
 
@@ -875,7 +875,8 @@ function toggleOverlay() {
           }, 150);
         
         // Draw immediately - fade-in will happen in parallel
-        draw();
+        // Use requestDraw to ensure proper timing and that images are ready
+        requestDraw();
       });
     };
     
@@ -912,7 +913,7 @@ function toggleOverlay() {
       }).catch(() => {
         // If capture fails, still show overlay (will show black background)
         showOverlayAndSetupCanvas();
-        draw();
+        requestDraw();
       });
     }
   } else {
@@ -1984,6 +1985,27 @@ function drawGrid() {
 // Draw image with selection
 function drawImage(img, isSelected) {
   if (!img.element) return;
+  
+  // Check if image is loaded before drawing
+  // This ensures images show immediately when canvas is opened
+  if (!img.element.complete) {
+    // If image is not loaded yet, ensure it triggers a redraw when it loads
+    // Preserve existing onload handler if present
+    if (!img.element._drawOnloadAdded) {
+      const originalOnload = img.element.onload;
+      img.element.onload = function() {
+        // Call original onload if it exists (this handles image setup)
+        if (originalOnload) {
+          originalOnload.call(this);
+        }
+        // Trigger redraw when image loads to ensure it appears
+        requestDraw();
+      };
+      img.element._drawOnloadAdded = true;
+    }
+    // Skip drawing this frame - image will be drawn when it loads
+    return;
+  }
 
   // Use image opacity (defaults to 1.0 if not set)
   const opacity = img.opacity !== undefined ? img.opacity : 1.0;
@@ -3779,8 +3801,13 @@ function drawUnifiedTooltip(text, anchorX, anchorY, pinId, tooltipType, tooltipI
   const textMetrics = ctx.measureText(text);
   const textWidth = Math.min(textMetrics.width, tooltipMaxWidth);
   
-  // Calculate tooltip dimensions (text + delete button)
-  const tooltipContentWidth = textWidth + deleteButtonSize + deleteButtonPadding * 3;
+  // Only show delete button when in reflection mode
+  const showDeleteButton = isReflectionMode;
+  
+  // Calculate tooltip dimensions (text + delete button if shown)
+  const tooltipContentWidth = showDeleteButton 
+    ? textWidth + deleteButtonSize + deleteButtonPadding * 3
+    : textWidth;
   const tooltipWidth = tooltipContentWidth + tooltipPadding * 2;
   const tooltipHeight = Math.max(tooltipFontSize + tooltipPadding * 2, deleteButtonSize + tooltipPadding * 2);
   
@@ -3801,9 +3828,11 @@ function drawUnifiedTooltip(text, anchorX, anchorY, pinId, tooltipType, tooltipI
   // Calculate vertical center for alignment (center both text and icon vertically)
   const contentCenterY = tooltipY + tooltipHeight / 2;
   
-  // Position delete button vertically centered
-  const deleteButtonX = tooltipX + tooltipWidth - deleteButtonSize - tooltipPadding - deleteButtonPadding;
-  const deleteButtonY = contentCenterY - deleteButtonSize / 2;
+  // Position delete button vertically centered (only if shown)
+  const deleteButtonX = showDeleteButton 
+    ? tooltipX + tooltipWidth - deleteButtonSize - tooltipPadding - deleteButtonPadding
+    : 0;
+  const deleteButtonY = showDeleteButton ? contentCenterY - deleteButtonSize / 2 : 0;
   
   // Store tooltip bounds for click detection and hover persistence (in viewport coordinates)
   const rect = canvas.getBoundingClientRect();
@@ -3813,10 +3842,10 @@ function drawUnifiedTooltip(text, anchorX, anchorY, pinId, tooltipType, tooltipI
     y: tooltipY + rect.top,
     width: tooltipWidth,
     height: tooltipHeight,
-    deleteButtonX: deleteButtonX + rect.left,
-    deleteButtonY: deleteButtonY + rect.top,
-    deleteButtonWidth: deleteButtonSize,
-    deleteButtonHeight: deleteButtonSize,
+    deleteButtonX: showDeleteButton ? deleteButtonX + rect.left : -1,
+    deleteButtonY: showDeleteButton ? deleteButtonY + rect.top : -1,
+    deleteButtonWidth: showDeleteButton ? deleteButtonSize : 0,
+    deleteButtonHeight: showDeleteButton ? deleteButtonSize : 0,
     pinId: pinId,
     anchorX: anchorX,
     anchorY: anchorY
@@ -3852,31 +3881,33 @@ function drawUnifiedTooltip(text, anchorX, anchorY, pinId, tooltipType, tooltipI
   ctx.fillStyle = '#ffffff';
   ctx.fillText(text, tooltipX + tooltipPadding, textY);
   
-  // Draw delete button (trashcan) - always present, vertically centered
-  const deleteCenterX = deleteButtonX + deleteButtonSize / 2;
-  const deleteCenterY = contentCenterY; // Use same center as text for perfect alignment
-  
-  // Check if mouse is hovering over delete button (use viewport coordinates)
-  const bounds = window[boundsKey];
-  const isHoveringDelete = bounds && 
-    lastMouseX >= bounds.deleteButtonX &&
-    lastMouseX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
-    lastMouseY >= bounds.deleteButtonY &&
-    lastMouseY <= bounds.deleteButtonY + bounds.deleteButtonHeight;
-  
-  // Delete button background (slightly visible on hover)
-  if (isHoveringDelete) {
-    ctx.fillStyle = 'rgba(220, 38, 38, 0.2)'; // Light red background on hover
-    ctx.beginPath();
-    ctx.arc(deleteCenterX, deleteCenterY, deleteButtonSize / 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  
-  // Draw Trash2 icon from Lucide (vertically centered in button)
-  if (Trash2 && Array.isArray(Trash2)) {
-    const iconColor = isHoveringDelete ? '#ef4444' : 'rgba(255, 255, 255, 0.7)';
-    const iconSize = deleteButtonSize * 0.65; // Icon size relative to button
-    drawLucideIcon(ctx, Trash2, deleteCenterX, deleteCenterY, iconSize, iconColor);
+  // Draw delete button (trashcan) - only when in reflection mode
+  if (showDeleteButton) {
+    const deleteCenterX = deleteButtonX + deleteButtonSize / 2;
+    const deleteCenterY = contentCenterY; // Use same center as text for perfect alignment
+    
+    // Check if mouse is hovering over delete button (use viewport coordinates)
+    const bounds = window[boundsKey];
+    const isHoveringDelete = bounds && 
+      lastMouseX >= bounds.deleteButtonX &&
+      lastMouseX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+      lastMouseY >= bounds.deleteButtonY &&
+      lastMouseY <= bounds.deleteButtonY + bounds.deleteButtonHeight;
+    
+    // Delete button background (slightly visible on hover)
+    if (isHoveringDelete) {
+      ctx.fillStyle = 'rgba(220, 38, 38, 0.2)'; // Light red background on hover
+      ctx.beginPath();
+      ctx.arc(deleteCenterX, deleteCenterY, deleteButtonSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Draw Trash2 icon from Lucide (vertically centered in button)
+    if (Trash2 && Array.isArray(Trash2)) {
+      const iconColor = isHoveringDelete ? '#ef4444' : 'rgba(255, 255, 255, 0.7)';
+      const iconSize = deleteButtonSize * 0.65; // Icon size relative to button
+      drawLucideIcon(ctx, Trash2, deleteCenterX, deleteCenterY, iconSize, iconColor);
+    }
   }
   
   ctx.restore();
@@ -5582,7 +5613,21 @@ function drawReflectionControlPanel(img) {
         }
       }
       
-      if (shouldShowChevron) {
+      // Special handling for emotions accordion when showing "Click on a feature pin to continue" message
+      if (accordion.id === 'emotions' && shouldShowClickOnPinMessage) {
+        // Draw mouse-pointer-click icon instead of chevron
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        if (currentScale !== 1.0) {
+          // Apply scale transform centered on the bar
+          ctx.translate(barCenterX, barCenterY);
+          ctx.scale(currentScale, currentScale);
+          ctx.translate(-barCenterX, -barCenterY);
+        }
+        const iconColor = accordion.textColor; // Use text color for emotions accordion
+        drawLucideIcon(ctx, MousePointerClick, iconX, iconY, chevronSize, iconColor);
+        ctx.restore();
+      } else if (shouldShowChevron) {
         ctx.save();
         ctx.globalAlpha = opacity;
         if (currentScale !== 1.0) {
@@ -6820,6 +6865,79 @@ canvas.addEventListener('mousedown', (e) => {
     return;
   }
 
+  // When NOT in reflection mode, handle pin clicks for viewing/expanding
+  if (!isReflectionMode) {
+    // Check all images for pins
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      if (!img || !img.pins) continue;
+      
+      // Check if clicking on a pin in this image
+      const clickedPin = getPinAt(e.clientX, e.clientY, img);
+      if (clickedPin) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const hasEmotionalAspects = clickedPin.emotionalAspects && clickedPin.emotionalAspects.length > 0;
+        const hasValueAspects = clickedPin.valueAspects && clickedPin.valueAspects.length > 0;
+        const canExpand = hasEmotionalAspects || hasValueAspects;
+        const isCurrentlyExpanded = expandedPinId === clickedPin.id;
+        
+        // Show tooltip (without delete button since not in reflection mode)
+        tooltipPinId = clickedPin.id;
+        
+        // Handle pin expansion
+        if (canExpand) {
+          if (isCurrentlyExpanded) {
+            // Pin is already expanded - collapse it
+            if (expandedPinId !== null) {
+              startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+              expandedPinId = null;
+            }
+            tooltipPinId = null;
+          } else {
+            // Collapse any currently expanded pin
+            if (expandedPinId !== null && expandedPinId !== clickedPin.id) {
+              startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+            }
+            // Expand this pin
+            expandedPinId = clickedPin.id;
+            startPinExpansionAnimation(clickedPin.id, 'collapsed', 'expanded');
+          }
+        } else {
+          // Pin cannot be expanded - just show tooltip
+          // Collapse any currently expanded pin
+          if (expandedPinId !== null) {
+            startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+            expandedPinId = null;
+          }
+        }
+        
+        requestDraw();
+        return;
+      }
+    }
+    
+    // If clicking on empty space (not on a pin), collapse any expanded pin and close tooltip
+    if (expandedPinId !== null || tooltipPinId !== null) {
+      if (expandedPinId !== null) {
+        startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+        expandedPinId = null;
+      }
+      tooltipPinId = null;
+      hoveredPinId = null;
+      // Clear all tooltip bounds
+      for (let k in window) {
+        if (k.startsWith('tooltipBounds_')) {
+          delete window[k];
+        }
+      }
+      window.pinTooltipBounds = null;
+      requestDraw();
+    }
+    return; // Don't process further when not in reflection mode
+  }
+
   // In reflection mode, handle pin placement and selection
   if (isReflectionMode) {
     const reflectionImg = images[reflectionImageIndex];
@@ -6847,49 +6965,52 @@ canvas.addEventListener('mousedown', (e) => {
       }
     }
     
-    // Check if clicking on the delete button in any tooltip
-    for (let key in window) {
-      if (key.startsWith('tooltipBounds_')) {
-        const bounds = window[key];
-        if (bounds && bounds.pinId) {
-          // Check if clicking on delete button
-          if (e.clientX >= bounds.deleteButtonX &&
-              e.clientX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
-              e.clientY >= bounds.deleteButtonY &&
-              e.clientY <= bounds.deleteButtonY + bounds.deleteButtonHeight) {
-            // Clicked on delete button
-            deletePin(reflectionImg, bounds.pinId);
-            tooltipPinId = null;
-            hoveredPinId = null;
-            // Clear all tooltip bounds
-            for (let k in window) {
-              if (k.startsWith('tooltipBounds_')) {
-                delete window[k];
+    // Check if clicking on the delete button in any tooltip (only when in reflection mode)
+    if (isReflectionMode) {
+      for (let key in window) {
+        if (key.startsWith('tooltipBounds_')) {
+          const bounds = window[key];
+          if (bounds && bounds.pinId && bounds.deleteButtonX >= 0) {
+            // Check if clicking on delete button
+            if (e.clientX >= bounds.deleteButtonX &&
+                e.clientX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+                e.clientY >= bounds.deleteButtonY &&
+                e.clientY <= bounds.deleteButtonY + bounds.deleteButtonHeight) {
+              // Clicked on delete button
+              deletePin(reflectionImg, bounds.pinId);
+              tooltipPinId = null;
+              hoveredPinId = null;
+              // Clear all tooltip bounds
+              for (let k in window) {
+                if (k.startsWith('tooltipBounds_')) {
+                  delete window[k];
+                }
               }
+              window.pinTooltipBounds = null;
+              updateControlPanelInputs();
+              requestDraw();
+              return;
             }
-            window.pinTooltipBounds = null;
-            updateControlPanelInputs();
-            requestDraw();
-            return;
           }
         }
       }
-    }
-    // Also check old pinTooltipBounds for backwards compatibility
-    if (window.pinTooltipBounds) {
-      const bounds = window.pinTooltipBounds;
-      if (e.clientX >= bounds.deleteButtonX &&
-          e.clientX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
-          e.clientY >= bounds.deleteButtonY &&
-          e.clientY <= bounds.deleteButtonY + bounds.deleteButtonHeight) {
-        // Clicked on delete button
-        deletePin(reflectionImg, bounds.pinId);
-        tooltipPinId = null;
-        hoveredPinId = null;
-        window.pinTooltipBounds = null;
-        updateControlPanelInputs();
-        requestDraw();
-        return;
+      // Also check old pinTooltipBounds for backwards compatibility
+      if (window.pinTooltipBounds) {
+        const bounds = window.pinTooltipBounds;
+        if (bounds.deleteButtonX >= 0 &&
+            e.clientX >= bounds.deleteButtonX &&
+            e.clientX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+            e.clientY >= bounds.deleteButtonY &&
+            e.clientY <= bounds.deleteButtonY + bounds.deleteButtonHeight) {
+          // Clicked on delete button
+          deletePin(reflectionImg, bounds.pinId);
+          tooltipPinId = null;
+          hoveredPinId = null;
+          window.pinTooltipBounds = null;
+          updateControlPanelInputs();
+          requestDraw();
+          return;
+        }
       }
     }
     
