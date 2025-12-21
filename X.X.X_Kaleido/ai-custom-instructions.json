@@ -1,0 +1,7 @@
+{
+  "general": "To the right of the text there should also be an x that deletes this input and then it's back to the button of paste the AI key.",
+  "titleGeneration": "Let the first word of your answer be grey, otherwise be a helpful assistant.",
+  "features": "Let the first word of your answer be blue, otherwise be a helpful assistant.",
+  "emotions": "Let the first word of your answer be yellow, otherwise be a helpful assistant.",
+  "values": "Let the first word of your answer be green, otherwise be a helpful assistant. bla "
+}

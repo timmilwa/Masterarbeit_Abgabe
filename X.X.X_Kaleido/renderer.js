@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X, MousePointerClick } = require('lucide');
+const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X, MousePointerClick, Clipboard } = require('lucide');
 const fs = require('fs');
 const path = require('path');
 
@@ -65,6 +65,21 @@ const demoModeToggle = document.getElementById('demo-mode-toggle');
 const openScreenRecordingPermissionsButton = document.getElementById('open-screen-recording-permissions');
 const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
 const openAllPermissionsButton = document.getElementById('open-all-permissions');
+const aiModeToggle = document.getElementById('ai-mode-toggle');
+const aiApiKeyInput = document.getElementById('ai-api-key-input');
+const aiApiKeyValidation = document.getElementById('ai-api-key-validation');
+const aiApiKeySection = document.getElementById('ai-api-key-section');
+const aiApiKeyPasteButton = document.getElementById('ai-api-key-paste-button');
+const aiApiKeyInputContainer = document.getElementById('ai-api-key-input-container');
+const aiApiKeyClearBtn = document.getElementById('ai-api-key-clear-btn');
+const aiModelSelect = document.getElementById('ai-model-select');
+const aiModelSection = document.getElementById('ai-model-section');
+const aiCustomInstructionsSection = document.getElementById('ai-custom-instructions-section');
+const aiInstructionsGeneral = document.getElementById('ai-instructions-general');
+const aiInstructionsTitle = document.getElementById('ai-instructions-title');
+const aiInstructionsFeatures = document.getElementById('ai-instructions-features');
+const aiInstructionsEmotions = document.getElementById('ai-instructions-emotions');
+const aiInstructionsValues = document.getElementById('ai-instructions-values');
 
 // State
 let isOverlayActive = false;
@@ -317,13 +332,24 @@ function loadLabelImages() {
 if (typeof window !== 'undefined') {
   window.addEventListener('load', loadLabelImages);
   window.addEventListener('load', initializeGeneralInfoIcons);
+  window.addEventListener('load', () => {
+    // Load AI settings and custom instructions on app load
+    loadAISettings();
+    loadCustomInstructions();
+  });
   // Also try loading immediately in case window is already loaded
   if (document.readyState === 'complete') {
     loadLabelImages();
     initializeGeneralInfoIcons();
+    loadAISettings();
+    loadCustomInstructions();
   } else {
     // Try loading after a short delay
     setTimeout(loadLabelImages, 100);
+    setTimeout(() => {
+      loadAISettings();
+      loadCustomInstructions();
+    }, 100);
   }
 }
 
@@ -340,9 +366,776 @@ let canvasExitHoldTimeout = null; // Timeout for completing the canvas exit afte
 let escapeKeyWasReleased = true; // Track if Escape key has been released (prevents holding through from reflection mode to canvas exit)
 const CANVAS_EXIT_HOLD_DURATION = 500; // Duration to hold Escape key to exit canvas (ms)
 
+// Delete hold state
+let isHoldingDeleteToDeleteImage = false; // Whether Delete is currently being held to delete image
+let deleteHoldStartTime = 0; // Timestamp when Delete key was pressed (for hold-to-delete)
+let deleteHoldTimeout = null; // Timeout for completing the delete after hold duration
+const DELETE_HOLD_DURATION = 1000; // Duration to hold Delete key to delete image (ms)
+
 // Generate unique ID for images and pins
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// ============================================================================
+// AI Configuration Management
+// ============================================================================
+
+// AI Settings State
+let aiSettings = {
+  aiModeEnabled: false,
+  apiKey: "",
+  model: "gemini-2.5-flash"
+};
+
+// Custom Instructions (loaded from project file)
+let customInstructions = {
+  general: "",
+  titleGeneration: "",
+  features: "",
+  emotions: "",
+  values: ""
+};
+
+// Get config file path (user-specific settings)
+function getConfigPath() {
+  return path.join(__dirname, 'config', 'ai-settings.json');
+}
+
+// Get custom instructions file path (project file, part of build)
+function getCustomInstructionsPath() {
+  return path.join(__dirname, 'ai-custom-instructions.json');
+}
+
+// Ensure config directory exists
+function ensureConfigDirectory() {
+  const configDir = path.join(__dirname, 'config');
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+}
+
+// Load AI settings from config file (user-specific: API key, mode toggle)
+function loadAISettings() {
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      const data = fs.readFileSync(configPath, 'utf8');
+      const loaded = JSON.parse(data);
+      // Merge with defaults to handle missing fields
+      aiSettings = {
+        aiModeEnabled: loaded.aiModeEnabled !== undefined ? loaded.aiModeEnabled : false,
+        apiKey: loaded.apiKey || "",
+        model: loaded.model || "gemini-2.5-flash"
+      };
+    }
+  } catch (error) {
+    console.error('Error loading AI settings:', error);
+    // Use defaults if loading fails
+  }
+  return aiSettings;
+}
+
+// Load custom instructions from project file (part of build)
+function loadCustomInstructions() {
+  try {
+    const instructionsPath = getCustomInstructionsPath();
+    if (fs.existsSync(instructionsPath)) {
+      const data = fs.readFileSync(instructionsPath, 'utf8');
+      const loaded = JSON.parse(data);
+      customInstructions = {
+        general: loaded.general || "",
+        titleGeneration: loaded.titleGeneration || "",
+        features: loaded.features || "",
+        emotions: loaded.emotions || "",
+        values: loaded.values || ""
+      };
+    }
+  } catch (error) {
+    console.error('Error loading custom instructions:', error);
+    // Use defaults if loading fails
+  }
+  return customInstructions;
+}
+
+// Save custom instructions to project file
+function saveCustomInstructions(instructions) {
+  try {
+    const instructionsPath = getCustomInstructionsPath();
+    customInstructions = { ...customInstructions, ...instructions };
+    fs.writeFileSync(instructionsPath, JSON.stringify(customInstructions, null, 2), 'utf8');
+    return true;
+  } catch (error) {
+    console.error('Error saving custom instructions:', error);
+    return false;
+  }
+}
+
+// Save AI settings to config file (user-specific: API key, mode toggle)
+function saveAISettings(settings) {
+  try {
+    ensureConfigDirectory();
+    const configPath = getConfigPath();
+    aiSettings = { ...aiSettings, ...settings };
+    fs.writeFileSync(configPath, JSON.stringify(aiSettings, null, 2), 'utf8');
+    return true;
+  } catch (error) {
+    console.error('Error saving AI settings:', error);
+    return false;
+  }
+}
+
+// Check if AI mode is enabled
+function isAIModeEnabled() {
+  return aiSettings.aiModeEnabled === true;
+}
+
+// Validate API key format (must start with "AIza")
+function validateAPIKey(key) {
+  if (!key || key.trim().length === 0) {
+    return false;
+  }
+  return key.trim().startsWith('AIza');
+}
+
+// Update AI settings UI based on current state
+function updateAISettingsUI() {
+  // Update AI mode toggle
+  if (aiModeToggle) {
+    aiModeToggle.checked = aiSettings.aiModeEnabled;
+  }
+
+  // All settings are always enabled - AI mode toggle only controls functionality, not configurability
+  // Keep all sections enabled and visible
+  const sectionsToEnable = [aiApiKeySection, aiModelSection, aiCustomInstructionsSection];
+  
+  sectionsToEnable.forEach(section => {
+    if (section) {
+      section.style.opacity = '1';
+      section.style.pointerEvents = 'auto';
+    }
+  });
+
+  // Update API key input and validation
+  const apiKey = aiSettings.apiKey || '';
+  if (apiKey && apiKey.trim().length > 0) {
+    // Show input with API key
+    if (aiApiKeyInput) {
+      aiApiKeyInput.value = apiKey;
+    }
+    if (aiApiKeyPasteButton) {
+      aiApiKeyPasteButton.style.display = 'none';
+    }
+    if (aiApiKeyInputContainer) {
+      aiApiKeyInputContainer.style.display = 'block';
+    }
+    updateAPIKeyValidation(apiKey);
+  } else {
+    // Show paste button
+    if (aiApiKeyPasteButton) {
+      aiApiKeyPasteButton.style.display = 'flex';
+    }
+    if (aiApiKeyInputContainer) {
+      aiApiKeyInputContainer.style.display = 'none';
+    }
+    if (aiApiKeyInput) {
+      aiApiKeyInput.value = '';
+    }
+    updateAPIKeyValidation('');
+  }
+
+  // Update model select
+  if (aiModelSelect) {
+    aiModelSelect.value = aiSettings.model || 'gemini-2.5-flash';
+  }
+
+  // Update custom instructions (from project file)
+  if (aiInstructionsGeneral) {
+    aiInstructionsGeneral.value = customInstructions.general || '';
+  }
+  if (aiInstructionsTitle) {
+    aiInstructionsTitle.value = customInstructions.titleGeneration || '';
+  }
+  if (aiInstructionsFeatures) {
+    aiInstructionsFeatures.value = customInstructions.features || '';
+  }
+  if (aiInstructionsEmotions) {
+    aiInstructionsEmotions.value = customInstructions.emotions || '';
+  }
+  if (aiInstructionsValues) {
+    aiInstructionsValues.value = customInstructions.values || '';
+  }
+}
+
+// Update API key validation indicator
+function updateAPIKeyValidation(key) {
+  if (!aiApiKeyValidation || !aiApiKeyInput) return;
+  
+  if (!key || key.trim().length === 0) {
+    aiApiKeyValidation.style.display = 'none';
+    return;
+  }
+
+  const isValid = validateAPIKey(key);
+  aiApiKeyValidation.style.display = 'inline-block';
+  aiApiKeyValidation.textContent = isValid ? '✓' : '✗';
+  aiApiKeyValidation.style.color = isValid ? '#10b981' : '#ef4444';
+}
+
+// Initialize AI settings UI when settings modal opens
+function initializeAISettingsUI() {
+  loadAISettings();
+  updateAISettingsUI();
+}
+
+// ============================================================================
+// AI Service Functions
+// ============================================================================
+
+// Question cache for avoiding redundant API calls
+const questionCache = {};
+
+// Toast notification system
+let toastContainer = null;
+
+function createToastContainer() {
+  if (toastContainer) return toastContainer;
+  toastContainer = document.createElement('div');
+  toastContainer.id = 'toast-container';
+  toastContainer.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+  `;
+  document.body.appendChild(toastContainer);
+  return toastContainer;
+}
+
+function showToast(message, error = false, retryCallback = null) {
+  const container = createToastContainer();
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    background-color: ${error ? 'rgba(239, 68, 68, 0.95)' : 'rgba(16, 185, 129, 0.95)'};
+    color: white;
+    padding: 16px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 300px;
+    max-width: 500px;
+    font-size: 14px;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    animation: slideInRight 0.3s ease-out;
+  `;
+  
+  const messageText = document.createElement('span');
+  messageText.textContent = message;
+  messageText.style.flex = '1';
+  toast.appendChild(messageText);
+  
+  if (retryCallback) {
+    const retryButton = document.createElement('button');
+    retryButton.textContent = 'Try again';
+    retryButton.style.cssText = `
+      background-color: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    `;
+    retryButton.addEventListener('mouseenter', () => {
+      retryButton.style.backgroundColor = 'rgba(255, 255, 255, 0.3)';
+    });
+    retryButton.addEventListener('mouseleave', () => {
+      retryButton.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+    });
+    retryButton.addEventListener('click', () => {
+      retryCallback();
+      toast.remove();
+    });
+    toast.appendChild(retryButton);
+  }
+  
+  const closeButton = document.createElement('button');
+  closeButton.textContent = '×';
+  closeButton.style.cssText = `
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+  `;
+  closeButton.addEventListener('mouseenter', () => {
+    closeButton.style.opacity = '1';
+  });
+  closeButton.addEventListener('mouseleave', () => {
+    closeButton.style.opacity = '0.8';
+  });
+  closeButton.addEventListener('click', () => {
+    toast.remove();
+  });
+  toast.appendChild(closeButton);
+  
+  container.appendChild(toast);
+  
+  // Auto-dismiss after 7 seconds
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.style.animation = 'slideOutRight 0.3s ease-out';
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, 7000);
+}
+
+// Add CSS animations for toast
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideInRight {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    @keyframes slideOutRight {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Compress image to base64 with target size
+function compressImageToBase64(imgElement, maxSizeKB = 500) {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Start with original size
+    let width = imgElement.width;
+    let height = imgElement.height;
+    
+    // Calculate initial quality (estimate)
+    let quality = 0.85;
+    
+    const tryCompress = () => {
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(imgElement, 0, 0, width, height);
+      
+      const dataURL = canvas.toDataURL('image/jpeg', quality);
+      const sizeKB = (dataURL.length * 3) / 4 / 1024; // Approximate size in KB
+      
+      if (sizeKB <= maxSizeKB || quality <= 0.1) {
+        resolve(dataURL);
+      } else if (quality > 0.1) {
+        // Reduce quality
+        quality -= 0.1;
+        tryCompress();
+      } else {
+        // If still too large, reduce dimensions
+        width = Math.floor(width * 0.9);
+        height = Math.floor(height * 0.9);
+        quality = 0.85;
+        tryCompress();
+      }
+    };
+    
+    tryCompress();
+  });
+}
+
+// Call Gemini API
+async function callGeminiAPI(prompt, context, customInstructions, model, imageBase64 = null) {
+  if (!isAIModeEnabled()) {
+    throw new Error('AI mode is disabled');
+  }
+
+  const apiKey = aiSettings.apiKey;
+  if (!apiKey || !validateAPIKey(apiKey)) {
+    throw new Error('Invalid API key: Your API key format is invalid. Please check your settings.');
+  }
+
+  const modelName = model || aiSettings.model || 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+  // Build content array
+  const contents = [];
+  
+  if (imageBase64) {
+    // Remove data URL prefix if present
+    const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    contents.push({
+      parts: [
+        { inline_data: { mime_type: 'image/jpeg', data: base64Data } },
+        { text: prompt }
+      ]
+    });
+  } else {
+    contents.push({ parts: [{ text: prompt }] });
+  }
+
+  const requestBody = {
+    contents: contents,
+    generationConfig: {
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 1024,
+    }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('Invalid API key: Your API key is invalid or has expired. Please check your settings.');
+      } else if (response.status === 429) {
+        throw new Error('Rate limit exceeded: Too many requests. Please try again later.');
+      } else {
+        throw new Error(`API error: ${errorData.error?.message || response.statusText || 'Unknown error'}`);
+      }
+    }
+
+    const data = await response.json();
+    
+    if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+      const text = data.candidates[0].content.parts[0].text;
+      return text.trim();
+    } else {
+      throw new Error('API error: No content in response');
+    }
+  } catch (error) {
+    if (error.message.startsWith('Invalid API key') || error.message.startsWith('Rate limit') || error.message.startsWith('API error')) {
+      throw error;
+    } else if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Network error: Could not connect to Gemini API. Please check your internet connection.');
+    } else {
+      throw new Error(`API error: ${error.message}`);
+    }
+  }
+}
+
+// ============================================================================
+// Context Builders
+// ============================================================================
+
+// Build context for features questions
+function buildFeaturesContext(img) {
+  const pins = (img.pins || []).filter(pin => pin.feature && pin.feature.trim().length > 0);
+  const pinsContext = pins.map(pin => ({
+    location: {
+      x: pin.location.x,
+      y: pin.location.y
+    },
+    content: pin.feature
+  }));
+
+  return {
+    imageContent: 'Base64 encoded, compressed image',
+    title: img.title || null,
+    focus: img.focus || null,
+    existingPins: pinsContext,
+    previousQuestions: [] // Will be populated by caller
+  };
+}
+
+// Build context for emotions questions
+function buildEmotionsContext(img, selectedPinId) {
+  const selectedPin = selectedPinId ? img.pins.find(p => p.id === selectedPinId) : null;
+  
+  return {
+    imageContent: 'Base64 encoded, compressed image',
+    title: img.title || null,
+    focus: img.focus || null,
+    selectedPin: selectedPin ? {
+      location: {
+        x: selectedPin.location.x,
+        y: selectedPin.location.y
+      },
+      content: selectedPin.feature || ''
+    } : null
+  };
+}
+
+// Build context for values questions
+function buildValuesContext(img, selectedPinId) {
+  const selectedPin = selectedPinId ? img.pins.find(p => p.id === selectedPinId) : null;
+  const emotions = selectedPin && selectedPin.emotionalAspects ? selectedPin.emotionalAspects : [];
+
+  return {
+    imageContent: 'Base64 encoded, compressed image',
+    title: img.title || null,
+    focus: img.focus || null,
+    selectedPin: selectedPin ? {
+      location: {
+        x: selectedPin.location.x,
+        y: selectedPin.location.y
+      },
+      content: selectedPin.feature || ''
+    } : null,
+    previouslyAddedEmotions: emotions
+  };
+}
+
+// ============================================================================
+// AI Generation Functions
+// ============================================================================
+
+// Demo content constants
+const DEMO_TITLE = 'demo object';
+const DEMO_FEATURES_QUESTION = 'Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?';
+const DEMO_EMOTIONS_TEXT = 'Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.';
+const DEMO_VALUES_TEXT = 'Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.';
+
+// Generate title
+async function generateTitle(imageBase64) {
+  if (!isAIModeEnabled()) {
+    return DEMO_TITLE;
+  }
+
+  const generalInstructions = customInstructions.general || '';
+  const titleInstructions = customInstructions.titleGeneration || '';
+  
+  const prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${titleInstructions ? titleInstructions + '\n\n' : ''}Analyze this image and generate a short, descriptive title (2-4 words) that captures the main subject or content. Return only the title, nothing else.`;
+
+  try {
+    const title = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    return title.trim();
+  } catch (error) {
+    console.error('Error generating title:', error);
+    showToast(error.message, true);
+    return DEMO_TITLE;
+  }
+}
+
+// Generate feature question
+async function generateFeatureQuestion(imageBase64, title, focus, existingPins, previousQuestions, imageId) {
+  if (!isAIModeEnabled()) {
+    return DEMO_FEATURES_QUESTION;
+  }
+
+  const cacheKey = `${imageId}-features-${currentQuestionId}`;
+  if (questionCache[cacheKey]) {
+    return questionCache[cacheKey].question;
+  }
+
+  const generalInstructions = customInstructions.general || '';
+  const featuresInstructions = customInstructions || customInstructions.features || '';
+  
+  let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${featuresInstructions ? featuresInstructions + '\n\n' : ''}`;
+  prompt += `Generate a question about the features or functionality visible in this image.\n\n`;
+  
+  if (title) prompt += `Title: ${title}\n`;
+  if (focus) prompt += `Focus: ${focus}\n`;
+  if (existingPins && existingPins.length > 0) {
+    prompt += `Existing features:\n`;
+    existingPins.forEach((pin, idx) => {
+      prompt += `${idx + 1}. At position (${pin.location.x.toFixed(2)}, ${pin.location.y.toFixed(2)}): ${pin.content}\n`;
+    });
+  }
+  if (previousQuestions && previousQuestions.length > 0) {
+    prompt += `\nPrevious questions asked:\n`;
+    previousQuestions.forEach((q, idx) => {
+      prompt += `${idx + 1}. ${q}\n`;
+    });
+    prompt += `\nPlease generate a different question that hasn't been asked yet.\n`;
+  }
+  
+  prompt += `\nGenerate a thoughtful question that encourages the user to identify features or interaction patterns. Return only the question, nothing else.`;
+
+  try {
+    const question = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    const trimmedQuestion = question.trim();
+    questionCache[cacheKey] = { question: trimmedQuestion, timestamp: Date.now() };
+    return trimmedQuestion;
+  } catch (error) {
+    console.error('Error generating feature question:', error);
+    showToast(error.message, true, () => generateFeatureQuestion(imageBase64, title, focus, existingPins, previousQuestions, imageId));
+    return DEMO_FEATURES_QUESTION;
+  }
+}
+
+// Generate emotion question
+async function generateEmotionQuestion(imageBase64, title, focus, selectedPin, imageId) {
+  if (!isAIModeEnabled()) {
+    return DEMO_EMOTIONS_TEXT;
+  }
+
+  const cacheKey = `${imageId}-emotions-${selectedPin ? selectedPin.location.x.toFixed(2) + '-' + selectedPin.location.y.toFixed(2) : 'none'}`;
+  if (questionCache[cacheKey]) {
+    return questionCache[cacheKey].question;
+  }
+
+  const generalInstructions = customInstructions.general || '';
+  const emotionsInstructions = customInstructions.emotions || '';
+  
+  let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${emotionsInstructions ? emotionsInstructions + '\n\n' : ''}`;
+  prompt += `Generate a question about the emotional aspects related to a specific feature in this image.\n\n`;
+  
+  if (title) prompt += `Title: ${title}\n`;
+  if (focus) prompt += `Focus: ${focus}\n`;
+  if (selectedPin) {
+    prompt += `Selected feature at position (${selectedPin.location.x.toFixed(2)}, ${selectedPin.location.y.toFixed(2)}): ${selectedPin.content}\n`;
+  }
+  
+  prompt += `\nGenerate a thoughtful question that encourages the user to reflect on their emotional response to this specific feature. Return only the question, nothing else.`;
+
+  try {
+    const question = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    const trimmedQuestion = question.trim();
+    questionCache[cacheKey] = { question: trimmedQuestion, timestamp: Date.now() };
+    return trimmedQuestion;
+  } catch (error) {
+    console.error('Error generating emotion question:', error);
+    showToast(error.message, true, () => generateEmotionQuestion(imageBase64, title, focus, selectedPin, imageId));
+    return DEMO_EMOTIONS_TEXT;
+  }
+}
+
+// Generate value question
+async function generateValueQuestion(imageBase64, title, focus, selectedPin, emotions, imageId) {
+  if (!isAIModeEnabled()) {
+    return DEMO_VALUES_TEXT;
+  }
+
+  const emotionsKey = emotions && emotions.length > 0 ? emotions.join('-') : 'none';
+  const cacheKey = `${imageId}-values-${selectedPin ? selectedPin.location.x.toFixed(2) + '-' + selectedPin.location.y.toFixed(2) : 'none'}-${emotionsKey}`;
+  if (questionCache[cacheKey]) {
+    return questionCache[cacheKey].question;
+  }
+
+  const generalInstructions = customInstructions.general || '';
+  const valuesInstructions = customInstructions.values || '';
+  
+  let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${valuesInstructions ? valuesInstructions + '\n\n' : ''}`;
+  prompt += `Generate a question about the underlying values that drive the emotional responses to a specific feature.\n\n`;
+  
+  if (title) prompt += `Title: ${title}\n`;
+  if (focus) prompt += `Focus: ${focus}\n`;
+  if (selectedPin) {
+    prompt += `Selected feature at position (${selectedPin.location.x.toFixed(2)}, ${selectedPin.location.y.toFixed(2)}): ${selectedPin.content}\n`;
+  }
+  if (emotions && emotions.length > 0) {
+    prompt += `Emotional aspects identified: ${emotions.join(', ')}\n`;
+  }
+  
+  prompt += `\nGenerate a thoughtful question that encourages the user to reflect on the values behind their emotional responses. Return only the question, nothing else.`;
+
+  try {
+    const question = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    const trimmedQuestion = question.trim();
+    questionCache[cacheKey] = { question: trimmedQuestion, timestamp: Date.now() };
+    return trimmedQuestion;
+  } catch (error) {
+    console.error('Error generating value question:', error);
+    showToast(error.message, true, () => generateValueQuestion(imageBase64, title, focus, selectedPin, emotions, imageId));
+    return DEMO_VALUES_TEXT;
+  }
+}
+
+// Regenerate emotions AI text
+async function regenerateEmotionsAIText() {
+  if (!isReflectionMode || reflectionImageIndex < 0) return;
+  
+  const img = images[reflectionImageIndex];
+  if (!img) return;
+  
+  emotionsAIText = "Generating...";
+  requestDraw();
+  
+  try {
+    const context = buildEmotionsContext(img, selectedPinId);
+    const imageBase64 = await compressImageToBase64(img.element, 500);
+    
+    const question = await generateEmotionQuestion(
+      imageBase64,
+      context.title,
+      context.focus,
+      context.selectedPin,
+      img.id
+    );
+    
+    emotionsAIText = question;
+    requestDraw();
+  } catch (error) {
+    console.error('Error regenerating emotions AI text:', error);
+    emotionsAIText = isAIModeEnabled() ? DEMO_EMOTIONS_TEXT : DEMO_EMOTIONS_TEXT;
+    requestDraw();
+  }
+}
+
+// Regenerate values AI text
+async function regenerateValuesAIText() {
+  if (!isReflectionMode || reflectionImageIndex < 0) return;
+  
+  const img = images[reflectionImageIndex];
+  if (!img) return;
+  
+  valuesAIText = "Generating...";
+  requestDraw();
+  
+  try {
+    const context = buildValuesContext(img, selectedPinId);
+    const imageBase64 = await compressImageToBase64(img.element, 500);
+    
+    const question = await generateValueQuestion(
+      imageBase64,
+      context.title,
+      context.focus,
+      context.selectedPin,
+      context.previouslyAddedEmotions,
+      img.id
+    );
+    
+    valuesAIText = question;
+    requestDraw();
+  } catch (error) {
+    console.error('Error regenerating values AI text:', error);
+    valuesAIText = isAIModeEnabled() ? DEMO_VALUES_TEXT : DEMO_VALUES_TEXT;
+    requestDraw();
+  }
 }
 
 // Helper function to get device pixel ratio
@@ -1887,6 +2680,80 @@ function draw() {
     // Reset scale when not in reflection mode
     accordionHoverScale = 1.0;
     accordionHoverAnimationStartTime = null;
+  }
+  
+  // Draw delete button when holding Delete key to delete images
+  if (isHoldingDeleteToDeleteImage && deleteHoldStartTime > 0 && selectedImageIndices.length > 0) {
+    ctx.save();
+    
+    // Calculate progress (0 to 1)
+    const holdElapsed = Date.now() - deleteHoldStartTime;
+    const progress = Math.min(holdElapsed / DELETE_HOLD_DURATION, 1);
+    
+    // Center of screen
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    
+    // Delete button size
+    const buttonRadius = 60;
+    const strokeWidth = 8;
+    
+    // Draw outer circle (background)
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, buttonRadius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)'; // Light red border
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
+    
+    // Draw progress fill (circular arc from top, going clockwise)
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, buttonRadius, -Math.PI / 2, -Math.PI / 2 + (progress * 2 * Math.PI));
+    ctx.strokeStyle = 'rgba(239, 68, 68, 1.0)'; // Red stroke
+    ctx.lineWidth = strokeWidth;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    
+    // Draw trash icon in center
+    ctx.strokeStyle = 'rgba(239, 68, 68, 1.0)';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    // Trash can icon (simplified)
+    const iconSize = 40;
+    const iconX = centerX;
+    const iconY = centerY;
+    
+    // Draw trash can body
+    ctx.beginPath();
+    ctx.moveTo(iconX - iconSize * 0.3, iconY - iconSize * 0.2);
+    ctx.lineTo(iconX - iconSize * 0.3, iconY + iconSize * 0.3);
+    ctx.lineTo(iconX + iconSize * 0.3, iconY + iconSize * 0.3);
+    ctx.lineTo(iconX + iconSize * 0.3, iconY - iconSize * 0.2);
+    ctx.stroke();
+    
+    // Draw trash can lid
+    ctx.beginPath();
+    ctx.moveTo(iconX - iconSize * 0.35, iconY - iconSize * 0.2);
+    ctx.lineTo(iconX - iconSize * 0.25, iconY - iconSize * 0.35);
+    ctx.lineTo(iconX + iconSize * 0.25, iconY - iconSize * 0.35);
+    ctx.lineTo(iconX + iconSize * 0.35, iconY - iconSize * 0.2);
+    ctx.stroke();
+    
+    // Draw handle
+    ctx.beginPath();
+    ctx.moveTo(iconX - iconSize * 0.15, iconY - iconSize * 0.35);
+    ctx.lineTo(iconX - iconSize * 0.15, iconY - iconSize * 0.45);
+    ctx.lineTo(iconX + iconSize * 0.15, iconY - iconSize * 0.45);
+    ctx.lineTo(iconX + iconSize * 0.15, iconY - iconSize * 0.35);
+    ctx.stroke();
+    
+    // Continue animation by requesting redraw
+    requestDraw();
+    
+    ctx.restore();
   }
 }
 
@@ -6104,7 +6971,48 @@ function enterReflectionMode(fromScreenshot = false) {
   selectedPinId = null;
   // Reset question ID when entering reflection mode
   currentQuestionId = 0;
-  featuresQuestionText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?";
+  featuresQuestionText = isAIModeEnabled() ? "Generating..." : DEMO_FEATURES_QUESTION;
+  
+  // Get image reference (will be reused later in function)
+  const img = images[selectedImageIndex];
+  if (!img) return;
+  
+  // Generate title if not already generated
+  if (!img.titleGenerated && img.title === null) {
+    // Show "Generating..." placeholder while generating
+    if (productNameInput) {
+      productNameInput.value = 'Generating...';
+    }
+    // Generate title asynchronously
+    (async () => {
+      try {
+        const imageBase64 = await compressImageToBase64(img.element, 500);
+        const generatedTitle = await generateTitle(imageBase64);
+        img.title = generatedTitle;
+        img.titleGenerated = true;
+        // Update product name input if visible
+        if (productNameInput) {
+          productNameInput.value = generatedTitle;
+        }
+        requestDraw();
+      } catch (error) {
+        console.error('Error generating title:', error);
+        // Use demo title on error
+        img.title = DEMO_TITLE;
+        img.titleGenerated = true;
+        if (productNameInput) {
+          productNameInput.value = DEMO_TITLE;
+        }
+      }
+    })();
+  } else if (img && img.title && productNameInput) {
+    // If title already exists, set it in the input
+    productNameInput.value = img.title;
+  } else if (img && !img.title && productNameInput) {
+    // Set demo title if AI mode is off
+    img.title = DEMO_TITLE;
+    productNameInput.value = DEMO_TITLE;
+  }
   // Reset tab spacing to default when entering reflection mode
   currentTabSpacing = TAB_SPACING_DEFAULT;
   targetTabSpacing = TAB_SPACING_DEFAULT;
@@ -6157,8 +7065,6 @@ function enterReflectionMode(fromScreenshot = false) {
   previousCanvasScale = canvasScale;
   previousCanvasTranslateX = canvasTranslateX;
   previousCanvasTranslateY = canvasTranslateY;
-  
-  const img = images[selectedImageIndex];
   
   // Get CSS pixel dimensions for calculations
   const cssDims = getCanvasCSSDimensions();
@@ -6651,13 +7557,132 @@ function getResizeHandleAt(x, y, img) {
 // Event Listeners
 
 // Keyboard shortcuts
+// Handle paste event separately to ensure it works in settings inputs
+window.addEventListener('paste', (e) => {
+  const activeElement = document.activeElement;
+  // Allow paste in any input/textarea within settings modal
+  if (settingsModalOverlay && settingsModalOverlay.classList.contains('visible')) {
+    if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+      if (settingsModalOverlay.contains(activeElement)) {
+        // Allow default paste behavior - don't prevent default
+        return;
+      }
+    }
+  }
+  // For other cases, allow default behavior
+});
+
+// Allow context menu (right-click menu) in settings modal inputs
+window.addEventListener('contextmenu', (e) => {
+  // If settings modal is open, always allow context menu within it
+  if (settingsModalOverlay && settingsModalOverlay.classList.contains('visible')) {
+    const target = e.target;
+    // Check if the click target is within the settings modal
+    if (settingsModalOverlay.contains(target)) {
+      // Allow default context menu behavior - don't prevent default
+      // This includes inputs, textareas, selects, and any other elements in the modal
+      return;
+    }
+  }
+  // For clicks outside settings modal (e.g., on canvas), we might want to prevent context menu
+  // But only prevent if clicking on canvas, not on other UI elements
+  if (e.target === canvas || canvas.contains(e.target)) {
+    // Optionally prevent context menu on canvas if desired
+    // For now, allow it everywhere to be safe
+  }
+});
+
 window.addEventListener('keydown', (e) => {
+  // Allow normal input operations when user is typing in settings modal inputs
+  const activeElement = document.activeElement;
+  const isSettingsInput = activeElement && settingsModalOverlay && settingsModalOverlay.classList.contains('visible') && (
+    activeElement === aiApiKeyInput ||
+    activeElement === aiInstructionsGeneral ||
+    activeElement === aiInstructionsTitle ||
+    activeElement === aiInstructionsFeatures ||
+    activeElement === aiInstructionsEmotions ||
+    activeElement === aiInstructionsValues ||
+    activeElement === productNameInput ||
+    activeElement === focusInput ||
+    (activeElement.tagName === 'INPUT' && settingsModalOverlay.contains(activeElement)) ||
+    (activeElement.tagName === 'TEXTAREA' && settingsModalOverlay.contains(activeElement)) ||
+    (activeElement.tagName === 'SELECT' && settingsModalOverlay.contains(activeElement))
+  );
+  
+  // If user is typing in settings modal, allow all normal input operations (including paste)
+  if (isSettingsInput) {
+    // Explicitly allow paste operations (Cmd+V / Ctrl+V)
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
+      // Allow default paste behavior - don't prevent default
+      return;
+    }
+    // Explicitly allow copy operations (Cmd+C / Ctrl+C)
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
+      // Allow default copy behavior
+      return;
+    }
+    // Explicitly allow cut operations (Cmd+X / Ctrl+X)
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'x' || e.key === 'X')) {
+      // Allow default cut behavior
+      return;
+    }
+    // Explicitly allow select all (Cmd+A / Ctrl+A)
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+      // Allow default select all behavior
+      return;
+    }
+    // Only intercept specific shortcuts we want to handle
+    // Allow all other keys to work normally
+    if (e.metaKey && (e.key === ',' || e.keyCode === 188)) {
+      e.preventDefault();
+      // Open settings modal (if not already open)
+      settingsModalOverlay.classList.add('visible');
+      ipcRenderer.send('set-ignore-mouse-events', false);
+      initializeAISettingsUI();
+      return;
+    }
+    // Allow Escape to close modal even when in input
+    if (e.key === 'Escape' && settingsModalOverlay.classList.contains('visible')) {
+      closeSettingsModal();
+      e.preventDefault();
+      return;
+    }
+    // For all other keys in settings inputs, allow default behavior
+    return; // Don't process other keyboard shortcuts when in settings inputs
+  }
+  
+  // Also check if settings modal is open and we're in any input/textarea/select within it
+  // This is a fallback check in case the specific element check above didn't work
+  if (settingsModalOverlay && settingsModalOverlay.classList.contains('visible')) {
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')) {
+      if (settingsModalOverlay.contains(activeEl)) {
+        // For ANY keyboard event in settings inputs, only intercept specific shortcuts
+        // Allow all other keys (including paste Cmd+V/Ctrl+V) to work normally
+        if (e.key === 'Escape') {
+          closeSettingsModal();
+          e.preventDefault();
+          return;
+        }
+        if (e.metaKey && (e.key === ',' || e.keyCode === 188)) {
+          e.preventDefault();
+          return;
+        }
+        // For ALL other keys in settings inputs, don't prevent default - allow normal behavior
+        // This includes paste (Cmd+V), copy (Cmd+C), cut (Cmd+X), select all (Cmd+A), etc.
+        return;
+      }
+    }
+  }
+  
   // Command+Comma - open settings panel (works even when overlay is closed)
   if (e.metaKey && (e.key === ',' || e.keyCode === 188)) {
     e.preventDefault();
     // Open settings modal
     settingsModalOverlay.classList.add('visible');
     ipcRenderer.send('set-ignore-mouse-events', false);
+    // Initialize AI settings UI when modal opens
+    initializeAISettingsUI();
     return;
   }
   
@@ -6779,31 +7804,69 @@ window.addEventListener('keydown', (e) => {
   
   if (!isOverlayActive) return;
   
-  // Delete key - delete all selected images
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImageIndices.length > 0) {
-    e.preventDefault();
+  // Delete key - hold to delete selected images (only if not in input field)
+  if ((e.key === 'Delete' || e.key === 'Backspace')) {
+    // Check if user is typing in an input field - if so, allow normal delete behavior
+    const activeElement = document.activeElement;
+    const isInInputField = activeElement && (
+      activeElement.tagName === 'INPUT' ||
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.tagName === 'SELECT' ||
+      activeElement.isContentEditable
+    );
     
-    // Sort indices in descending order to remove from highest to lowest (maintains correct indices)
-    const sortedIndices = [...selectedImageIndices].sort((a, b) => b - a);
+    // If in input field, don't prevent default - allow normal text deletion
+    if (isInInputField) {
+      return; // Allow normal delete behavior in input fields
+    }
     
-    // Check if reflection image is being deleted
-    const isDeletingReflectionImage = sortedIndices.includes(reflectionImageIndex);
-    
-    // Remove images
-    sortedIndices.forEach(index => {
-      if (index >= 0 && index < images.length) {
-        images.splice(index, 1);
-      }
-    });
-    
-    // Clear selection
-    selectedImageIndices = [];
-    // Update button visibility (this will call requestDraw())
-    handleSelectionChange(-1);
-    
-    // If reflection image was deleted, exit reflection mode
-    if (isDeletingReflectionImage && isReflectionMode) {
-      exitReflectionMode();
+    // If not in input field and images are selected, start hold-to-delete
+    if (selectedImageIndices.length > 0 && !isHoldingDeleteToDeleteImage) {
+      e.preventDefault();
+      
+      // Start holding Delete to delete images
+      isHoldingDeleteToDeleteImage = true;
+      deleteHoldStartTime = Date.now();
+      
+      // Set timeout to delete after hold duration
+      deleteHoldTimeout = setTimeout(() => {
+        if (isHoldingDeleteToDeleteImage && selectedImageIndices.length > 0) {
+          // Sort indices in descending order to remove from highest to lowest (maintains correct indices)
+          const sortedIndices = [...selectedImageIndices].sort((a, b) => b - a);
+          
+          // Check if reflection image is being deleted
+          const isDeletingReflectionImage = sortedIndices.includes(reflectionImageIndex);
+          
+          // Remove images
+          sortedIndices.forEach(index => {
+            if (index >= 0 && index < images.length) {
+              images.splice(index, 1);
+            }
+          });
+          
+          // Clear selection
+          selectedImageIndices = [];
+          // Update button visibility (this will call requestDraw())
+          handleSelectionChange(-1);
+          
+          // If reflection image was deleted, exit reflection mode
+          if (isDeletingReflectionImage && isReflectionMode) {
+            exitReflectionMode();
+          }
+          
+          // Reset hold state
+          isHoldingDeleteToDeleteImage = false;
+          deleteHoldStartTime = 0;
+          deleteHoldTimeout = null;
+          requestDraw(); // Redraw to remove delete button
+        }
+      }, DELETE_HOLD_DURATION);
+      
+      // Continuously trigger redraw while holding to animate delete button
+      requestDraw();
+    } else if (isHoldingDeleteToDeleteImage) {
+      // Already holding, prevent default to avoid multiple triggers
+      e.preventDefault();
     }
   }
 });
@@ -6838,6 +7901,21 @@ window.addEventListener('keyup', (e) => {
       if (circleAnimationFrameId) {
         drawCircles();
       }
+    }
+  }
+  
+  // Handle Delete key release for hold-to-delete
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    // Cancel delete hold-to-delete if Delete is released before duration completes
+    if (isHoldingDeleteToDeleteImage) {
+      isHoldingDeleteToDeleteImage = false;
+      deleteHoldStartTime = 0;
+      if (deleteHoldTimeout) {
+        clearTimeout(deleteHoldTimeout);
+        deleteHoldTimeout = null;
+      }
+      // Trigger redraw to remove delete button
+      requestDraw();
     }
   }
 });
@@ -6934,8 +8012,9 @@ canvas.addEventListener('mousedown', (e) => {
       }
       window.pinTooltipBounds = null;
       requestDraw();
+      // Don't return here - continue to image selection logic below
     }
-    return; // Don't process further when not in reflection mode
+    // Continue to image selection logic (don't return early)
   }
 
   // In reflection mode, handle pin placement and selection
@@ -6950,6 +8029,28 @@ canvas.addEventListener('mousedown', (e) => {
           e.clientY >= shuffleBounds.y && e.clientY <= shuffleBounds.y + shuffleBounds.height) {
         // Clicked on shuffle icon - regenerate AI text
         regenerateEmotionsAIText();
+        requestDraw();
+        return;
+      }
+    }
+    
+    // Check if clicking on values icons (shuffle or star)
+    if (valuesIconBounds && valuesIconBounds.shuffle) {
+      const shuffleBounds = valuesIconBounds.shuffle;
+      if (e.clientX >= shuffleBounds.x && e.clientX <= shuffleBounds.x + shuffleBounds.width &&
+          e.clientY >= shuffleBounds.y && e.clientY <= shuffleBounds.y + shuffleBounds.height) {
+        // Clicked on shuffle icon - regenerate AI text
+        regenerateValuesAIText();
+        requestDraw();
+        return;
+      }
+    }
+    if (valuesIconBounds && valuesIconBounds.star) {
+      const starBounds = valuesIconBounds.star;
+      if (e.clientX >= starBounds.x && e.clientX <= starBounds.x + starBounds.width &&
+          e.clientY >= starBounds.y && e.clientY <= starBounds.y + starBounds.height) {
+        // Clicked on star icon - toggle star
+        valuesStarred = !valuesStarred;
         requestDraw();
         return;
       }
@@ -8322,7 +9423,10 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
       finalPosition: null, // Will store final position after reflection mode (for overlap avoidance)
       id: generateId(), // Unique identifier for the image
       version: 1, // Version number (starts at 1)
-      pins: [] // Array of pin objects
+      pins: [], // Array of pin objects
+      title: null, // Generated or user-entered title
+      focus: null, // Optional focus point text
+      titleGenerated: false // Track if title has been generated (to prevent regeneration)
     };
     
     // Calculate final position (for after reflection mode) if this is a screenshot
@@ -8448,6 +9552,36 @@ function closeSettingsModal() {
   }
 }
 
+// Handle mouse enter/leave for settings modal to toggle click-through
+// This ensures clipboard and context menus work when interacting with the modal
+// The modal overlay covers the entire screen, so we need to ensure click-through is disabled
+// when the modal is visible, and re-enabled when it's closed
+if (settingsModalOverlay) {
+  // When modal becomes visible, disable click-through immediately
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+        if (settingsModalOverlay.classList.contains('visible')) {
+          // Disable click-through when modal is visible
+          ipcRenderer.send('set-ignore-mouse-events', false);
+        }
+      }
+    });
+  });
+  
+  observer.observe(settingsModalOverlay, {
+    attributes: true,
+    attributeFilter: ['class']
+  });
+  
+  // Also handle mouseenter as a backup to ensure click-through is disabled
+  settingsModalOverlay.addEventListener('mouseenter', () => {
+    if (settingsModalOverlay.classList.contains('visible')) {
+      ipcRenderer.send('set-ignore-mouse-events', false);
+    }
+  });
+}
+
 // Close modal when clicking on overlay (but not on modal content)
 settingsModalOverlay.addEventListener('click', (e) => {
   if (e.target === settingsModalOverlay) {
@@ -8480,8 +9614,272 @@ if (settingsTabs && settingsTabs.length > 0) {
       const targetPane = document.getElementById(`${targetTab}-tab`);
       if (targetPane) {
         targetPane.classList.add('active');
+        // Initialize AI settings UI when AI tab is opened
+        if (targetTab === 'ai') {
+          initializeAISettingsUI();
+        }
       }
     });
+  });
+}
+
+// AI Settings Event Handlers
+if (aiModeToggle) {
+  aiModeToggle.addEventListener('change', (e) => {
+    aiSettings.aiModeEnabled = e.target.checked;
+    saveAISettings({ aiModeEnabled: e.target.checked });
+    updateAISettingsUI();
+  });
+}
+
+// Note: API key input is now readonly and managed via paste/clear buttons
+// No input event listener needed
+
+if (aiModelSelect) {
+  aiModelSelect.addEventListener('change', (e) => {
+    aiSettings.model = e.target.value;
+    saveAISettings({ model: e.target.value });
+  });
+}
+
+if (aiInstructionsGeneral) {
+  aiInstructionsGeneral.addEventListener('input', (e) => {
+    saveCustomInstructions({ general: e.target.value });
+  });
+}
+
+if (aiInstructionsTitle) {
+  aiInstructionsTitle.addEventListener('input', (e) => {
+    saveCustomInstructions({ titleGeneration: e.target.value });
+  });
+}
+
+if (aiInstructionsFeatures) {
+  aiInstructionsFeatures.addEventListener('input', (e) => {
+    saveCustomInstructions({ features: e.target.value });
+  });
+}
+
+if (aiInstructionsEmotions) {
+  aiInstructionsEmotions.addEventListener('input', (e) => {
+    saveCustomInstructions({ emotions: e.target.value });
+  });
+}
+
+if (aiInstructionsValues) {
+  aiInstructionsValues.addEventListener('input', (e) => {
+    saveCustomInstructions({ values: e.target.value });
+  });
+}
+
+// Save title and focus to image object
+if (productNameInput) {
+  productNameInput.addEventListener('blur', (e) => {
+    if (isReflectionMode && reflectionImageIndex >= 0) {
+      const img = images[reflectionImageIndex];
+      if (img) {
+        img.title = e.target.value || null;
+      }
+    }
+  });
+  productNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.target.blur();
+    }
+  });
+  // Explicitly allow paste on product name input
+  productNameInput.addEventListener('paste', (e) => {
+    // Allow default paste behavior
+  });
+}
+
+if (focusInput && focusSaveButton) {
+  focusSaveButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isReflectionMode && reflectionImageIndex >= 0) {
+      const img = images[reflectionImageIndex];
+      if (img && focusInput) {
+        img.focus = focusInput.value.trim() || null;
+        focusInput.blur();
+        requestDraw();
+      }
+    }
+  });
+  focusInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      focusSaveButton.click();
+    }
+  });
+  // Explicitly allow paste on focus input
+  focusInput.addEventListener('paste', (e) => {
+    // Allow default paste behavior
+  });
+}
+
+// Add paste event listeners directly to AI settings inputs
+// These are intentionally empty - they just ensure the events aren't blocked
+if (aiApiKeyInput) {
+  aiApiKeyInput.addEventListener('paste', (e) => {
+    // Allow default paste behavior - don't prevent default or manually handle
+  }, { passive: true });
+}
+
+if (aiInstructionsGeneral) {
+  aiInstructionsGeneral.addEventListener('paste', (e) => {
+    // Allow default paste behavior
+  }, { passive: true });
+}
+
+if (aiInstructionsTitle) {
+  aiInstructionsTitle.addEventListener('paste', (e) => {
+    // Allow default paste behavior
+  }, { passive: true });
+}
+
+if (aiInstructionsFeatures) {
+  aiInstructionsFeatures.addEventListener('paste', (e) => {
+    // Allow default paste behavior
+  }, { passive: true });
+}
+
+if (aiInstructionsEmotions) {
+  aiInstructionsEmotions.addEventListener('paste', (e) => {
+    // Allow default paste behavior
+  }, { passive: true });
+}
+
+if (aiInstructionsValues) {
+  aiInstructionsValues.addEventListener('paste', (e) => {
+    // Allow default paste behavior
+  }, { passive: true });
+}
+
+// Paste button handlers using Clipboard API
+async function pasteToInput(inputElement) {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text && inputElement) {
+      if (inputElement.tagName === 'TEXTAREA') {
+        // For textareas, insert at cursor or replace selection
+        const start = inputElement.selectionStart || 0;
+        const end = inputElement.selectionEnd || 0;
+        const value = inputElement.value || '';
+        inputElement.value = value.substring(0, start) + text + value.substring(end);
+        inputElement.selectionStart = inputElement.selectionEnd = start + text.length;
+      } else {
+        // For inputs, replace value
+        inputElement.value = text;
+      }
+      // Trigger input event to save the value
+      inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+      // Trigger change event as well
+      inputElement.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  } catch (err) {
+    console.error('Failed to paste from clipboard:', err);
+    // Show error to user
+    alert('Failed to paste from clipboard. Please make sure you have permission to access the clipboard.');
+  }
+}
+
+// Get paste button elements and add event listeners
+const aiInstructionsGeneralPasteBtn = document.getElementById('ai-instructions-general-paste-btn');
+const aiInstructionsTitlePasteBtn = document.getElementById('ai-instructions-title-paste-btn');
+const aiInstructionsFeaturesPasteBtn = document.getElementById('ai-instructions-features-paste-btn');
+const aiInstructionsEmotionsPasteBtn = document.getElementById('ai-instructions-emotions-paste-btn');
+const aiInstructionsValuesPasteBtn = document.getElementById('ai-instructions-values-paste-btn');
+
+// API Key paste button handler
+if (aiApiKeyPasteButton) {
+  aiApiKeyPasteButton.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim().length > 0) {
+        // Save the API key
+        aiSettings.apiKey = text.trim();
+        saveAISettings({ apiKey: text.trim() });
+        // Update UI to show the input with the key
+        if (aiApiKeyInput) {
+          aiApiKeyInput.value = text.trim();
+        }
+        if (aiApiKeyPasteButton) {
+          aiApiKeyPasteButton.style.display = 'none';
+        }
+        if (aiApiKeyInputContainer) {
+          aiApiKeyInputContainer.style.display = 'block';
+        }
+        updateAPIKeyValidation(text.trim());
+      }
+    } catch (err) {
+      console.error('Failed to paste from clipboard:', err);
+      alert('Failed to paste from clipboard. Please make sure you have permission to access the clipboard.');
+    }
+  });
+}
+
+// API Key clear button handler
+if (aiApiKeyClearBtn) {
+  aiApiKeyClearBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Clear the API key
+    aiSettings.apiKey = '';
+    saveAISettings({ apiKey: '' });
+    // Update UI to show the paste button
+    if (aiApiKeyInput) {
+      aiApiKeyInput.value = '';
+    }
+    if (aiApiKeyPasteButton) {
+      aiApiKeyPasteButton.style.display = 'flex';
+    }
+    if (aiApiKeyInputContainer) {
+      aiApiKeyInputContainer.style.display = 'none';
+    }
+    updateAPIKeyValidation('');
+  });
+}
+
+if (aiInstructionsGeneralPasteBtn && aiInstructionsGeneral) {
+  aiInstructionsGeneralPasteBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await pasteToInput(aiInstructionsGeneral);
+  });
+}
+
+if (aiInstructionsTitlePasteBtn && aiInstructionsTitle) {
+  aiInstructionsTitlePasteBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await pasteToInput(aiInstructionsTitle);
+  });
+}
+
+if (aiInstructionsFeaturesPasteBtn && aiInstructionsFeatures) {
+  aiInstructionsFeaturesPasteBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await pasteToInput(aiInstructionsFeatures);
+  });
+}
+
+if (aiInstructionsEmotionsPasteBtn && aiInstructionsEmotions) {
+  aiInstructionsEmotionsPasteBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await pasteToInput(aiInstructionsEmotions);
+  });
+}
+
+if (aiInstructionsValuesPasteBtn && aiInstructionsValues) {
+  aiInstructionsValuesPasteBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await pasteToInput(aiInstructionsValues);
   });
 }
 
@@ -8794,6 +10192,8 @@ actionSettingsButton.addEventListener('click', (e) => {
   // Open settings modal (same as clicking settings button)
   settingsModalOverlay.classList.add('visible');
   ipcRenderer.send('set-ignore-mouse-events', false);
+  // Initialize AI settings UI when modal opens
+  initializeAISettingsUI();
 });
 
 // FPS counter settings icon handler
@@ -8803,6 +10203,8 @@ if (fpsCounterSettingsIcon) {
     // Open settings modal
     settingsModalOverlay.classList.add('visible');
     ipcRenderer.send('set-ignore-mouse-events', false);
+    // Initialize AI settings UI when modal opens
+    initializeAISettingsUI();
   });
 }
 
@@ -9263,6 +10665,9 @@ function initCircleButton() {
   // Start animation
   drawCircles();
   
+  // Initialize button colors based on current background state
+  updateButtonColorsForBackground();
+  
   // Check background color periodically (less frequently to avoid rapid changes)
   checkBackgroundColor(); // Initial check
   backgroundCheckInterval = setInterval(checkBackgroundColor, 5000); // Check every 5 seconds
@@ -9688,6 +11093,11 @@ function drawCircles() {
     // Get the circle's color (default to white if not set)
     let circleHexColor = circle.color || '#FFFFFF';
     
+    // If background is light, use black instead of the configured color
+    if (isBackgroundLight && !isScreenshotMode) {
+      circleHexColor = '#000000';
+    }
+    
     // Keep circles white in screenshot mode (outline will be blue instead)
     
     // Convert hex to RGB
@@ -9884,6 +11294,32 @@ function drawCircles() {
   circleAnimationFrameId = requestAnimationFrame(drawCircles);
 }
 
+// Update button colors based on background brightness
+function updateButtonColorsForBackground() {
+  const actionButtons = [actionSettingsButton, actionOpenCanvasButton, actionCaptureArtefactButton];
+  
+  if (isBackgroundLight) {
+    // Background is light/white - use black buttons (matching black circles) with gray text
+    actionButtons.forEach(button => {
+      if (button) {
+        button.style.backgroundColor = '#000000';
+        // Update hover state by adding a data attribute and using CSS
+        button.setAttribute('data-bg-light', 'true');
+      }
+    });
+    // Circles will be drawn in black in the drawCircles function
+  } else {
+    // Background is dark - use white buttons (matching white circles) with light gray text
+    actionButtons.forEach(button => {
+      if (button) {
+        button.style.backgroundColor = '#FFFFFF';
+        button.setAttribute('data-bg-light', 'false');
+      }
+    });
+    // Circles will be drawn in white in the drawCircles function
+  }
+}
+
 // Check background color behind circle button
 async function checkBackgroundColor() {
   // Prevent multiple simultaneous checks and respect cooldown
@@ -9990,7 +11426,13 @@ async function checkBackgroundColor() {
           // Only switch to dark mode (black circles) when background is very light (white/very light gray)
           // Threshold: >85% for light (to switch to dark mode), <80% for dark (to switch back to light mode)
           const threshold = isBackgroundLight ? 0.80 : 0.85;
+          const wasBackgroundLight = isBackgroundLight;
           isBackgroundLight = avgLuminance > threshold;
+          
+          // Update button colors if background brightness changed
+          if (wasBackgroundLight !== isBackgroundLight) {
+            updateButtonColorsForBackground();
+          }
           
           stream.getTracks().forEach(track => track.stop());
           isCheckingBackground = false;
@@ -10002,6 +11444,7 @@ async function checkBackgroundColor() {
     console.error('Error checking background color:', error);
     // Default to dark if check fails
     isBackgroundLight = false;
+    updateButtonColorsForBackground(); // Update buttons to default (gray)
     isCheckingBackground = false;
   }
 }
@@ -10174,6 +11617,11 @@ function updateControlPanelInputs() {
         const baseProductNameY = generalInfoContentBounds.y + 20 + 12 + 4; // 20px offset + 12px label + 4px gap = 36px from bounds start
         const productNameY = baseProductNameY + animatedOffsetY;
         
+        // Set product name input value from image object
+        if (productNameInput && reflectionImg && reflectionImg.title !== undefined) {
+          productNameInput.value = reflectionImg.title || '';
+        }
+        
         productNameContainer.style.position = 'absolute';
         productNameContainer.style.left = (generalInfoContentBounds.x + generalInfoContentBounds.padding) + 'px';
         productNameContainer.style.top = productNameY + 'px';
@@ -10193,6 +11641,11 @@ function updateControlPanelInputs() {
         // Input should be at: second label position + label height (12px) + gap (4px)
         const baseFocusY = generalInfoContentBounds.y + 20 + 12 + 4 + fieldHeight + 24 + 12 + 4; // Aligned with second label + spacing
         const focusY = baseFocusY + animatedOffsetY;
+        
+        // Set focus input value from image object, but only if the input is not currently focused (user is not typing)
+        if (focusInput && reflectionImg && reflectionImg.focus !== undefined && document.activeElement !== focusInput) {
+          focusInput.value = reflectionImg.focus || '';
+        }
         
         focusInputContainer.style.position = 'absolute';
         focusInputContainer.style.left = (generalInfoContentBounds.x + generalInfoContentBounds.padding) + 'px';
@@ -10801,13 +12254,54 @@ canvas.addEventListener('click', (e) => {
         e.clientY >= button.y && e.clientY <= button.y + button.height) {
       e.preventDefault();
       e.stopPropagation();
-      // Move to next question: increment question ID and update question text
-      currentQuestionId++;
-      // TODO: In the future, this could fetch a new question from an API or array
-      // For now, we'll use a placeholder - you can replace this with actual question logic
-      featuresQuestionText = `Question ${currentQuestionId + 1}: Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?`;
-      // The bottom left counter will automatically reset because it filters by currentQuestionId
-      requestDraw();
+      
+      // Generate new feature question
+      if (isReflectionMode && reflectionImageIndex >= 0) {
+        const img = images[reflectionImageIndex];
+        featuresQuestionText = "Generating...";
+        requestDraw();
+        
+        (async () => {
+          try {
+            // Build context
+            const context = buildFeaturesContext(img);
+            
+            // Collect previous questions (from cache)
+            const previousQuestions = [];
+            for (let qid = 0; qid < currentQuestionId; qid++) {
+              const cacheKey = `${img.id}-features-${qid}`;
+              if (questionCache[cacheKey]) {
+                previousQuestions.push(questionCache[cacheKey].question);
+              }
+            }
+            context.previousQuestions = previousQuestions;
+            
+            // Increment question ID
+            currentQuestionId++;
+            
+            // Compress image
+            const imageBase64 = await compressImageToBase64(img.element, 500);
+            
+            // Generate question
+            const question = await generateFeatureQuestion(
+              imageBase64,
+              img.title,
+              img.focus,
+              context.existingPins,
+              previousQuestions,
+              img.id
+            );
+            
+            featuresQuestionText = question;
+            requestDraw();
+          } catch (error) {
+            console.error('Error generating feature question:', error);
+            featuresQuestionText = isAIModeEnabled() ? DEMO_FEATURES_QUESTION : DEMO_FEATURES_QUESTION;
+            requestDraw();
+          }
+        })();
+      }
+      
       return;
     }
   }

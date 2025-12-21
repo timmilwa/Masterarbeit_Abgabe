@@ -42,7 +42,8 @@ function createWindow() {
     icon: icon.isEmpty() ? undefined : icon, // Set window icon
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      enableBlinkFeatures: 'ClipboardRead'
     }
   });
 
@@ -103,6 +104,10 @@ ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {
     win.setIgnoreMouseEvents(ignore, options || { forward: true });
+    // When enabling mouse events (not ignoring), focus the window so clipboard and context menus work
+    if (!ignore) {
+      win.focus();
+    }
   }
 });
 

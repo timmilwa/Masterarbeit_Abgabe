@@ -271,6 +271,16 @@
             z-index: 3000;
             align-items: center;
             justify-content: center;
+            pointer-events: auto;
+        }
+        
+        /* Ensure all interactive elements in settings modal support text selection and clipboard */
+        #settings-modal input,
+        #settings-modal textarea,
+        #settings-modal select {
+            pointer-events: auto;
+            user-select: text;
+            -webkit-user-select: text;
         }
 
         #settings-modal-overlay.visible {
@@ -296,6 +306,9 @@
             position: relative;
             display: flex;
             flex-direction: column;
+            pointer-events: auto;
+            user-select: text;
+            -webkit-user-select: text;
         }
 
         @keyframes modalFadeIn {
@@ -458,6 +471,101 @@
             background-color: #ffffff;
         }
 
+        /* Paste button styles */
+        .paste-button {
+            position: absolute;
+            right: 8px;
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: oklch(0.145 0 0);
+            opacity: 0.6;
+            transition: all 0.2s;
+            padding: 0;
+            z-index: 1;
+        }
+
+        .paste-button:hover {
+            background-color: #e9ebef;
+            opacity: 1;
+        }
+
+        .paste-button-small {
+            width: 24px;
+            height: 24px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: oklch(0.145 0 0);
+            opacity: 0.6;
+            transition: all 0.2s;
+            padding: 0;
+        }
+
+        .paste-button-small:hover {
+            background-color: #e9ebef;
+            opacity: 1;
+        }
+
+        /* API Key Paste Button */
+        .api-key-paste-button {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 6px;
+            background-color: #f3f3f5;
+            font-size: 14px;
+            font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+            color: oklch(0.145 0 0);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .api-key-paste-button:hover {
+            background-color: #e9ebef;
+            border-color: #030213;
+        }
+
+        /* API Key Clear Button */
+        .api-key-clear-button {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: oklch(0.145 0 0);
+            opacity: 0.6;
+            transition: all 0.2s;
+            padding: 0;
+            z-index: 1;
+        }
+
+        .api-key-clear-button:hover {
+            background-color: #e9ebef;
+            opacity: 1;
+        }
+
         .color-preview {
             width: 100%;
             height: 32px;
@@ -591,19 +699,17 @@
             position: fixed;
             right: 40px;
             padding: 8px 16px;
-            background: rgba(255, 255, 255, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            border-radius: 12px;
+            background: #000000;
+            border: none;
+            border-radius: 30px;
             cursor: pointer;
             z-index: 3000;
             box-shadow: 
-                0 8px 32px rgba(0, 0, 0, 0.12),
-                0 0 0 1px rgba(255, 255, 255, 0.1) inset,
-                0 1px 0 rgba(255, 255, 255, 0.2) inset;
-            transition: background-color 0.2s ease-out, box-shadow 0.2s ease-out, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                0 4px 12px rgba(0, 0, 0, 0.15),
+                0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: box-shadow 0.2s ease-out, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            font-size: 17px;
-            color: rgba(255, 255, 255, 1);
+            font-size: 14px;
             align-items: center;
             justify-content: flex-end;
             flex-direction: row;
@@ -637,18 +743,14 @@
 
         .action-button:hover,
         .action-button.visible:hover {
-            background: rgba(255, 255, 255, 0.3);
-            backdrop-filter: blur(25px) saturate(180%);
-            -webkit-backdrop-filter: blur(25px) saturate(180%);
             box-shadow: 
-                0 8px 32px rgba(0, 0, 0, 0.15),
-                0 0 0 1px rgba(255, 255, 255, 0.2) inset,
-                0 1px 0 rgba(255, 255, 255, 0.3) inset;
-            transform: scale(1.01) !important;
+                0 6px 16px rgba(0, 0, 0, 0.2),
+                0 2px 6px rgba(0, 0, 0, 0.15);
+            transform: scale(1.05) !important;
         }
 
         .action-button:active {
-            background: rgba(255, 255, 255, 0.3);
+            transform: scale(0.98) !important;
         }
 
         #action-settings-button {
@@ -757,18 +859,40 @@
         }
 
         .action-button-label {
-            color: rgba(255, 255, 255, 1);
+            color: #E0E0E0;
+            transition: color 0.2s ease-out;
+        }
+
+        .action-button[data-bg-light="true"] .action-button-label {
+            color: #E0E0E0;
+        }
+
+        .action-button[data-bg-light="false"] .action-button-label {
+            color: #808080;
         }
 
         .action-button-shortcut {
             margin-left: 10px;
             padding: 4px 8px;
-            background-color: rgba(255, 255, 255, 0.8);
+            background-color: #E5E5E5;
             border: 1px solid rgba(0, 0, 0, 0.1);
             border-radius: 6px;
             font-size: 13px;
             font-family: ui-monospace, monospace;
-            color: rgba(60, 60, 60, 1);
+            color: rgba(100, 100, 100, 1);
+            transition: border-color 0.2s ease-out, color 0.2s ease-out;
+        }
+
+        .action-button[data-bg-light="true"] .action-button-shortcut {
+            background-color: #E5E5E5;
+            border-color: rgba(0, 0, 0, 0.1);
+            color: rgba(100, 100, 100, 1);
+        }
+
+        .action-button[data-bg-light="false"] .action-button-shortcut {
+            background-color: #E5E5E5;
+            border-color: rgba(0, 0, 0, 0.1);
+            color: rgba(100, 100, 100, 1);
         }
 
         .key-icon {
@@ -1026,12 +1150,192 @@
                             <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 24px; opacity: 0.7;">
                                 Configure AI settings for enhanced features. AI functionality uses Google Gemini as the model.
                             </p>
+                            
+                            <!-- AI Mode Toggle -->
                             <div class="settings-section">
-                                <label class="settings-label" for="ai-api-key-input">API Key (Optional)</label>
-                                <input type="password" id="ai-api-key-input" class="settings-input" placeholder="Enter your API key">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <label class="settings-label" for="ai-mode-toggle" style="margin-bottom: 0;">Enable AI Mode</label>
+                                    <label class="settings-toggle">
+                                        <input type="checkbox" id="ai-mode-toggle">
+                                        <span class="settings-toggle-slider"></span>
+                                    </label>
+                                </div>
                                 <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
-                                    Your API key is stored locally and never shared.
+                                    When enabled, AI-generated questions and content will be used via API calls. When disabled, demo content is used. You can configure all AI settings below regardless of this toggle.
                                 </p>
+                            </div>
+
+                            <!-- API Key Section -->
+                            <div class="settings-section" id="ai-api-key-section">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label class="settings-label" for="ai-api-key-input" style="margin-bottom: 0;">API Key</label>
+                                    <span id="ai-api-key-validation" style="display: none; font-size: 16px;">✓</span>
+                                </div>
+                                <div id="ai-api-key-container" style="position: relative;">
+                                    <!-- Button state (when empty) -->
+                                    <button id="ai-api-key-paste-button" class="api-key-paste-button" style="display: none;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+                                            <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                        </svg>
+                                        <span>Paste API Key</span>
+                                    </button>
+                                    <!-- Input state (when filled) -->
+                                    <div id="ai-api-key-input-container" style="position: relative; display: none;">
+                                        <input type="text" id="ai-api-key-input" class="settings-input" style="padding-right: 40px;" readonly>
+                                        <button id="ai-api-key-clear-btn" class="api-key-clear-button" title="Clear API key">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
+                                    Your API key is stored locally and never shared. Must start with "AIza".
+                                </p>
+                            </div>
+
+                            <!-- Model Selection -->
+                            <div class="settings-section" id="ai-model-section">
+                                <label class="settings-label" for="ai-model-select">Model</label>
+                                <select id="ai-model-select" class="settings-input">
+                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                                </select>
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
+                                    Google Gemini model to use for AI features.
+                                </p>
+                            </div>
+
+                            <!-- Custom Instructions -->
+                            <div class="settings-section" id="ai-custom-instructions-section">
+                                <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">Custom Instructions</h4>
+                                
+                                <!-- General Custom Instructions -->
+                                <div style="margin-bottom: 24px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <label class="settings-label" for="ai-instructions-general" style="margin-bottom: 0;">General Custom Instructions</label>
+                                        <button id="ai-instructions-general-paste-btn" class="paste-button-small" title="Paste from clipboard">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <textarea id="ai-instructions-general" class="settings-input" rows="3" placeholder="General instructions for all AI interactions"></textarea>
+                                    <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
+                                        Applied to all AI interactions as base instructions.
+                                    </p>
+                                </div>
+
+                                <!-- Title Generation Instructions -->
+                                <div style="margin-bottom: 24px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <label class="settings-label" for="ai-instructions-title" style="margin-bottom: 0;">Title Generation Instructions</label>
+                                        <button id="ai-instructions-title-paste-btn" class="paste-button-small" title="Paste from clipboard">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <textarea id="ai-instructions-title" class="settings-input" rows="3" placeholder="Instructions for generating image titles"></textarea>
+                                    <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
+                                        Used when generating titles for images in the general info section.
+                                    </p>
+                                    <!-- Title Generation Context -->
+                                    <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
+                                        <strong style="font-size: 12px; color: oklch(0.145 0 0); display: block; margin-bottom: 8px;">Context Information Sent to AI:</strong>
+                                        <ul style="font-size: 12px; color: oklch(0.145 0 0); margin: 0; padding-left: 20px; opacity: 0.8;">
+                                            <li>Image content (analyzed by Gemini) - Base64 encoded, compressed image</li>
+                                            <li style="font-style: italic; margin-top: 4px;">Example: "Base64 image data (compressed to ~500KB)"</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <!-- Features Instructions -->
+                                <div style="margin-bottom: 24px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <label class="settings-label" for="ai-instructions-features" style="margin-bottom: 0;">Features Instructions</label>
+                                        <button id="ai-instructions-features-paste-btn" class="paste-button-small" title="Paste from clipboard">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <textarea id="ai-instructions-features" class="settings-input" rows="3" placeholder="Instructions for generating feature questions"></textarea>
+                                    <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
+                                        Used when generating questions for the features accordion.
+                                    </p>
+                                    <!-- Features Context -->
+                                    <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
+                                        <strong style="font-size: 12px; color: oklch(0.145 0 0); display: block; margin-bottom: 8px;">Context Information Sent to AI:</strong>
+                                        <ul style="font-size: 12px; color: oklch(0.145 0 0); margin: 0; padding-left: 20px; opacity: 0.8;">
+                                            <li>Image content - Base64 encoded, compressed image</li>
+                                            <li>Title - Example: "Weather App Dashboard"</li>
+                                            <li>Optional focus point - Example: "User wants to focus on temperature display"</li>
+                                            <li>Existing pins (location + content) - Only pins with features filled in</li>
+                                            <li style="list-style: none; padding-left: 20px; margin-top: 4px;">Example: "Pin at (0.45, 0.32): 'Interactive temperature gauge'" (normalized coordinates 0-1 range)</li>
+                                            <li>Previous questions asked - Example: "What interaction patterns do you notice?"</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <!-- Emotions Instructions -->
+                                <div style="margin-bottom: 24px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <label class="settings-label" for="ai-instructions-emotions" style="margin-bottom: 0;">Emotions Instructions</label>
+                                        <button id="ai-instructions-emotions-paste-btn" class="paste-button-small" title="Paste from clipboard">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <textarea id="ai-instructions-emotions" class="settings-input" rows="3" placeholder="Instructions for generating emotion questions"></textarea>
+                                    <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
+                                        Used when generating questions for the emotions accordion.
+                                    </p>
+                                    <!-- Emotions Context -->
+                                    <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
+                                        <strong style="font-size: 12px; color: oklch(0.145 0 0); display: block; margin-bottom: 8px;">Context Information Sent to AI:</strong>
+                                        <ul style="font-size: 12px; color: oklch(0.145 0 0); margin: 0; padding-left: 20px; opacity: 0.8;">
+                                            <li>Image content - Base64 encoded, compressed image</li>
+                                            <li>Title - Example: "Weather App Dashboard"</li>
+                                            <li>Optional focus point - Example: "User wants to focus on temperature display"</li>
+                                            <li>Selected pin (location + content) - Example: "Pin at (0.45, 0.32): 'Interactive temperature gauge'" (normalized coordinates 0-1 range)</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <!-- Values Instructions -->
+                                <div style="margin-bottom: 24px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <label class="settings-label" for="ai-instructions-values" style="margin-bottom: 0;">Values Instructions</label>
+                                        <button id="ai-instructions-values-paste-btn" class="paste-button-small" title="Paste from clipboard">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <textarea id="ai-instructions-values" class="settings-input" rows="3" placeholder="Instructions for generating value questions"></textarea>
+                                    <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
+                                        Used when generating questions for the values accordion.
+                                    </p>
+                                    <!-- Values Context -->
+                                    <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
+                                        <strong style="font-size: 12px; color: oklch(0.145 0 0); display: block; margin-bottom: 8px;">Context Information Sent to AI:</strong>
+                                        <ul style="font-size: 12px; color: oklch(0.145 0 0); margin: 0; padding-left: 20px; opacity: 0.8;">
+                                            <li>Image content - Base64 encoded, compressed image</li>
+                                            <li>Title - Example: "Weather App Dashboard"</li>
+                                            <li>Optional focus point - Example: "User wants to focus on temperature display"</li>
+                                            <li>Selected pin (location + content) - Example: "Pin at (0.45, 0.32): 'Interactive temperature gauge'" (normalized coordinates 0-1 range)</li>
+                                            <li>Previously added emotions - Example: "Excitement, Trust, Anticipation"</li>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
