@@ -66,6 +66,7 @@ const openScreenRecordingPermissionsButton = document.getElementById('open-scree
 const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
 const openAllPermissionsButton = document.getElementById('open-all-permissions');
 const aiModeToggle = document.getElementById('ai-mode-toggle');
+const aiModeToggleTop = document.getElementById('ai-mode-toggle-top-input');
 const aiApiKeyInput = document.getElementById('ai-api-key-input');
 const aiApiKeyValidation = document.getElementById('ai-api-key-validation');
 const aiApiKeySection = document.getElementById('ai-api-key-section');
@@ -88,6 +89,7 @@ let isExitingScreenshotMode = false; // Track if we're transitioning out of scre
 let isOpeningFromScreenshot = false; // Track if we're opening overlay from a screenshot
 let isTransitioningToReflectionMode = false; // Track if we're transitioning to reflection mode (prevents toolbar from showing)
 let hasExitedReflectionModeOnce = false; // Track if we've exited reflection mode at least once (for showing other images)
+let isFreshScreenshot = false; // Track if current image is a fresh screenshot that hasn't been manually exited from reflection mode
 let cameraCursorURL = null; // Store camera cursor URL globally
 let canvasScale = 1.0; // Default zoom - normal size
 let canvasTranslateX = 0;
@@ -510,6 +512,9 @@ function updateAISettingsUI() {
   // Update AI mode toggle
   if (aiModeToggle) {
     aiModeToggle.checked = aiSettings.aiModeEnabled;
+  }
+  if (aiModeToggleTop) {
+    aiModeToggleTop.checked = aiSettings.aiModeEnabled;
   }
 
   // All settings are always enabled - AI mode toggle only controls functionality, not configurability
@@ -1257,14 +1262,9 @@ function getCanvasCSSDimensions() {
 // 3. Not transitioning to reflection mode (prevents brief appearance during screenshot flow)
 // 4. Background is visible (backgroundFadeOpacity > 0, meaning background has started fading in)
 function updateToolbarVisibility() {
-  const isBackgroundVisible = backgroundFadeOpacity > 0;
-  const shouldShow = isOverlayActive && !isReflectionMode && !isTransitioningToReflectionMode && isBackgroundVisible;
-  
-  if (shouldShow) {
-    toolbar.classList.add('visible');
-  } else {
-    toolbar.classList.remove('visible');
-  }
+  // Toolbar buttons have been moved to bottom toolbar - floating toolbar no longer used
+  // Keep function for backwards compatibility but don't show floating toolbar
+  toolbar.classList.remove('visible');
 }
 
 // Helper function to setup high-DPI canvas
@@ -1614,17 +1614,29 @@ function toggleOverlay() {
     const centerY = CIRCLE_BUTTON_DISPLAY_SIZE / 2;
     convergedCenterX = centerX;
     convergedCenterY = centerY;
-    // When overlay opens, immediately set circles to collected state (fully converged)
-    hoverAnimationProgress = 1.0;
-    hoverAnimationStartTime = Date.now();
-    // Store circle positions for smooth animation
-    if (circles && circles.length > 0) {
-      collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
-      // Immediately move circles to center for instant X state
-      circles.forEach(circle => {
-        circle.x = centerX;
-        circle.y = centerY;
-      });
+
+    // Check if we're opening via keyboard shortcut or animation is already in progress
+    const animationAlreadyStarted = hoverAnimationStartTime > 0 && Date.now() - hoverAnimationStartTime < 1000; // Within 1 second
+
+    if (!animationAlreadyStarted && !isOpeningViaKeyboardShortcut) {
+      // When overlay opens normally (not via keyboard shortcut), immediately set circles to collected state (fully converged)
+      hoverAnimationProgress = 1.0;
+      hoverAnimationStartTime = Date.now();
+      // Store circle positions for smooth animation
+      if (circles && circles.length > 0) {
+        collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+        // Immediately move circles to center for instant X state
+        circles.forEach(circle => {
+          circle.x = centerX;
+          circle.y = centerY;
+        });
+      }
+    } else {
+      // Animation already started (via keyboard shortcut or other means), let it continue normally
+      // Store circle positions if not already stored
+      if (circles && circles.length > 0 && collectedStartPositions.length === 0) {
+        collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+      }
     }
     
     // Function to show overlay and setup canvas
@@ -1673,6 +1685,9 @@ function toggleOverlay() {
               isOpeningFromScreenshot = false; // Reset flag
             }
           }, 150);
+
+          // Update bottom toolbar visibility (will show if not in reflection mode)
+          updateBottomToolbarVisibility();
         
         // Draw immediately - fade-in will happen in parallel
         // Use requestDraw to ensure proper timing and that images are ready
@@ -1769,6 +1784,14 @@ function toggleOverlay() {
     savedCanvasTranslateX = canvasTranslateX;
     savedCanvasTranslateY = canvasTranslateY;
     
+    // Hide bottom toolbar by sliding it down
+    const bottomToolbar = document.getElementById('bottom-toolbar');
+    if (bottomToolbar) {
+      bottomToolbar.classList.remove('visible');
+    }
+    // Reset fresh screenshot flag when overlay closes
+    isFreshScreenshot = false;
+
     // Remove fade-in class if present
     canvas.classList.remove('fade-in');
     // Add fade-out class for smooth exit animation
@@ -1778,6 +1801,7 @@ function toggleOverlay() {
     setTimeout(() => {
       overlayContainer.classList.remove('active');
       updateToolbarVisibility();
+      updateBottomToolbarVisibility(); // Hide bottom toolbar and SVGs
       // Hide reflection button when overlay is closed
       reflectionButton.classList.remove('visible');
       // Hide control panel inputs when overlay is closed
@@ -5644,7 +5668,7 @@ function drawReflectionControlPanel(img) {
     },
     {
       id: 'emotions',
-      label: shouldShowClickOnPinMessage ? 'Click on a feature pin to continue' : `${emotionsCount} Emotions externalized`,
+      label: shouldShowClickOnPinMessage ? 'Click on a pin to add an emotion' : `${emotionsCount} Emotions externalized`,
       color: '#fbbf24', // Yellow
       textColor: '#000000'
     },
@@ -5805,23 +5829,19 @@ function drawReflectionControlPanel(img) {
         }
         
         // Draw gray content rectangle with only bottom corners rounded (behind the header)
-        // Skip drawing when header is hugging content (features-pinned, emotions, values when expanded)
-        const shouldDrawContentBackground = !(accordion.id === 'features-pinned' || accordion.id === 'emotions' || accordion.id === 'values');
-
-        if (shouldDrawContentBackground) {
-          ctx.save();
-          ctx.fillStyle = '#f3f3f5';
-          if (accordion.id === 'emotions') {
-            // Draw rectangle with 0 border radius for emotions
-            ctx.beginPath();
-            ctx.rect(panelX, contentY, panelWidth, contentHeight);
-            ctx.fill();
-          } else {
-            drawRoundedRectBottomOnly(ctx, panelX, contentY, panelWidth, contentHeight, borderRadius);
-            ctx.fill();
-          }
-          ctx.restore();
+        ctx.save();
+        ctx.fillStyle = '#f3f3f5';
+        if (accordion.id === 'emotions') {
+          // Draw rectangle with 0 border radius for emotions
+          ctx.beginPath();
+          ctx.rect(panelX, contentY, panelWidth, contentHeight);
+          ctx.fill();
+        } else {
+          // Draw rounded rectangle with only bottom corners rounded for other accordions
+          drawRoundedRectBottomOnly(ctx, panelX, contentY, panelWidth, contentHeight, borderRadius);
+          ctx.fill();
         }
+        ctx.restore();
         
         // Store content area bounds for input positioning (use the visible content area, not the overlap)
         // Store bounds even during animation so inputs can be positioned immediately
@@ -6412,14 +6432,14 @@ function drawReflectionControlPanel(img) {
     }
     ctx.fillStyle = accordion.color;
 
-    // Calculate header height - hug content when expanded
+    // Calculate header height.
+    // NOTE: Keep the header background limited to the bar height so that
+    // the accordion contents (chat bubbles, buttons, labels, etc.) that are
+    // drawn afterwards remain visible on top. Previously the header expanded
+    // to cover the full content height, which painted over the contents and
+    // made the tabs appear "empty" except for HTML inputs.
     let headerDrawHeight = barHeight;
     let headerDrawY = barY;
-    if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
-      // When expanded, header background hugs the content
-      headerDrawHeight = barHeight + animatedPos.contentHeight;
-      headerDrawY = barY;
-    }
 
     // Use animated border radius based on accordion type and pin selection
     if (accordion.id === 'features-pinned') {
@@ -7309,6 +7329,9 @@ function enterReflectionMode(fromScreenshot = false) {
   // Clear transition flag since we're now in reflection mode
   isTransitioningToReflectionMode = false;
 
+  // Hide bottom toolbar when entering reflection mode
+  updateBottomToolbarVisibility();
+
   // Start header fade-in animation
   headerFadeAnimation.startTime = Date.now();
   headerFadeAnimation.direction = 'in';
@@ -7426,6 +7449,8 @@ function exitReflectionMode() {
   
   // Mark that we've exited reflection mode at least once
   hasExitedReflectionModeOnce = true;
+  // Reset fresh screenshot flag since user has now manually exited reflection mode
+  isFreshScreenshot = false;
   
   // Fade in all images when exiting reflection mode
   images.forEach((img, index) => {
@@ -7483,9 +7508,12 @@ function exitReflectionMode() {
   // Clear reflection mode state
   isReflectionMode = false;
   reflectionImageIndex = -1;
-  
+
   // Update toolbar visibility (will show if overlay is active and background is visible)
   updateToolbarVisibility();
+
+  // Show bottom toolbar when exiting reflection mode (if overlay is still active)
+  updateBottomToolbarVisibility();
   
   // Hide HTML button (we're drawing on canvas now)
   reflectionButton.classList.remove('visible');
@@ -7498,6 +7526,31 @@ function exitReflectionMode() {
   setInteracting(true);
   
   animateCanvasTransform();
+}
+
+// Update bottom toolbar visibility based on current state
+function updateBottomToolbarVisibility() {
+  const bottomToolbar = document.getElementById('bottom-toolbar');
+  if (!bottomToolbar) return;
+
+  // Get the toolbar icons
+  const toolbarIcons = document.querySelectorAll('.toolbar-icon');
+
+  // Show toolbar only when overlay is active AND we're NOT in reflection mode
+  // AND it's not a fresh screenshot that hasn't been manually exited yet
+  if (isOverlayActive && !isReflectionMode && !isFreshScreenshot) {
+    bottomToolbar.classList.add('visible');
+    // Position icons above the visible toolbar
+    toolbarIcons.forEach(icon => {
+      icon.classList.remove('hidden');
+    });
+  } else {
+    bottomToolbar.classList.remove('visible');
+    // Move icons completely out of view when toolbar is hidden
+    toolbarIcons.forEach(icon => {
+      icon.classList.add('hidden');
+    });
+  }
 }
 
 // Convert screen coordinates to canvas coordinates
@@ -8888,7 +8941,24 @@ ipcRenderer.on('open-canvas', () => {
   hideActionButtons();
   // Open overlay (toggleOverlay handles click-through)
   if (!isOverlayActive) {
+    // Start the circle collection animation (same as mousedown on circle button)
+    if (!isCirclesCollected) {
+      isCirclesCollected = true;
+      hoverAnimationStartTime = Date.now();
+      collectedStartPositions = circles.map(circle => ({ x: circle.x, y: circle.y }));
+      // Use logical coordinates for center position
+      const centerX = CIRCLE_BUTTON_DISPLAY_SIZE / 2;
+      const centerY = CIRCLE_BUTTON_DISPLAY_SIZE / 2;
+      convergedCenterX = centerX;
+      convergedCenterY = centerY;
+      startIconRotation = currentIconRotation;
+      iconRotationStartTime = Date.now();
+      targetIconRotation = 0; // X icon when collected
+    }
+    // Mark that we're opening via keyboard shortcut to prevent animation override
+    isOpeningViaKeyboardShortcut = true;
     toggleOverlay();
+    isOpeningViaKeyboardShortcut = false;
   }
 });
 
@@ -9392,6 +9462,8 @@ async function captureScreenshot(rect) {
         if (!isOverlayActive) {
           // Set flag to indicate we're opening from a screenshot
           isOpeningFromScreenshot = true;
+          // Mark this as a fresh screenshot that hasn't been manually exited yet
+          isFreshScreenshot = true;
           toggleOverlay();
         }
         
@@ -9625,6 +9697,8 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
       
       // Set flag to prevent toolbar from showing during transition to reflection mode
       isTransitioningToReflectionMode = true;
+      // Mark this as a fresh screenshot that hasn't been manually exited yet
+      isFreshScreenshot = true;
       updateToolbarVisibility(); // Hide toolbar immediately
       
       // Force a redraw to ensure hidden images are not shown
@@ -9765,6 +9839,14 @@ if (settingsTabs && settingsTabs.length > 0) {
 // AI Settings Event Handlers
 if (aiModeToggle) {
   aiModeToggle.addEventListener('change', (e) => {
+    aiSettings.aiModeEnabled = e.target.checked;
+    saveAISettings({ aiModeEnabled: e.target.checked });
+    updateAISettingsUI();
+  });
+}
+
+if (aiModeToggleTop) {
+  aiModeToggleTop.addEventListener('change', (e) => {
     aiSettings.aiModeEnabled = e.target.checked;
     saveAISettings({ aiModeEnabled: e.target.checked });
     updateAISettingsUI();
@@ -10664,7 +10746,7 @@ let isCircleButtonPressed = false; // Track if mouse button is pressed down on c
 let circleAnimationFrameId = null;
 let animationTime = 0;
 let lastFrameTime = Date.now();
-let circleSpeedMultiplier = 2.16; // Default speed (216% of base speed, tripled from 72%)
+let circleSpeedMultiplier = 0.72; // Default speed (72% of base speed, one third of previous speed)
 let circuitBlendMode = 'lighter'; // Default blend mode for circuits (additive)
 let hoverAnimationProgress = 0; // 0 = not hovered, 1 = fully hovered
 let hoverAnimationStartTime = 0;
@@ -10685,6 +10767,7 @@ let isCheckingBackground = false; // Flag to prevent multiple simultaneous check
 let lastBackgroundCheck = 0; // Timestamp of last check
 const BACKGROUND_CHECK_COOLDOWN = 3000; // Minimum 3 seconds between checks
 let isCirclesCollected = false; // Toggle state: true = collected, false = moving
+let isOpeningViaKeyboardShortcut = false; // Flag to prevent animation override when opening via keyboard
 let currentIconRotation = Math.PI / 4; // Current rotation angle of X icon (default: 45° = plus)
 let targetIconRotation = Math.PI / 4; // Target rotation angle of X icon (default: 45° = plus)
 let startIconRotation = Math.PI / 4; // Starting rotation angle when animation begins

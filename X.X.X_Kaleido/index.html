@@ -110,7 +110,7 @@
 
         /* Floating Toolbar */
         #toolbar {
-            display: none;
+            display: none !important; /* Permanently hidden - buttons moved to bottom toolbar */
             position: fixed;
             bottom: 20px;
             left: 50%;
@@ -155,6 +155,71 @@
         .tool-button svg {
             width: 18px;
             height: 18px;
+        }
+
+        /* Bottom Toolbar */
+        #bottom-toolbar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100vw;
+            height: 50px;
+            background-color: #000000;
+            z-index: 1400;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-out;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 40px; /* Add padding to make room for corner icons */
+        }
+
+        #bottom-toolbar.visible {
+            transform: translateY(0);
+        }
+
+        .toolbar-icon {
+            position: fixed;
+            bottom: 50px; /* Position above the 50px toolbar */
+            width: 30px;
+            height: 30px;
+            z-index: 1401;
+            transition: bottom 0.3s ease-out;
+        }
+
+        .toolbar-icon-left {
+            left: 0;
+            transform: scaleX(-1);
+        }
+
+        .toolbar-icon-right {
+            right: 0;
+        }
+
+        .toolbar-icon.hidden {
+            bottom: -60px; /* Move completely off-screen when toolbar is hidden */
+        }
+
+        .toolbar-center-icons {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        /* Override tool button colors for black toolbar */
+        #bottom-toolbar .tool-button {
+            color: rgba(255, 255, 255, 0.8);
+            background: transparent;
+        }
+
+        #bottom-toolbar .tool-button:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 1);
+        }
+
+        #bottom-toolbar .tool-button.active {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 1);
         }
 
         /* FPS Counter */
@@ -214,6 +279,63 @@
             width: 100%;
             height: 100%;
             stroke: currentColor;
+        }
+
+        #ai-mode-toggle-top {
+            margin-left: 8px;
+            cursor: pointer;
+            pointer-events: auto;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        #ai-mode-toggle-top:hover {
+            opacity: 1;
+        }
+
+        .top-toggle {
+            position: relative;
+            display: inline-block;
+            width: 28px;
+            height: 16px;
+        }
+
+        .top-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .top-toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: oklch(0.4 0 0);
+            transition: 0.3s;
+            border-radius: 16px;
+        }
+
+        .top-toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .top-toggle input:checked + .top-toggle-slider {
+            background-color: oklch(0.6 0.15 142);
+        }
+
+        .top-toggle input:checked + .top-toggle-slider:before {
+            transform: translateX(12px);
         }
 
         /* Screenshot Selection Overlay */
@@ -706,9 +828,6 @@
             border-radius: 30px;
             cursor: pointer;
             z-index: 3000;
-            box-shadow: 
-                0 4px 12px rgba(0, 0, 0, 0.15),
-                0 2px 4px rgba(0, 0, 0, 0.1);
             transition: box-shadow 0.2s ease-out, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             font-size: 14px;
@@ -746,9 +865,6 @@
 
         .action-button:hover,
         .action-button.visible:hover {
-            box-shadow:
-                0 6px 16px rgba(0, 0, 0, 0.2),
-                0 2px 6px rgba(0, 0, 0, 0.15);
             transform: scale(1.01) !important;
         }
 
@@ -959,19 +1075,36 @@
 
         <!-- Floating Toolbar -->
         <div id="toolbar">
-            <button class="tool-button active" id="select-tool" title="Select Tool">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path>
-                    <path d="M13 13l6 6"></path>
+            <!-- Toolbar buttons moved to bottom toolbar -->
+        </div>
+
+        <!-- Bottom Toolbar -->
+        <div id="bottom-toolbar">
+            <div class="toolbar-icon toolbar-icon-left">
+                <svg width="30" height="30" viewBox="0 0 43 43" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M43 43H0V42.5645C0.143073 42.5659 0.28628 42.5703 0.429688 42.5703C23.9404 42.5703 43 23.5108 43 0V43Z" fill="black"/>
                 </svg>
-            </button>
-            <button class="tool-button" id="upload-tool" title="Upload Image">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                    <polyline points="21 15 16 10 5 21"></polyline>
+            </div>
+            <div class="toolbar-center-icons">
+                <button class="tool-button active" id="select-tool" title="Select Tool">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path>
+                        <path d="M13 13l6 6"></path>
+                    </svg>
+                </button>
+                <button class="tool-button" id="upload-tool" title="Upload Image">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                    </svg>
+                </button>
+            </div>
+            <div class="toolbar-icon toolbar-icon-right">
+                <svg width="30" height="30" viewBox="0 0 43 43" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M43 43H0V42.5645C0.143073 42.5659 0.28628 42.5703 0.429688 42.5703C23.9404 42.5703 43 23.5108 43 0V43Z" fill="black"/>
                 </svg>
-            </button>
+            </div>
         </div>
 
         <!-- Reflection Mode Button -->
@@ -981,10 +1114,16 @@
         <div id="fps-counter">
             <span id="fps-counter-text">FPS: --</span>
             <span id="fps-counter-dpr">DPR: --</span>
+            <div id="ai-mode-toggle-top" title="Toggle AI Mode">
+                <label class="top-toggle">
+                    <input type="checkbox" id="ai-mode-toggle-top-input">
+                    <span class="top-toggle-slider"></span>
+                </label>
+            </div>
             <div id="fps-counter-settings-icon" title="Open Settings">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3m15.364 6.364l-4.243-4.243m-4.242 0L5.636 17.364m12.728 0l-4.243-4.243m-4.242 0L5.636 6.636"></path>
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                    <circle cx="12" cy="12" r="3"/>
                 </svg>
             </div>
         </div>
@@ -1018,12 +1157,12 @@
             </button>
         </div>
         <!-- Emotional and Value Aspect Inputs -->
-        <input type="text" id="emotional-aspect-input" placeholder="Enter emotional aspect" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
+        <input type="text" id="emotional-aspect-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
         <button id="emotional-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
         <!-- Emotions Tab Answer Input -->
-        <input type="text" id="emotions-answer-input" placeholder="Your Answer" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto; display: none;">
+        <input type="text" id="emotions-answer-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto; display: none;">
         <button id="emotions-answer-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto; display: none;">+</button>
-        <input type="text" id="value-aspect-input" placeholder="Enter value aspect" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
+        <input type="text" id="value-aspect-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
         <button id="value-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
     </div>
 
