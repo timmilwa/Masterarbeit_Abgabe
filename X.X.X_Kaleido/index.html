@@ -282,6 +282,98 @@
             stroke: currentColor;
         }
 
+        /* Side Panel */
+        #side-panel {
+            position: fixed;
+            top: 50px;
+            right: 50px;
+            width: 400px;
+            display: none;
+            z-index: 1500;
+            background-color: #F5F4F5;
+            border: 1px solid #D3D3D3;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Show side panel when canvas is active and reflection mode is NOT active */
+        #overlay-container.active:not(.reflection-mode) #side-panel {
+            display: block;
+        }
+
+        /* Also show during transition to reflection mode */
+        #overlay-container.active.transitioning-to-reflection #side-panel {
+            display: block;
+        }
+
+        .side-panel-content {
+            padding: 10px;
+        }
+
+        .base-image-container {
+            width: 100%;
+            min-height: 60px;
+            background-color: white;
+            border-radius: 10px;
+            border: 1px solid #DEDEDE;
+        }
+
+        .container-divider {
+            width: 100%;
+            height: 1px;
+            background-color: #D1D0D1;
+            margin: 10px 0;
+        }
+
+        .aspect-cards-container {
+            width: 100%;
+            background-color: transparent;
+            border: none;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .base-image-container {
+            position: relative;
+        }
+
+        .base-image-close:hover,
+        .aspect-card-close:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
+        .aspect-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .aspect-card:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .aspect-action-btn {
+            transition: all 0.2s;
+        }
+
+        .aspect-action-btn:hover {
+            border-color: #999;
+        }
+
+        .aspect-action-btn.active {
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .transformed-aspect-text {
+            font-weight: 600;
+        }
+
+        .aspect-edit-input:focus {
+            outline: none;
+            border-color: #3B82F6;
+        }
+
         #ai-mode-toggle-top {
             margin-left: 8px;
             cursor: pointer;
@@ -1130,6 +1222,20 @@
 
         <!-- Reflection Mode Button -->
         <button id="reflection-button">Enter reflection</button>
+
+        <!-- Side Panel -->
+        <div id="side-panel">
+            <div class="side-panel-content">
+                <!-- Base Image Container -->
+                <div class="base-image-container"></div>
+
+                <!-- Divider -->
+                <div class="container-divider"></div>
+
+                <!-- Aspect Cards Container -->
+                <div class="aspect-cards-container"></div>
+            </div>
+        </div>
 
         <!-- FPS Counter -->
         <div id="fps-counter">

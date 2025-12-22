@@ -4,9 +4,6 @@ const { execFile, spawn, exec } = require('child_process');
 // Only require chokidar in development mode
 const chokidar = process.env.NODE_ENV !== 'production' ? require('chokidar') : null;
 
-// Set application name for macOS dock and menu bar
-app.setName('Kaleido');
-
 let mainWindow;
 let keyListener;
 let selectionListener;
@@ -232,6 +229,9 @@ ipcMain.on('open-system-settings', (event, permissionType) => {
 });
 
 app.whenReady().then(() => {
+  // Set application name for macOS dock and menu bar
+  app.setName('Kaleido');
+
   // Set dock icon (macOS) - try .icns first, fallback to PNG
   if (process.platform === 'darwin' && app.dock) {
     // Try .icns file first

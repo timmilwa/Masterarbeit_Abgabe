@@ -83,6 +83,8 @@ const aiInstructionsTitle = document.getElementById('ai-instructions-title');
 const aiInstructionsFeatures = document.getElementById('ai-instructions-features');
 const aiInstructionsEmotions = document.getElementById('ai-instructions-emotions');
 const aiInstructionsValues = document.getElementById('ai-instructions-values');
+const baseImageContainer = document.querySelector('.base-image-container');
+const aspectCardsContainer = document.querySelector('.aspect-cards-container');
 
 // State
 let isOverlayActive = false;
@@ -246,6 +248,10 @@ const PIN_EXPANSION_DURATION = 350; // Animation duration in milliseconds
 
 // Hovered aspect dot state - tracks which dot is currently hovered
 let hoveredAspectDot = null; // { pinId, type: 'emotional'|'value', index, text, x, y, isValue: boolean }
+
+// Sidebar state
+let baseImageId = null; // ID of the base image in sidebar (null when empty)
+let aspectCards = []; // Array of aspect cards: [{ id, pinId, type: 'emotional'|'value', originalAspect, transformedAspect, activeAction, isGenerating, targetedFeature, isEditing }]
 
 // Dot position animation state - tracks repositioning animations for aspect dots
 // Structure: { pinId: { emotional: { startTime, duration, oldAngles: [], newAngles: [], isNewDot: [] }, value: { ... } } }
@@ -1153,6 +1159,457 @@ async function regenerateValuesAIText() {
   }
 }
 
+// ============================================================================
+// Sidebar Functions
+// ============================================================================
+
+// Get base image data (title and focus)
+function getBaseImageData() {
+  if (baseImageId === null) return { title: null, focus: null };
+  
+  const img = images.find(img => img.id === baseImageId);
+  if (!img) return { title: null, focus: null };
+  
+  return {
+    title: img.title || null,
+    focus: img.focus || null
+  };
+}
+
+// Set base image (only if none exists)
+function setBaseImage(imageId) {
+  if (baseImageId === null && imageId !== null) {
+    baseImageId = imageId;
+    updateBaseImageCard();
+  }
+}
+
+// Remove base image
+function removeBaseImage() {
+  baseImageId = null;
+  updateBaseImageCard();
+}
+
+// Update base image card HTML
+function updateBaseImageCard() {
+  if (!baseImageContainer) return;
+  
+  if (baseImageId === null) {
+    // Empty state
+    baseImageContainer.innerHTML = `
+      <div style="display: flex; gap: 8px; padding: 0;">
+        <div style="flex: 1; height: 100px; background-color: white; border-radius: 8px; border: 1px solid #DEDEDE; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px;">
+          <svg width="55" height="34" viewBox="0 0 88 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="3.5" y="3.5" width="81" height="47" fill="white" stroke="#006FFF"/>
+            <rect x="81.5" y="47.5" width="6" height="6" fill="white" stroke="#006FFF"/>
+            <rect x="0.5" y="47.5" width="6" height="6" fill="white" stroke="#006FFF"/>
+            <rect x="0.5" y="0.5" width="6" height="6" fill="white" stroke="#006FFF"/>
+            <rect x="81.5" y="0.5" width="6" height="6" fill="white" stroke="#006FFF"/>
+          </svg>
+          <div style="font-size: 12px; color: #666; text-align: center; line-height: 1.3; font-weight: 500;">
+            Select an existing artefact to use as a baseline
+          </div>
+        </div>
+        <div style="flex: 1; height: 100px; background-color: white; border-radius: 8px; border: 1px solid #DEDEDE; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px;">
+          <svg width="55" height="34" viewBox="0 0 88 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="1" width="86" height="52" rx="6" fill="white" stroke="#C0C0C0" stroke-width="2"/>
+            <g opacity="0.2">
+              <path d="M48 20H54" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M51 17V23" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M53 26.5V34C53 34.5304 52.7893 35.0391 52.4142 35.4142C52.0391 35.7893 51.5304 36 51 36H37C36.4696 36 35.9609 35.7893 35.5858 35.4142C35.2107 35.0391 35 34.5304 35 34V20C35 19.4696 35.2107 18.9609 35.5858 18.5858C35.9609 18.2107 36.4696 18 37 18H44.5" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M53 29.9997L49.914 26.9137C49.5389 26.5388 49.0303 26.3281 48.5 26.3281C47.9697 26.3281 47.4611 26.5388 47.086 26.9137L38 35.9997" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M41 26C42.1046 26 43 25.1046 43 24C43 22.8954 42.1046 22 41 22C39.8954 22 39 22.8954 39 24C39 25.1046 39.8954 26 41 26Z" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
+          <button style="background-color: #3B82F6; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-size: 12px; font-weight: 500; cursor: pointer;">
+            Upload new image
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  
+  const img = images.find(img => img.id === baseImageId);
+  if (!img) {
+    baseImageId = null;
+    updateBaseImageCard();
+    return;
+  }
+  
+  const data = getBaseImageData();
+  const thumbnailSrc = img.element ? img.element.src : '';
+  
+  baseImageContainer.innerHTML = `
+    <div style="position: relative; padding: 12px; height: 100%; display: flex; gap: 12px;">
+      <button class="base-image-close" style="position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: background 0.2s;" title="Remove base image">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+      ${thumbnailSrc ? `<img src="${thumbnailSrc}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; flex-shrink: 0;" />` : ''}
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0;">
+        <div style="font-size: 12px; color: #999; font-weight: 500;">Base image</div>
+        <div style="font-size: 16px; font-weight: 600; color: #000;">${data.title || 'Untitled'}</div>
+        ${data.focus ? `<div style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; background: #000; color: #fff; border-radius: 20px; font-size: 12px; width: fit-content;">
+          <span>${data.focus}</span>
+          <button class="focus-chip-close" style="width: 14px; height: 14px; border: none; background: transparent; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; margin-left: 4px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+  
+  // Add event listeners
+  const closeBtn = baseImageContainer.querySelector('.base-image-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeBaseImage();
+    });
+  }
+
+  const focusChipClose = baseImageContainer.querySelector('.focus-chip-close');
+  if (focusChipClose) {
+    focusChipClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Remove focus from image
+      if (img) {
+        img.focus = null;
+        updateBaseImageCard();
+      }
+    });
+  }
+
+  const uploadButton = baseImageContainer.querySelector('button');
+  if (uploadButton && uploadButton.textContent === 'Upload new image') {
+    uploadButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+  }
+}
+
+// Create aspect card
+function createAspectCard(pinId, type, aspectText, targetedFeature) {
+  // Check if card already exists for this pin/aspect combination
+  const existingCard = aspectCards.find(card => 
+    card.pinId === pinId && 
+    card.type === type && 
+    card.originalAspect === aspectText
+  );
+  
+  if (existingCard) {
+    // Card already exists, just update UI
+    updateAspectCards();
+    return existingCard.id;
+  }
+  
+  const card = {
+    id: generateId(),
+    pinId,
+    type, // 'emotional' | 'value'
+    originalAspect: aspectText,
+    transformedAspect: null,
+    activeAction: null,
+    isGenerating: false,
+    targetedFeature: targetedFeature || '',
+    isEditing: false
+  };
+  
+  aspectCards.push(card);
+  updateAspectCards();
+  return card.id;
+}
+
+// Remove aspect card
+function removeAspectCard(cardId) {
+  const index = aspectCards.findIndex(card => card.id === cardId);
+  if (index !== -1) {
+    aspectCards.splice(index, 1);
+    updateAspectCards();
+  }
+}
+
+// Update aspect cards HTML
+function updateAspectCards() {
+  if (!aspectCardsContainer) return;
+
+  if (aspectCards.length === 0) {
+    aspectCardsContainer.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 12px; padding: 20px 10px; color: #999; font-size: 14px;">
+        <div style="width: 12px; height: 12px; border-radius: 50%; background: #ccc; flex-shrink: 0;"></div>
+        <span>Click on a pin and select a dot to get started</span>
+      </div>
+    `;
+    return;
+  }
+  
+  const cardsHTML = aspectCards.map(card => {
+    const isEmotion = card.type === 'emotional';
+    const color = isEmotion ? '#F5C842' : '#4CAF50'; // Yellow for emotion, green for value
+    const actions = ['Reduce', 'Exaggerate', 'Invert', 'Random'];
+    
+    return `
+      <div class="aspect-card" data-card-id="${card.id}" style="position: relative; padding: 12px; margin-bottom: 10px; background: white; border-radius: 10px; border: 1px solid #DEDEDE;">
+        <button class="aspect-card-close" style="position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: background 0.2s;" title="Remove aspect card">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+        
+        <div style="margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></div>
+            <div style="font-size: 12px; color: #999; font-weight: 500;">${isEmotion ? 'Emotion' : 'Value'}</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="font-size: 16px; font-weight: 600; color: ${color}; flex: 1;">
+              ${card.transformedAspect ? `
+                <span style="text-decoration: line-through; color: #999;">${card.originalAspect}</span>
+                <span style="margin: 0 8px;">→</span>
+                <span class="transformed-aspect-text" style="color: ${color};">${card.transformedAspect}</span>
+              ` : `<span class="original-aspect-text">${card.originalAspect}</span>`}
+            </div>
+            ${card.transformedAspect ? `
+              <button class="aspect-edit-btn" style="width: 20px; height: 20px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; color: ${color}; flex-shrink: 0;" title="Edit transformed aspect">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+        
+        ${card.isEditing ? `
+          <input type="text" class="aspect-edit-input" value="${card.transformedAspect || card.originalAspect}" style="width: 100%; padding: 6px 8px; border: 1px solid #DEDEDE; border-radius: 6px; font-size: 14px; margin-bottom: 12px;" />
+        ` : ''}
+        
+        ${card.isGenerating ? `
+          <div style="padding: 8px; background: #F5F5F5; border-radius: 6px; margin-bottom: 12px; text-align: center; color: #999; font-size: 12px;">
+            Generating...
+          </div>
+        ` : ''}
+        
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 12px; color: #999; margin-bottom: 6px; font-weight: 500;">Actions</div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            ${actions.map(action => `
+              <button class="aspect-action-btn ${card.activeAction === action ? 'active' : ''}" 
+                      data-action="${action}"
+                      style="padding: 6px 12px; border: 1px solid #DEDEDE; background: ${card.activeAction === action ? color : 'white'}; color: ${card.activeAction === action ? 'white' : '#000'}; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s; ${card.activeAction === action ? 'font-weight: 600;' : ''}">
+                ${action}${card.activeAction === action ? ' ✕' : ''}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+        
+        <div>
+          <div style="font-size: 12px; color: #999; margin-bottom: 6px; font-weight: 500;">Targeted Feature</div>
+          ${card.targetedFeature ? `
+            <div style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; background: #3B82F6; color: #fff; border-radius: 20px; font-size: 12px;">
+              <span>${card.targetedFeature}</span>
+              <button class="targeted-feature-close" style="width: 14px; height: 14px; border: none; background: transparent; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; margin-left: 4px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          ` : ''}
+          <button class="add-targeted-feature-btn" style="margin-top: 6px; padding: 6px 12px; background: #3B82F6; color: white; border: none; border-radius: 6px; font-size: 12px; cursor: pointer;">
+            Add feature +
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  aspectCardsContainer.innerHTML = cardsHTML;
+  
+  // Add event listeners
+  aspectCardsContainer.querySelectorAll('.aspect-card-close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cardId = btn.closest('.aspect-card').dataset.cardId;
+      removeAspectCard(cardId);
+    });
+  });
+  
+  aspectCardsContainer.querySelectorAll('.aspect-action-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cardId = btn.closest('.aspect-card').dataset.cardId;
+      const action = btn.dataset.action;
+      handleAspectAction(cardId, action);
+    });
+  });
+  
+  aspectCardsContainer.querySelectorAll('.aspect-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cardId = btn.closest('.aspect-card').dataset.cardId;
+      const card = aspectCards.find(c => c.id === cardId);
+      if (card) {
+        card.isEditing = true;
+        updateAspectCards();
+        // Focus input
+        setTimeout(() => {
+          const input = aspectCardsContainer.querySelector(`.aspect-card[data-card-id="${cardId}"] .aspect-edit-input`);
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        }, 0);
+      }
+    });
+  });
+  
+  aspectCardsContainer.querySelectorAll('.aspect-edit-input').forEach(input => {
+    input.addEventListener('blur', () => {
+      const cardId = input.closest('.aspect-card').dataset.cardId;
+      const card = aspectCards.find(c => c.id === cardId);
+      if (card) {
+        card.transformedAspect = input.value.trim() || card.originalAspect;
+        card.isEditing = false;
+        card.activeAction = null; // Deselect active action when manually editing
+        updateAspectCards();
+      }
+    });
+    
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        input.blur();
+      } else if (e.key === 'Escape') {
+        const cardId = input.closest('.aspect-card').dataset.cardId;
+        const card = aspectCards.find(c => c.id === cardId);
+        if (card) {
+          card.isEditing = false;
+          updateAspectCards();
+        }
+      }
+    });
+  });
+  
+  aspectCardsContainer.querySelectorAll('.targeted-feature-close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cardId = btn.closest('.aspect-card').dataset.cardId;
+      const card = aspectCards.find(c => c.id === cardId);
+      if (card) {
+        card.targetedFeature = '';
+        updateAspectCards();
+      }
+    });
+  });
+  
+  aspectCardsContainer.querySelectorAll('.add-targeted-feature-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cardId = btn.closest('.aspect-card').dataset.cardId;
+      const card = aspectCards.find(c => c.id === cardId);
+      if (card) {
+        const feature = prompt('Enter targeted feature:');
+        if (feature && feature.trim()) {
+          card.targetedFeature = feature.trim();
+          updateAspectCards();
+        }
+      }
+    });
+  });
+}
+
+// Handle aspect action
+function handleAspectAction(cardId, action) {
+  const card = aspectCards.find(c => c.id === cardId);
+  if (!card) return;
+  
+  // Toggle action - if same action clicked, deselect it
+  if (card.activeAction === action) {
+    card.activeAction = null;
+    card.transformedAspect = null;
+    updateAspectCards();
+    return;
+  }
+  
+  card.activeAction = action;
+  card.isGenerating = true;
+  updateAspectCards();
+  
+  generateTransformedAspect(cardId, action);
+}
+
+// Generate transformed aspect via AI
+async function generateTransformedAspect(cardId, action) {
+  const card = aspectCards.find(c => c.id === cardId);
+  if (!card) return;
+  
+  const img = images.find(img => img.pins?.some(p => p.id === card.pinId));
+  if (!img) {
+    card.isGenerating = false;
+    updateAspectCards();
+    return;
+  }
+  
+  try {
+    const imageBase64 = await compressImageToBase64(img.element, 500);
+    const transformed = await generateAspectTransformation(
+      card.originalAspect,
+      action,
+      card.type,
+      imageBase64,
+      {
+        pinId: card.pinId,
+        targetedFeature: card.targetedFeature,
+        imageTitle: img.title || null,
+        imageFocus: img.focus || null
+      }
+    );
+    
+    card.transformedAspect = transformed;
+    card.isGenerating = false;
+    updateAspectCards();
+  } catch (error) {
+    console.error('Error generating transformed aspect:', error);
+    card.isGenerating = false;
+    card.activeAction = null;
+    updateAspectCards();
+    showToast(error.message, true);
+  }
+}
+
+// Generate aspect transformation via AI
+async function generateAspectTransformation(originalAspect, action, aspectType, imageBase64, context) {
+  if (!isAIModeEnabled()) {
+    // Demo mode - return transformed aspect based on action
+    const transformations = {
+      'Reduce': `${originalAspect} (reduced)`,
+      'Exaggerate': `${originalAspect} (exaggerated)`,
+      'Invert': `Not ${originalAspect}`,
+      'Random': `${originalAspect} (varied)`
+    };
+    return transformations[action] || originalAspect;
+  }
+  
+  const generalInstructions = customInstructions.general || '';
+  const typeInstructions = aspectType === 'emotional' 
+    ? (customInstructions.emotions || '')
+    : (customInstructions.values || '');
+  
+  let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${typeInstructions ? typeInstructions + '\n\n' : ''}`;
+  prompt += `Transform the following ${aspectType} aspect using the "${action}" action:\n\n`;
+  prompt += `Original aspect: ${originalAspect}\n`;
+  prompt += `Action: ${action}\n`;
+  
+  if (context.imageTitle) prompt += `Image title: ${context.imageTitle}\n`;
+  if (context.imageFocus) prompt += `Focus: ${context.imageFocus}\n`;
+  if (context.targetedFeature) prompt += `Targeted feature: ${context.targetedFeature}\n`;
+  
+  prompt += `\nGenerate a transformed version of "${originalAspect}" based on the "${action}" action. `;
+  prompt += `The transformation should be semantically meaningful and appropriate for the context. `;
+  prompt += `Return only the transformed aspect text, nothing else.`;
+  
+  try {
+    const transformed = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    return transformed.trim();
+  } catch (error) {
+    console.error('Error generating aspect transformation:', error);
+    throw error;
+  }
+}
+
 // Helper function to get device pixel ratio
 // Get the base device pixel ratio from the browser
 function getBaseDevicePixelRatio() {
@@ -1701,6 +2158,10 @@ function toggleOverlay() {
         // Draw immediately - fade-in will happen in parallel
         // Use requestDraw to ensure proper timing and that images are ready
         requestDraw();
+        
+        // Initialize sidebar
+        updateBaseImageCard();
+        updateAspectCards();
       });
     };
     
@@ -1778,6 +2239,9 @@ function toggleOverlay() {
       // Exit reflection mode without animation
       isReflectionMode = false;
       reflectionImageIndex = -1;
+      // Update overlay container classes for side panel visibility
+      overlayContainer.classList.remove('reflection-mode');
+      overlayContainer.classList.remove('transitioning-to-reflection');
     }
     
     // Show all images when closing overlay (in case any were hidden)
@@ -7364,6 +7828,10 @@ function enterReflectionMode(fromScreenshot = false) {
 
   // Clear transition flag since we're now in reflection mode
   isTransitioningToReflectionMode = false;
+  
+  // Update overlay container classes for side panel visibility
+  overlayContainer.classList.add('reflection-mode');
+  overlayContainer.classList.remove('transitioning-to-reflection');
 
   // Hide bottom toolbar when entering reflection mode
   updateBottomToolbarVisibility();
@@ -7544,6 +8012,9 @@ function exitReflectionMode() {
   // Clear reflection mode state
   isReflectionMode = false;
   reflectionImageIndex = -1;
+  
+  // Update overlay container classes for side panel visibility
+  overlayContainer.classList.remove('reflection-mode');
 
   // Update toolbar visibility (will show if overlay is active and background is visible)
   updateToolbarVisibility();
@@ -8156,6 +8627,26 @@ canvas.addEventListener('mousedown', (e) => {
   // Prevent interactions during animation
   if (isAnimating) return;
   
+  // Check if clicking on an aspect dot
+  if (hoveredAspectDot && e.button === 0) {
+    // Find the pin and get the targeted feature
+    const img = images.find(img => img.pins?.some(p => p.id === hoveredAspectDot.pinId));
+    if (img) {
+      const pin = img.pins.find(p => p.id === hoveredAspectDot.pinId);
+      if (pin) {
+        const targetedFeature = pin.feature || '';
+        createAspectCard(
+          hoveredAspectDot.pinId,
+          hoveredAspectDot.type,
+          hoveredAspectDot.text,
+          targetedFeature
+        );
+        e.stopPropagation();
+        return;
+      }
+    }
+  }
+  
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
 
@@ -8592,6 +9083,14 @@ canvas.addEventListener('mousedown', (e) => {
     } else {
       // Clicked on different image - select it (single select)
       selectedImageIndices = [imgIndex];
+      
+      // Set base image if sidebar is empty
+      if (baseImageId === null && imgIndex >= 0 && imgIndex < images.length) {
+        const selectedImg = images[imgIndex];
+        if (selectedImg && selectedImg.id) {
+          setBaseImage(selectedImg.id);
+        }
+      }
       handleSelectionChange(imgIndex);
       isDragging = true;
       dragStartX = e.clientX;
@@ -9737,6 +10236,8 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
       isTransitioningToReflectionMode = true;
       // Mark this as a fresh screenshot that hasn't been manually exited yet
       isFreshScreenshot = true;
+      // Update overlay container classes for side panel visibility during transition
+      overlayContainer.classList.add('transitioning-to-reflection');
       updateToolbarVisibility(); // Hide toolbar immediately
       
       // Force a redraw to ensure hidden images are not shown
@@ -9756,6 +10257,8 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
         } else {
           // If reflection mode entry failed, clear the transition flag
           isTransitioningToReflectionMode = false;
+          // Update overlay container classes for side panel visibility
+          overlayContainer.classList.remove('transitioning-to-reflection');
           updateToolbarVisibility(); // Update toolbar visibility in case it should be shown
         }
       }, 100);
