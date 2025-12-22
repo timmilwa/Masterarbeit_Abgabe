@@ -27,6 +27,8 @@ const tintOpacitySlider = document.getElementById('tint-opacity-slider');
 const tintOpacityValue = document.getElementById('tint-opacity-value');
 const saturationSlider = document.getElementById('saturation-slider');
 const saturationValue = document.getElementById('saturation-value');
+const blurSlider = document.getElementById('blur-slider');
+const blurValue = document.getElementById('blur-value');
 const circleSpeedSlider = document.getElementById('circle-speed-slider');
 const circleSpeedValue = document.getElementById('circle-speed-value');
 const circuitBlendModeSelect = document.getElementById('circuit-blend-mode-select');
@@ -114,9 +116,10 @@ let selectionBoxStartX = 0; // Selection box start (screen coordinates)
 let selectionBoxStartY = 0;
 let selectionBoxEndX = 0; // Selection box end (screen coordinates)
 let selectionBoxEndY = 0;
-let backgroundTintColor = '#F4F4F7'; // Default background color
+let backgroundTintColor = '#FFFFFF'; // Default background color
 let backgroundTintOpacity = 0.5; // Default opacity (50%)
-let backgroundSaturation = 0; // Default saturation (0% = grayscale)
+let backgroundSaturation = 100; // Default saturation (100% = full color)
+let backgroundBlurAmount = 20; // Default blur amount in pixels (effective blur radius)
 let isReflectionMode = false;
 let reflectionImageIndex = -1;
 let previousCanvasScale = 1.0;
@@ -1539,6 +1542,12 @@ function toggleOverlay() {
   isOverlayActive = !isOverlayActive;
   
   if (isOverlayActive) {
+    // Show SVGs immediately when overlay opens
+    const toolbarIcons = document.querySelectorAll('.toolbar-icon');
+    toolbarIcons.forEach(icon => {
+      icon.classList.remove('hidden');
+    });
+
     // Reset FPS tracking when overlay opens
     fpsLastTime = performance.now();
     fpsFrameCount = 0;
@@ -2086,7 +2095,7 @@ function updateCachedBlurredBackground() {
   tempCtx.fillRect(0, 0, cacheWidth, cacheHeight);
   
   // Apply blur and saturation filters
-  tempCtx.filter = `blur(${20 * scaleFactor}px) saturate(${backgroundSaturation}%)`;
+  tempCtx.filter = `blur(${backgroundBlurAmount * scaleFactor}px) saturate(${backgroundSaturation}%)`;
   // Scale image to fit canvas
   const scale = Math.max(cacheWidth / backgroundImage.width, cacheHeight / backgroundImage.height);
   const scaledWidth = backgroundImage.width * scale;
@@ -3439,53 +3448,57 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
     
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
+      // Apply 50% opacity to unselected pins when a feature is selected
+      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
       ctx.save();
-      ctx.globalAlpha = collapsedFade;
-      
+      ctx.globalAlpha = collapsedFade * pinOpacity;
+
       // Interpolate ring size during transition
       const currentGreenOuter = collapsedGreenRingOuterRadius + (expandedOuterOrbitRadius - collapsedGreenRingOuterRadius) * expansionProgress;
       const currentGreenInner = collapsedGreenRingInnerRadius + (expandedOuterOrbitRadius - collapsedGreenRingInnerRadius) * expansionProgress;
-      
+
       // Draw green ring as a donut shape
       ctx.fillStyle = '#4CB948'; // Green
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentGreenOuter, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, currentGreenInner, 0, Math.PI * 2, true); // Counter-clockwise to create hole
       ctx.fill();
-      
+
       // White stroke on outer edge of green ring only
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = whiteStrokeWidth;
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentGreenOuter, 0, Math.PI * 2);
       ctx.stroke();
-      
+
       ctx.restore();
     }
     
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
+      // Apply 50% opacity to unselected pins when a feature is selected
+      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
       ctx.save();
-      ctx.globalAlpha = collapsedFade;
-      
+      ctx.globalAlpha = collapsedFade * pinOpacity;
+
       // Interpolate ring size during transition
       const currentYellowOuter = collapsedYellowRingOuterRadius + (expandedInnerOrbitRadius - collapsedYellowRingOuterRadius) * expansionProgress;
       const currentYellowInner = collapsedYellowRingInnerRadius + (expandedInnerOrbitRadius - collapsedYellowRingInnerRadius) * expansionProgress;
-      
+
       // Draw yellow ring as a donut shape
       ctx.fillStyle = '#F0CE25'; // Yellow
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentYellowOuter, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, currentYellowInner, 0, Math.PI * 2, true); // Counter-clockwise to create hole
       ctx.fill();
-      
+
       // White stroke on outer edge of yellow ring only
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = whiteStrokeWidth;
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentYellowOuter, 0, Math.PI * 2);
       ctx.stroke();
-      
+
       ctx.restore();
     }
   }
@@ -3574,7 +3587,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       }
       
       // Then draw the semi-transparent colored overlay
-      const bgOpacity = 0.35 * combinedProgress; // Moderate transparency (0.3-0.4)
+      // Apply 50% opacity to unselected pins when a feature is selected
+      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      const bgOpacity = 0.35 * combinedProgress * pinOpacity; // Moderate transparency (0.3-0.4)
       ctx.fillStyle = `rgba(76, 185, 72, ${bgOpacity})`; // Green with transparency
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentValuesAreaOuterRadius, 0, Math.PI * 2);
@@ -3734,7 +3749,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       }
       
       // Then draw the semi-transparent colored overlay
-      const bgOpacity = 0.35 * expansionProgress; // Moderate transparency (0.3-0.4)
+      // Apply 50% opacity to unselected pins when a feature is selected
+      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      const bgOpacity = 0.35 * expansionProgress * pinOpacity; // Moderate transparency (0.3-0.4)
       ctx.fillStyle = `rgba(240, 206, 37, ${bgOpacity})`; // Yellow with transparency
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentEmotionsAreaOuterRadius, 0, Math.PI * 2);
@@ -3821,51 +3838,70 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
     
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
+      // Apply 50% opacity to unselected pins when a feature is selected
+      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      ctx.save();
+      ctx.globalAlpha = pinOpacity;
+
       // Draw green ring as a donut shape
       ctx.fillStyle = '#4CB948'; // Green
       ctx.beginPath();
       ctx.arc(screenX, screenY, collapsedGreenRingOuterRadius, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, collapsedGreenRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
       ctx.fill();
-      
+
       // White stroke on outer edge of green ring only
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = whiteStrokeWidth;
       ctx.beginPath();
       ctx.arc(screenX, screenY, collapsedGreenRingOuterRadius, 0, Math.PI * 2);
       ctx.stroke();
+
+      ctx.restore();
     }
     
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
+      // Apply 50% opacity to unselected pins when a feature is selected
+      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      ctx.save();
+      ctx.globalAlpha = pinOpacity;
+
       // Draw yellow ring as a donut shape
       ctx.fillStyle = '#F0CE25'; // Yellow
       ctx.beginPath();
       ctx.arc(screenX, screenY, collapsedYellowRingOuterRadius, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, collapsedYellowRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
       ctx.fill();
-      
+
       // White stroke on outer edge of yellow ring only
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = whiteStrokeWidth;
       ctx.beginPath();
       ctx.arc(screenX, screenY, collapsedYellowRingOuterRadius, 0, Math.PI * 2);
       ctx.stroke();
+
+      ctx.restore();
     }
   }
   
   // Draw blue circle (innermost) - always visible, same size in both states
+  // Apply 50% opacity to unselected pins when a feature is selected
+  const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+  ctx.save();
+  ctx.globalAlpha = pinOpacity;
   ctx.fillStyle = '#008CFF'; // Blue
   ctx.beginPath();
   ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
   ctx.fill();
-  
+
   // White stroke around blue circle
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = whiteStrokeWidth;
   ctx.beginPath();
   ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.restore();
   
   // Check if mouse is hovering over this pin (for hover tooltip)
   const dx = canvasRelativeX - screenX;
@@ -5662,7 +5698,7 @@ function drawReflectionControlPanel(img) {
     },
     {
       id: 'features-pinned',
-      label: selectedPinId !== null ? 'Feature selected' : `${featuresCount} Features pinned`,
+      label: selectedPinId !== null ? `${img.pins.find(p => p.id === selectedPinId)?.feature || 'Feature'} selected` : `${featuresCount} Features pinned`,
       color: '#3b82f6', // Blue
       textColor: '#ffffff'
     },
@@ -7540,16 +7576,19 @@ function updateBottomToolbarVisibility() {
   // AND it's not a fresh screenshot that hasn't been manually exited yet
   if (isOverlayActive && !isReflectionMode && !isFreshScreenshot) {
     bottomToolbar.classList.add('visible');
-    // Position icons above the visible toolbar
+    // Show icons immediately when toolbar starts animating up
     toolbarIcons.forEach(icon => {
       icon.classList.remove('hidden');
     });
   } else {
     bottomToolbar.classList.remove('visible');
-    // Move icons completely out of view when toolbar is hidden
-    toolbarIcons.forEach(icon => {
-      icon.classList.add('hidden');
-    });
+    // First move icons down with toolbar (300ms), then fade them out (200ms)
+    setTimeout(() => {
+      // After toolbar animation completes, fade out the icons
+      toolbarIcons.forEach(icon => {
+        icon.classList.add('hidden');
+      });
+    }, 300);
   }
 }
 
@@ -8320,7 +8359,6 @@ canvas.addEventListener('mousedown', (e) => {
       startFeaturesHeaderBottomRadiusAnimation(FEATURES_HEADER_BOTTOM_RADIUS_SELECTED);
       startEmotionsHeaderRadiusAnimation(EMOTIONS_HEADER_RADIUS_SELECTED);
       startValuesHeaderTopRadiusAnimation(VALUES_HEADER_TOP_RADIUS_SELECTED);
-      tooltipPinId = clickedPin.id; // Show persistent tooltip
       hidePinPlacementUI();
       
       // Close features-pinned accordion when a feature is selected
@@ -10505,8 +10543,24 @@ saturationSlider.addEventListener('input', (e) => {
   }
 });
 
+// Handle blur slider
+blurSlider.addEventListener('input', (e) => {
+  const blurPixels = parseInt(e.target.value);
+  backgroundBlurAmount = blurPixels;
+  blurValue.textContent = blurPixels + 'px';
+  // Mark background cache as dirty (needs update)
+  backgroundCacheDirty = true;
+  // Redraw if overlay is active
+  if (isOverlayActive) {
+    requestDraw();
+  }
+});
+
 // Initialize saturation value display
 saturationValue.textContent = saturationSlider.value + '%';
+
+// Initialize blur value display
+blurValue.textContent = blurSlider.value + 'px';
 
 // Handle circle speed slider
 circleSpeedSlider.addEventListener('input', (e) => {

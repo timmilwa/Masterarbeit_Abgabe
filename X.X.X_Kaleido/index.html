@@ -184,7 +184,8 @@
             width: 30px;
             height: 30px;
             z-index: 1401;
-            transition: bottom 0.3s ease-out;
+            transition: bottom 0.3s ease-out, opacity 0.2s ease-out;
+            opacity: 1;
         }
 
         .toolbar-icon-left {
@@ -197,7 +198,7 @@
         }
 
         .toolbar-icon.hidden {
-            bottom: -60px; /* Move completely off-screen when toolbar is hidden */
+            opacity: 0; /* Fade out instead of moving off-screen */
         }
 
         .toolbar-center-icons {
@@ -1099,6 +1100,26 @@
                         <polyline points="21 15 16 10 5 21"></polyline>
                     </svg>
                 </button>
+                <button class="tool-button" id="flag-tool" title="Flag Triangle Right">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 21V3h16l4 4-4 4h-6v6l-4 4Z"/>
+                    </svg>
+                </button>
+                <button class="tool-button" id="layers-tool" title="Layers 2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m16.02 12 5.48 3.13a1 1 0 0 1 0 1.74l-8.96 5.15a1 1 0 0 1-1 0L2.58 16.87a1 1 0 0 1 0-1.74L8.06 12"/>
+                        <path d="m7.98 12-5.48 3.13a1 1 0 0 0 0 1.74l8.96 5.15a1 1 0 0 1 1 0l8.96-5.15a1 1 0 0 0 0-1.74L16.02 12"/>
+                    </svg>
+                </button>
+                <button class="tool-button" id="monitor-tool" title="Monitor Down">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect width="20" height="14" x="2" y="3" rx="2"/>
+                        <line x1="8" x2="16" y1="21" y2="21"/>
+                        <line x1="12" x2="12" y1="17" y2="21"/>
+                        <path d="m6 15 6 6"/>
+                        <path d="m18 15-6 6"/>
+                    </svg>
+                </button>
             </div>
             <div class="toolbar-icon toolbar-icon-right">
                 <svg width="30" height="30" viewBox="0 0 43 43" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1193,7 +1214,7 @@
                     <div class="settings-tab-pane active" id="appearance-tab">
                         <div class="settings-section">
                             <label class="settings-label" for="tint-color-input">Background Tint Color</label>
-                            <input type="text" id="tint-color-input" class="settings-input" placeholder="#F4F4F7" value="#F4F4F7">
+                            <input type="text" id="tint-color-input" class="settings-input" placeholder="#E4DCC0" value="#E4DCC0">
                             <div id="color-preview" class="color-preview"></div>
                         </div>
                         <div class="settings-section">
@@ -1205,9 +1226,16 @@
                         </div>
                         <div class="settings-section">
                             <label class="settings-label" for="saturation-slider">Background Saturation</label>
-                            <input type="range" id="saturation-slider" class="settings-slider" min="0" max="200" value="0" step="1">
+                            <input type="range" id="saturation-slider" class="settings-slider" min="0" max="200" value="100" step="1">
                             <div class="settings-slider-value">
-                                <span id="saturation-value">0%</span>
+                                <span id="saturation-value">100%</span>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="blur-slider">Background Blur</label>
+                            <input type="range" id="blur-slider" class="settings-slider" min="0" max="50" value="10" step="1">
+                            <div class="settings-slider-value">
+                                <span id="blur-value">10px</span>
                             </div>
                         </div>
                         <div class="settings-section">
