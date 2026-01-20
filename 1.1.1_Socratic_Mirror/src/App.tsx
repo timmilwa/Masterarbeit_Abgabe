@@ -51,6 +51,31 @@ function App() {
     }
   }, [])
 
+  // Load instructions from markdown file
+  const loadInstructionsFromFile = async () => {
+    try {
+      const response = await fetch('/instructions.md?t=' + Date.now())
+      if (response.ok) {
+        const text = await response.text()
+        setInstructions(text.trim())
+        return true
+      }
+    } catch (error) {
+      console.error('Error loading instructions.md:', error)
+    }
+    return false
+  }
+
+  // Load instructions from markdown file on mount
+  useEffect(() => {
+    loadInstructionsFromFile().then((loaded) => {
+      if (!loaded) {
+        // Fall back to default if file not found
+        setInstructions(DEFAULT_INSTRUCTIONS)
+      }
+    })
+  }, [])
+
   // Adjust heights when settings open or instructions change
   useEffect(() => {
     if (showSettings) {
@@ -216,7 +241,17 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
               </p>
             </div>
             <div className="space-y-2 pt-2 border-t border-border/40">
-              <label className="text-sm font-medium text-foreground">Anweisungen</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">Anweisungen</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadInstructionsFromFile}
+                  className="h-7 text-xs"
+                >
+                  Aus Datei laden
+                </Button>
+              </div>
               <textarea
                 ref={(el) => {
                   instructionsRef.current = el
@@ -233,6 +268,9 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
                 )}
                 style={{ minHeight: '2.5rem' }}
               />
+              <p className="text-xs text-muted-foreground">
+                Bearbeite die Anweisungen hier oder direkt in der Datei <code className="text-xs bg-muted px-1 py-0.5 rounded">public/instructions.md</code>. Klicke auf "Aus Datei laden" um die Datei neu zu laden.
+              </p>
             </div>
           </div>
         )}
