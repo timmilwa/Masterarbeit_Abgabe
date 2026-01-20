@@ -1,8 +1,8 @@
 # Masterarbeit
 In diesem Repo finden sich alle Prototypen, die als Teil meiner Masterarbeit beschrieben werden. 
-Für die AI-Funktionalität muss über den Button oben rechts in der Menüleiste ein eigenen Gemini API-Key hinterlegt werden. 
+Für die AI-Funktionalität muss über den Settings-Button ein eigenen Gemini API-Key hinterlegt werden. 
 
-# How to 
+### How-to 
 1. ZIP Datei des Repos herunterladen und entkomprimieren
 2. Terminal bei dem Projekt, welches ausgeführt werden soll aufmachen (Mac: Rechtsklick auf den Ordner)
 3. Befehl "npm i" eingeben.
