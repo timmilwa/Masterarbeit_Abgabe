@@ -3,9 +3,11 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
-import { Settings, Send, Sparkles } from "lucide-react"
+import { Settings, Send, Sparkles, Zap, Heart, Scale } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { GoogleGenerativeAI } from '@google/generative-ai'
+
+type Category = 'Funktion' | 'Emotion' | 'Werte'
 
 const GEMINI_MODELS = [
   { value: 'gemini-pro', label: 'Gemini Pro' },
@@ -17,12 +19,17 @@ const GEMINI_MODELS = [
 
 type GeminiModel = typeof GEMINI_MODELS[number]['value']
 
-const DEFAULT_INSTRUCTIONS = 'Du bist ein Reflexionsassistent, der Menschen hilft, über Gegenstände nachzudenken. Stelle offene, nachdenkliche Fragen, die den Benutzer dazu anregen, tief über den Gegenstand nachzudenken.'
+const DEFAULT_MODE_INSTRUCTIONS: Record<Category, string> = {
+  'Funktion': 'Konzentriere dich auf die funktionale Ebene: Was macht dieser Gegenstand? Wie funktioniert er? Welchen Zweck erfüllt er?',
+  'Emotion': 'Konzentriere dich auf die emotionale Ebene: Welche Gefühle weckt dieser Gegenstand? Welche Erinnerungen sind damit verbunden? Wie fühlt sich der Benutzer in Bezug darauf?',
+  'Werte': 'Konzentriere dich auf die Werteebene: Welche Werte repräsentiert dieser Gegenstand? Was bedeutet er für den Benutzer? Welche Prinzipien oder Überzeugungen sind damit verbunden?',
+}
 
 type Message = {
   id: string
   role: 'user' | 'ai'
   content: string
+  category?: Category
 }
 
 function App() {
@@ -34,14 +41,23 @@ function App() {
     }
   ])
   const [inputValue, setInputValue] = useState("")
+  const [activeTab, setActiveTab] = useState<Category>('Funktion')
   const [showSettings, setShowSettings] = useState(false)
   const [googleApiKey, setGoogleApiKey] = useState("")
   const [selectedModel, setSelectedModel] = useState<GeminiModel>('gemini-2.5-flash')
-  const [instructions, setInstructions] = useState<string>(DEFAULT_INSTRUCTIONS)
+  const [instructions, setInstructions] = useState<Record<Category, string>>({
+    'Funktion': DEFAULT_MODE_INSTRUCTIONS['Funktion'],
+    'Emotion': DEFAULT_MODE_INSTRUCTIONS['Emotion'],
+    'Werte': DEFAULT_MODE_INSTRUCTIONS['Werte'],
+  })
   const [reflectionObject, setReflectionObject] = useState<string>("")
   const [isLoading, setIsLoading] = useState(false)
   const settingsRef = useRef<HTMLDivElement>(null)
-  const instructionsRef = useRef<HTMLTextAreaElement | null>(null)
+  const instructionsRefs = useRef<Record<Category, HTMLTextAreaElement | null>>({
+    'Funktion': null,
+    'Emotion': null,
+    'Werte': null,
+  })
 
   // Auto-resize textarea to fit content
   const adjustTextareaHeight = useCallback((textarea: HTMLTextAreaElement | null) => {
@@ -56,7 +72,7 @@ function App() {
     if (showSettings) {
       // Use setTimeout to ensure DOM is updated
       setTimeout(() => {
-        adjustTextareaHeight(instructionsRef.current)
+        Object.values(instructionsRefs.current).forEach(adjustTextareaHeight)
       }, 0)
     }
   }, [showSettings, instructions, adjustTextareaHeight])
@@ -93,18 +109,20 @@ function App() {
       // If no reflection object is set yet, this is the first answer - set the object
       if (!reflectionObject) {
         setReflectionObject(userMessage)
-        // Ask a reflection question
-        const basePrompt = `Der Benutzer möchte über "${userMessage}" reflektieren. 
+        // Ask a reflection question based on the current mode
+        const modeInstructions = instructions[activeTab]
+        const basePrompt = `Du bist ein Reflexionsassistent, der Menschen hilft, über Gegenstände nachzudenken. Der Benutzer möchte über "${userMessage}" reflektieren. 
         
-${instructions}
+${modeInstructions}
 
-WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehrzahl von Fragen). Die Frage sollte den Benutzer dazu anregt, tief über diesen Gegenstand nachzudenken. Die Frage muss auf Deutsch sein, kurz und prägnant (maximal 15 Wörter).`
+WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehrzahl von Fragen). Die Frage sollte den Benutzer dazu anregt, tief über diesen Aspekt des Gegenstandes nachzudenken. Die Frage muss auf Deutsch sein, kurz und prägnant (maximal 15 Wörter).`
 
         const aiResponse = await callGeminiAPI(basePrompt)
         setMessages(prev => [...prev, { 
           id: (Date.now() + 1).toString(), 
           role: 'ai', 
-          content: aiResponse.trim()
+          content: aiResponse.trim(),
+          category: activeTab 
         }])
       } else {
         // Continue the conversation with context
@@ -116,9 +134,10 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
           }
         }).join('\n')
 
-        const basePrompt = `Der Benutzer reflektiert über "${reflectionObject}".
+        const modeInstructions = instructions[activeTab]
+        const basePrompt = `Du bist ein Reflexionsassistent, der Menschen hilft, über Gegenstände nachzudenken. Der Benutzer reflektiert über "${reflectionObject}".
 
-${instructions}
+${modeInstructions}
 
 Gesprächsverlauf:
 ${conversationHistory}
@@ -131,7 +150,8 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
         setMessages(prev => [...prev, { 
           id: (Date.now() + 1).toString(), 
           role: 'ai', 
-          content: aiResponse.trim()
+          content: aiResponse.trim(),
+          category: activeTab 
         }])
       }
     } catch (error) {
@@ -139,13 +159,54 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
       setMessages(prev => [...prev, { 
         id: (Date.now() + 1).toString(), 
         role: 'ai', 
-        content: errorMessage
+        content: errorMessage,
+        category: activeTab 
       }])
     } finally {
       setIsLoading(false)
     }
   }
 
+  const handleTabChange = async (tab: Category) => {
+    setActiveTab(tab)
+    
+    // Only generate AI message if object is already set
+    if (!reflectionObject) return
+
+    setIsLoading(true)
+    try {
+      const modeInstructions = instructions[tab]
+      const basePrompt = `Du bist ein Reflexionsassistent, der Menschen hilft, über Gegenstände nachzudenken. Der Benutzer reflektiert über "${reflectionObject}".
+
+${modeInstructions}
+
+WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehrzahl von Fragen). Die Frage sollte den Benutzer dazu anregt, tief über diesen neuen Aspekt des Gegenstandes nachzudenken. Die Frage muss auf Deutsch sein, kurz und prägnant (maximal 15 Wörter).`
+
+      const aiResponse = await callGeminiAPI(basePrompt)
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'ai',
+        content: aiResponse.trim(),
+        category: tab
+      }])
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Ein Fehler ist aufgetreten. Bitte überprüfe deine API Key in den Einstellungen."
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'ai',
+        content: errorMessage,
+        category: tab
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const tabs = [
+    { id: 'Funktion', icon: Zap },
+    { id: 'Emotion', icon: Heart },
+    { id: 'Werte', icon: Scale },
+  ] as const
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -166,11 +227,6 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
 
   return (
     <div className="flex h-screen w-full flex-col bg-background text-foreground font-sans relative overflow-hidden selection:bg-selection selection:text-white">
-      {/* Title */}
-      <div className="absolute top-6 left-6 z-20">
-        <h1 className="text-xl font-medium text-foreground">Socratic Mirror</h1>
-      </div>
-
       {/* Settings Button */}
       <div className="absolute top-6 right-6 z-30" ref={settingsRef}>
         <Button
@@ -215,31 +271,62 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
                 Wähle das Gemini-Modell für die Konversation
               </p>
             </div>
-            <div className="space-y-2 pt-2 border-t border-border/40">
-              <label className="text-sm font-medium text-foreground">Anweisungen</label>
-              <textarea
-                ref={(el) => {
-                  instructionsRef.current = el
-                  adjustTextareaHeight(el)
-                }}
-                value={instructions}
-                onChange={(e) => {
-                  setInstructions(e.target.value)
-                  adjustTextareaHeight(e.target)
-                }}
-                placeholder="Anweisungen für den Reflexionsassistenten..."
-                className={cn(
-                  "flex w-full rounded-md border border-input bg-gray-100 px-3 py-2 text-sm shadow-sm text-foreground resize-none overflow-hidden transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 placeholder:text-muted-foreground"
-                )}
-                style={{ minHeight: '2.5rem' }}
-              />
+            <div className="space-y-3 pt-2 border-t border-border/40">
+              <label className="text-sm font-medium text-foreground">Modus-spezifische Anweisungen</label>
+              {tabs.map((tab) => (
+                <div key={tab.id} className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+                    <tab.icon className="h-3 w-3" />
+                    {tab.id}
+                  </label>
+                  <div>
+                    <textarea
+                      ref={(el) => {
+                        instructionsRefs.current[tab.id] = el
+                        adjustTextareaHeight(el)
+                      }}
+                      value={instructions[tab.id]}
+                      onChange={(e) => {
+                        setInstructions(prev => ({ ...prev, [tab.id]: e.target.value }))
+                        adjustTextareaHeight(e.target)
+                      }}
+                      placeholder={`Anweisungen für ${tab.id} Modus...`}
+                      className={cn(
+                        "flex w-full rounded-md border border-input bg-gray-100 px-3 py-2 text-sm shadow-sm text-foreground resize-none overflow-hidden transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 placeholder:text-muted-foreground"
+                      )}
+                      style={{ minHeight: '2.5rem' }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
       </div>
 
+      {/* Top Segmented Switch */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-top-4 duration-700">
+        <div className="flex items-center p-1 bg-muted/80 backdrop-blur-md rounded-xl border border-border/40 shadow-sm">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              className={cn(
+                "relative flex items-center gap-2 px-4 py-1.5 text-sm font-medium transition-all duration-300 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/20",
+                activeTab === tab.id
+                  ? "bg-primary text-primary-foreground shadow-md"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/40"
+              )}
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.id}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto px-4 pt-24 pb-40 scroll-smooth">
+      <div className="flex-1 overflow-y-auto px-4 pt-28 pb-40 scroll-smooth">
         <div className="mx-auto max-w-2xl space-y-8">
           {messages.map((msg) => (
             <div key={msg.id} className={cn("flex w-full animate-in fade-in slide-in-from-bottom-2 duration-500", msg.role === 'user' ? "justify-end" : "justify-start")}>
@@ -252,6 +339,7 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
                 {msg.role === 'ai' && (
                   <div className="flex items-center gap-2 mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     <Sparkles className="h-3 w-3 text-secondary-foreground/60" />
+                    {msg.category && <span>{msg.category}</span>}
                   </div>
                 )}
                 {msg.content}
