@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
-import { Settings, Send, Sparkles, Zap, Heart, Scale } from "lucide-react"
+import { Settings, Send, Sparkles, Zap, Heart, Scale, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -58,6 +58,73 @@ function App() {
     'Emotion': null,
     'Werte': null,
   })
+
+  // Parse markdown file to extract instructions
+  const parseMarkdownInstructions = (markdown: string): Record<Category, string> => {
+    const result: Partial<Record<Category, string>> = {}
+    const lines = markdown.split('\n')
+    
+    let currentCategory: Category | null = null
+    let currentContent: string[] = []
+    
+    for (const line of lines) {
+      // Check for category headers (## Funktion, ## Emotion, ## Werte)
+      if (line.startsWith('## ')) {
+        // Save previous category if exists
+        if (currentCategory && currentContent.length > 0) {
+          result[currentCategory] = currentContent.join('\n').trim()
+        }
+        
+        const categoryText = line.substring(3).trim()
+        if (categoryText === 'Funktion') {
+          currentCategory = 'Funktion'
+        } else if (categoryText === 'Emotion') {
+          currentCategory = 'Emotion'
+        } else if (categoryText === 'Werte') {
+          currentCategory = 'Werte'
+        } else {
+          currentCategory = null
+        }
+        currentContent = []
+      } else if (currentCategory && line.trim() && !line.startsWith('#')) {
+        // Add non-header lines to current category content
+        currentContent.push(line)
+      }
+    }
+    
+    // Save last category
+    if (currentCategory && currentContent.length > 0) {
+      result[currentCategory] = currentContent.join('\n').trim()
+    }
+    
+    // Fill in defaults for any missing categories
+    return {
+      'Funktion': result['Funktion'] || DEFAULT_MODE_INSTRUCTIONS['Funktion'],
+      'Emotion': result['Emotion'] || DEFAULT_MODE_INSTRUCTIONS['Emotion'],
+      'Werte': result['Werte'] || DEFAULT_MODE_INSTRUCTIONS['Werte'],
+    }
+  }
+
+  // Load instructions from default markdown file
+  const loadDefaultInstructions = useCallback(async () => {
+    try {
+      const response = await fetch('/instructions.md')
+      if (!response.ok) {
+        console.warn('Could not load default instructions.md, using defaults')
+        return
+      }
+      const markdown = await response.text()
+      const parsed = parseMarkdownInstructions(markdown)
+      setInstructions(parsed)
+    } catch (error) {
+      console.error('Error loading instructions:', error)
+    }
+  }, [])
+
+  // Load default instructions on mount
+  useEffect(() => {
+    loadDefaultInstructions()
+  }, [loadDefaultInstructions])
 
   // Auto-resize textarea to fit content
   const adjustTextareaHeight = useCallback((textarea: HTMLTextAreaElement | null) => {
@@ -272,7 +339,18 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
               </p>
             </div>
             <div className="space-y-3 pt-2 border-t border-border/40">
-              <label className="text-sm font-medium text-foreground">Modus-spezifische Anweisungen</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">Modus-spezifische Anweisungen</label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadDefaultInstructions}
+                  className="h-8 px-2 text-xs"
+                >
+                  <FileText className="h-3 w-3 mr-1" />
+                  Reset
+                </Button>
+              </div>
               {tabs.map((tab) => (
                 <div key={tab.id} className="space-y-2">
                   <label className="text-xs font-medium text-muted-foreground flex items-center gap-2">
