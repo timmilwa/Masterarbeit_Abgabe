@@ -5,7 +5,7 @@ In diesem Repo finden sich alle Prototypen, die als Teil meiner Masterarbeit bes
 In den meisten Fällen ist zur Nutzung lediglich die lokale Hinterlegung eines eigenen Google AI API-Keys in den Einstellungen des Interface erforderlich, bei einigen muss Zugriff auf bestimmte Funktionen des Betriebssystem gegeben werden. Die dabei verarbeiteten Daten sind für mich nicht zugänglich.
 
 ### Setup 
-1. ZIP-Datei des Repos herunterladen und entpacken.
+1. ZIP-Datei des Repos herunterladen (grüner Button oben rechts) und entpacken.
 2. Terminal im Projektordner öffnen (Mac: Rechtsklick auf den Ordner → "Neues Terminal beim Ordner")
 3. Befehl "npm i" im Terminal eingeben, um die Abhängigkeiten zu installieren.
 4. Befehl "npm run dev" eingeben, um den Entwicklungsserver zu starten.
