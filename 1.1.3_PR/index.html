@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poetic Redescription Bot</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=Inter:wght@300;400;500&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f4f0; /* Warm off-white, paper-like */
+            color: #2d2d2d;
+        }
+        
+        .font-serif {
+            font-family: 'Cormorant Garamond', serif;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.8s ease-out forwards;
+            opacity: 0;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        /* Custom scrollbar for a cleaner look */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d1d1d1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Icons as Components to avoid CDN errors ---
+        const BookOpen = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+            </svg>
+        );
+
+        const Sparkles = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+            </svg>
+        );
+
+        const ArrowRight = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M5 12h14"></path>
+                <path d="m12 5 7 7-7 7"></path>
+            </svg>
+        );
+
+        const RefreshCw = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+                <path d="M21 3v5h-5"></path>
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
+                <path d="M8 16H3v5"></path>
+            </svg>
+        );
+
+        const Settings = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+        );
+
+        // System prompt defining the Persona and Rules
+        const SYSTEM_INSTRUCTION = `
+            Du bist ein System für „Poetic Redescription“ im Sinne von Paul Ricoeur.
+            Deine Aufgabe: Alltagsgegenstände nicht funktional optimieren, sondern ihre Bedeutungen durch metaphorische Umlenkungen neu erfahrbar machen.
+            
+            REGELN:
+            1. Keine Produktideen, keine Features, keine Lösungen.
+            2. Erzeuge Referenzbrüche: Einbettung in neue mögliche Welten (Werte, Rituale, Atmosphären).
+            3. Tonalität: Klar, konkret, poetisch, semantisch umlenkend.
+            
+            ABLAUF:
+            Wenn der User ein Objekt nennt, antworte NUR mit einem validen JSON-Array in diesem Format, ohne Markdown-Formatierung (kein \`\`\`json):
+            [
+              {"title": "Titel des Frames 1", "description": "Dichte, poetische Beschreibung (ca. 2-3 Sätze)."},
+              {"title": "Titel des Frames 2", "description": "Dichte, poetische Beschreibung (ca. 2-3 Sätze)."},
+              {"title": "Titel des Frames 3", "description": "Dichte, poetische Beschreibung (ca. 2-3 Sätze)."}
+            ]
+            Erzeuge 3 bis 4 radikal unterschiedliche Frames.
+
+            Wenn der User einen Frame auswählt (Textinput), vertiefe diesen Strang. Stelle 3 gezielte, kurze Fragen zu Werten, Gefühlen, Ritualen oder Symbolik, um den Bedeutungsraum zu öffnen. Antworte hier als normaler Text (kein JSON).
+        `;
+
+        function App() {
+            const [messages, setMessages] = useState([
+                {
+                    role: 'system',
+                    content: "Nenne mir einen Alltagsgegenstand, und ich werde seine Bedeutung neu vermessen."
+                }
+            ]);
+            const [inputValue, setInputValue] = useState("");
+            const [isLoading, setIsLoading] = useState(false);
+            const [options, setOptions] = useState([]); // Stores the poetic frames
+            const [stage, setStage] = useState('input_object'); // 'input_object', 'selection', 'deepening'
+            const [apiKey, setApiKey] = useState(""); // API Key provided by runtime environment
+            const [showSettings, setShowSettings] = useState(false);
+            const [apiKeyInput, setApiKeyInput] = useState("");
+            const bottomRef = useRef(null);
+            const settingsRef = useRef(null);
+
+            const scrollToBottom = () => {
+                bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+            };
+
+            useEffect(() => {
+                scrollToBottom();
+            }, [messages, options, isLoading]);
+
+            // Close settings dropdown when clicking outside
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+                        setShowSettings(false);
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, []);
+
+            const handleApiKeySave = () => {
+                setApiKey(apiKeyInput);
+                setShowSettings(false);
+            };
+
+            const callGemini = async (prompt, history = []) => {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                
+                // Construct the history for the API
+                // We keep the conversation concise to maintain the persona
+                const contents = [
+                    {
+                        role: "user",
+                        parts: [{ text: SYSTEM_INSTRUCTION }] // Prepend system instruction as context
+                    },
+                    ...history.map(msg => ({
+                        role: msg.role === 'user' ? 'user' : 'model',
+                        parts: [{ text: msg.content }]
+                    })),
+                    {
+                        role: "user",
+                        parts: [{ text: prompt }]
+                    }
+                ];
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents })
+                    });
+                    
+                    if (!response.ok) throw new Error("API Error");
+
+                    const data = await response.json();
+                    return data.candidates[0].content.parts[0].text;
+                } catch (error) {
+                    console.error(error);
+                    return null;
+                }
+            };
+
+            const handleSend = async () => {
+                if (!inputValue.trim()) return;
+                
+                const userText = inputValue;
+                setInputValue("");
+                
+                // Add user message to UI
+                const newHistory = [...messages, { role: 'user', content: userText }];
+                setMessages(newHistory);
+                setIsLoading(true);
+                setOptions([]); // Clear previous options
+
+                try {
+                    if (stage === 'input_object' || stage === 'reset') {
+                        // Phase 1: Generate Poetic Frames
+                        const prompt = `Das Objekt ist: "${userText}". Generiere die poetischen Redescription-Frames als reines JSON-Array.`;
+                        const responseText = await callGemini(prompt, []);
+                        
+                        // Parse JSON safely
+                        let frames = [];
+                        try {
+                            // Clean up potential markdown code blocks if the model adds them despite instructions
+                            const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+                            frames = JSON.parse(cleanJson);
+                        } catch (e) {
+                            console.error("JSON Parse Error", e);
+                            // Fallback if JSON fails
+                            frames = [{ title: "Fehler in der Matrix", description: "Die poetische Umdeutung konnte nicht strukturiert werden. Bitte versuche es erneut." }];
+                        }
+
+                        setMessages(prev => [...prev, { 
+                            role: 'system', 
+                            content: `Ich habe folgende Bedeutungsräume für "${userText}" geöffnet. Welchen möchtest du betreten?` 
+                        }]);
+                        setOptions(frames);
+                        setStage('selection');
+
+                    } else if (stage === 'selection' || stage === 'deepening') {
+                        // Phase 2: Deepening questions
+                        // For deepening, we just continue the conversation naturally
+                        const prompt = `Der User antwortet/wählt: "${userText}". Vertiefe diesen Strang mit Rückfragen zu Werten/Ritualen (kein JSON mehr).`;
+                        
+                        // We need to pass previous context properly specifically for deepening
+                        // However, to keep it simple and robust, we just prompt with the immediate context
+                        const responseText = await callGemini(prompt, messages.slice(-4)); 
+                        
+                        setMessages(prev => [...prev, { role: 'system', content: responseText }]);
+                        setStage('deepening');
+                    }
+                } catch (error) {
+                    setMessages(prev => [...prev, { role: 'system', content: "Ein stiller Moment. Etwas hat nicht funktioniert. Bitte versuche es erneut." }]);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const handleOptionSelect = (option) => {
+                setInputValue(option.title);
+                // We automatically trigger send but after a slight delay for visual feedback could be nice
+                // For now, let's just populate the input so the user can hit send or modify
+                // Actually, let's auto-send for smoother flow
+                setTimeout(() => {
+                    // Logic to immediately trigger the next step
+                    // We need to simulate the user sending this text
+                    const userText = `Ich wähle den Frame: ${option.title}. ${option.description}`;
+                    
+                    setMessages(prev => [...prev, { role: 'user', content: option.title }]); // Show only title in chat bubbles
+                    setIsLoading(true);
+                    setOptions([]); // Hide options
+
+                    // Call API for deepening
+                    (async () => {
+                         const prompt = `Der User wählt den Frame: "${option.title}". Beschreibung: "${option.description}". Vertiefe diesen Strang mit poetischen Rückfragen (kein JSON).`;
+                         const responseText = await callGemini(prompt, []); // Context is implied by prompt content here for simplicity
+                         setMessages(prev => [...prev, { role: 'system', content: responseText }]);
+                         setStage('deepening');
+                         setIsLoading(false);
+                    })();
+                }, 100);
+            };
+
+            const reset = () => {
+                setMessages([{
+                    role: 'system',
+                    content: "Nenne mir einen neuen Alltagsgegenstand."
+                }]);
+                setStage('input_object');
+                setOptions([]);
+                setInputValue("");
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8">
+                    
+                    {/* Settings Button - Top Right */}
+                    <div className="fixed top-4 right-4 z-50" ref={settingsRef}>
+                        <button
+                            onClick={() => {
+                                setApiKeyInput(apiKey);
+                                setShowSettings(!showSettings);
+                            }}
+                            className="p-2 rounded-full bg-white/80 backdrop-blur-sm border border-neutral-200 hover:bg-white hover:shadow-md transition-all"
+                            title="Einstellungen"
+                        >
+                            <Settings size={20} className="text-neutral-600" />
+                        </button>
+                        
+                        {/* Settings Dropdown */}
+                        {showSettings && (
+                            <div className="absolute top-12 right-0 w-80 bg-white border border-neutral-200 rounded-md shadow-lg p-4">
+                                <h3 className="text-sm font-medium text-neutral-700 mb-3">API-Einstellungen</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-xs text-neutral-600 mb-1">Google API Key für AI</label>
+                                        <input
+                                            type="password"
+                                            value={apiKeyInput}
+                                            onChange={(e) => setApiKeyInput(e.target.value)}
+                                            placeholder="API Key eingeben..."
+                                            className="w-full px-3 py-2 text-sm border border-neutral-300 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleApiKeySave}
+                                        className="w-full px-4 py-2 text-sm bg-neutral-800 text-white rounded-md hover:bg-neutral-700 transition-colors"
+                                    >
+                                        Speichern
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Header */}
+                    <div className="max-w-3xl w-full mb-8 text-center fade-in">
+                        <div className="flex items-center justify-center gap-2 mb-2 text-neutral-500">
+                            <BookOpen size={18} />
+                            <span className="text-xs uppercase tracking-widest font-medium">Paul Ricoeur Bot</span>
+                        </div>
+                        <h1 className="text-4xl md:text-5xl font-serif text-neutral-800 italic mb-2">
+                            Poetische Redescription
+                        </h1>
+                        <p className="text-neutral-500 max-w-md mx-auto text-sm leading-relaxed">
+                            Wir optimieren keine Funktionen. Wir verschieben Bedeutungen. 
+                            Nenne einen Gegenstand, um seine verborgenen Welten zu öffnen.
+                        </p>
+                    </div>
+
+                    {/* Main Chat Container */}
+                    <div className="max-w-3xl w-full flex-grow flex flex-col relative" style={{ minHeight: '60vh' }}>
+                        
+                        {/* Messages Area */}
+                        <div className="flex-grow overflow-y-auto mb-6 pr-2 space-y-6 pb-20">
+                            {messages.map((msg, idx) => (
+                                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} fade-in`}>
+                                    <div className={`
+                                        max-w-[85%] md:max-w-[75%] p-6 rounded-sm shadow-sm
+                                        ${msg.role === 'user' 
+                                            ? 'bg-neutral-800 text-neutral-100' 
+                                            : 'bg-white text-neutral-800 border border-neutral-200'}
+                                    `}>
+                                        <p className={`text-lg leading-relaxed ${msg.role === 'system' ? 'font-serif' : 'font-sans font-light'}`}>
+                                            {msg.content}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {/* Loading Indicator */}
+                            {isLoading && (
+                                <div className="flex justify-start fade-in">
+                                    <div className="bg-white/50 p-4 rounded-sm flex items-center gap-2">
+                                        <div className="animate-spin text-neutral-400">
+                                            <Sparkles size={18} />
+                                        </div>
+                                        <span className="text-sm text-neutral-400 font-serif italic">Die Bedeutung verschiebt sich...</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Options Display (Phase 1 Output) */}
+                            {options.length > 0 && !isLoading && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 fade-in px-1">
+                                    {options.map((opt, i) => (
+                                        <button 
+                                            key={i}
+                                            onClick={() => handleOptionSelect(opt)}
+                                            className="text-left group bg-white hover:bg-neutral-50 transition-all duration-300 p-6 border border-neutral-200 hover:border-neutral-400 shadow-sm hover:shadow-md relative overflow-hidden"
+                                        >
+                                            <div className="absolute top-0 left-0 w-1 h-full bg-neutral-200 group-hover:bg-neutral-800 transition-colors"></div>
+                                            <h3 className="font-serif text-xl text-neutral-900 mb-2 italic group-hover:translate-x-1 transition-transform">
+                                                {opt.title}
+                                            </h3>
+                                            <p className="text-sm text-neutral-600 leading-relaxed font-sans">
+                                                {opt.description}
+                                            </p>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            <div ref={bottomRef}></div>
+                        </div>
+
+                        {/* Input Area */}
+                        <div className="sticky bottom-0 bg-[#f4f4f0] pt-4 pb-2">
+                            <div className="relative max-w-3xl w-full mx-auto">
+                                {stage === 'deepening' && !isLoading && (
+                                    <button 
+                                        onClick={reset}
+                                        className="absolute -top-12 left-1/2 -translate-x-1/2 flex items-center gap-2 text-xs uppercase tracking-widest text-neutral-400 hover:text-neutral-700 transition-colors"
+                                    >
+                                        <RefreshCw size={12} /> Neues Objekt
+                                    </button>
+                                )}
+                                <div className="flex shadow-md border border-neutral-300 bg-white rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-neutral-400 transition-shadow">
+                                    <input
+                                        type="text"
+                                        value={inputValue}
+                                        onChange={(e) => setInputValue(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                                        placeholder={stage === 'input_object' ? "Nenne einen Gegenstand (z.B. Stuhl, Schlüssel)..." : "Deine Antwort..."}
+                                        className="flex-grow p-4 bg-transparent outline-none font-sans text-lg placeholder-neutral-300 text-neutral-800"
+                                        disabled={isLoading || options.length > 0}
+                                    />
+                                    <button 
+                                        onClick={handleSend}
+                                        disabled={isLoading || !inputValue.trim() || options.length > 0}
+                                        className="px-6 bg-white text-neutral-800 hover:bg-neutral-100 disabled:opacity-50 disabled:hover:bg-white transition-colors border-l border-neutral-100"
+                                    >
+                                        <ArrowRight size={20} className={isLoading ? "opacity-0" : "opacity-100"} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
