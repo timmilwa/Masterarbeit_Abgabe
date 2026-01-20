@@ -12,7 +12,7 @@ In den meisten Fällen ist zur Nutzung lediglich die lokale Hinterlegung eines e
 5. Ein Browser-Fenster öffnet sich automatisch, oder die Anwendung kann über den im Terminal angezeigten Link geöffnet werden (z.B. http://localhost:55180).
 
 ### Kontakt 
-email: tim@timmilwa.com 
+email: tim@timmilwa.com <br>
 web: timmilwa.com 
 
 
