@@ -1,0 +1,5 @@
+{
+  "name": "Fluid Representations",
+  "description": "A seamless bridge between visual, textual, and structured brainstorming media. Upload or create content in one form (Image, Text, or Hierarchical Sticky Notes) and use Gemini AI to instantly translate it into the others.",
+  "requestFramePermissions": []
+}
