@@ -433,7 +433,8 @@ function ensureConfigDirectory() {
   }
 }
 
-// Load AI settings from config file (user-specific: API key, mode toggle)
+// Load AI settings from config file (user-specific: mode toggle, model)
+// NOTE: API key is NOT loaded from disk - it's session-only for security
 function loadAISettings() {
   try {
     const configPath = getConfigPath();
@@ -441,9 +442,10 @@ function loadAISettings() {
       const data = fs.readFileSync(configPath, 'utf8');
       const loaded = JSON.parse(data);
       // Merge with defaults to handle missing fields
+      // API key is always empty on load - it's session-only
       aiSettings = {
         aiModeEnabled: loaded.aiModeEnabled !== undefined ? loaded.aiModeEnabled : false,
-        apiKey: loaded.apiKey || "",
+        apiKey: "", // Always start with empty API key (session-only)
         model: loaded.model || "gemini-2.5-flash"
       };
     }
@@ -489,13 +491,21 @@ function saveCustomInstructions(instructions) {
   }
 }
 
-// Save AI settings to config file (user-specific: API key, mode toggle)
+// Save AI settings to config file (user-specific: mode toggle, model)
+// NOTE: API key is NOT saved to disk - it's session-only for security
 function saveAISettings(settings) {
   try {
     ensureConfigDirectory();
     const configPath = getConfigPath();
+    // Update in-memory settings
     aiSettings = { ...aiSettings, ...settings };
-    fs.writeFileSync(configPath, JSON.stringify(aiSettings, null, 2), 'utf8');
+    // Save to disk WITHOUT the API key (session-only)
+    const settingsToSave = {
+      aiModeEnabled: aiSettings.aiModeEnabled,
+      model: aiSettings.model
+      // apiKey is intentionally excluded - it's session-only
+    };
+    fs.writeFileSync(configPath, JSON.stringify(settingsToSave, null, 2), 'utf8');
     return true;
   } catch (error) {
     console.error('Error saving AI settings:', error);
@@ -10561,9 +10571,10 @@ if (aiApiKeyPasteButton) {
     try {
       const text = await navigator.clipboard.readText();
       if (text && text.trim().length > 0) {
-        // Save the API key
+        // Save the API key in memory only (session-only, not persisted)
         aiSettings.apiKey = text.trim();
-        saveAISettings({ apiKey: text.trim() });
+        // Don't save API key to disk - it's session-only
+        // saveAISettings({ apiKey: text.trim() }); // Removed - API key is session-only
         // Update UI to show the input with the key
         if (aiApiKeyInput) {
           aiApiKeyInput.value = text.trim();
@@ -10588,9 +10599,10 @@ if (aiApiKeyClearBtn) {
   aiApiKeyClearBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // Clear the API key
+    // Clear the API key (session-only, not persisted)
     aiSettings.apiKey = '';
-    saveAISettings({ apiKey: '' });
+    // Don't save to disk - API key is session-only
+    // saveAISettings({ apiKey: '' }); // Removed - API key is session-only
     // Update UI to show the paste button
     if (aiApiKeyInput) {
       aiApiKeyInput.value = '';

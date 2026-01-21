@@ -13,7 +13,14 @@ export const resetAI = () => {
 
 const getAI = (): GoogleGenAI => {
   if (!aiInstance) {
-    aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Try to get API key from localStorage first, then fallback to environment variable
+    const apiKey = localStorage.getItem('google_ai_api_key') || process.env.API_KEY;
+    
+    if (!apiKey) {
+      throw new Error("API Key nicht gefunden. Bitte gib deinen Google AI API Key in den Einstellungen ein.");
+    }
+    
+    aiInstance = new GoogleGenAI({ apiKey });
   }
   return aiInstance;
 };

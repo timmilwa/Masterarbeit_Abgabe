@@ -20,3 +20,6 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# User-specific config files (may contain sensitive data)
+config/ai-settings.json
