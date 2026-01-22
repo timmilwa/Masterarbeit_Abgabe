@@ -1,0 +1,6 @@
+Artifact context:[What is the artifact? e.g. “A personal design portfolio for job applications”]
+Function / Feature:[What is pinned on the artifact?]
+Emotion(s):[What emotions are associated with this feature?]
+Value(s):[What higher-level value(s) are assumed?]
+Near field ↔ Far field:[-1 | 0 | +1]
+Common ↔ Less common:[-1 | 0 | +1]
