@@ -2010,11 +2010,6 @@ function toggleOverlay() {
 
   if (isOverlayActive) {
     // Show SVGs immediately when overlay opens
-    const toolbarIcons = document.querySelectorAll('.toolbar-icon');
-    toolbarIcons.forEach(icon => {
-      icon.classList.remove('hidden');
-    });
-
     // Reset FPS tracking when overlay opens
     fpsLastTime = performance.now();
     fpsFrameCount = 0;
@@ -8050,26 +8045,12 @@ function updateBottomToolbarVisibility() {
   const bottomToolbar = document.getElementById('bottom-toolbar');
   if (!bottomToolbar) return;
 
-  // Get the toolbar icons
-  const toolbarIcons = document.querySelectorAll('.toolbar-icon');
-
   // Show toolbar only when overlay is active AND we're NOT in reflection mode
   // AND it's not a fresh screenshot that hasn't been manually exited yet
   if (isOverlayActive && !isReflectionMode && !isFreshScreenshot) {
     bottomToolbar.classList.add('visible');
-    // Show icons immediately when toolbar starts animating up
-    toolbarIcons.forEach(icon => {
-      icon.classList.remove('hidden');
-    });
   } else {
     bottomToolbar.classList.remove('visible');
-    // First move icons down with toolbar (300ms), then fade them out (200ms)
-    setTimeout(() => {
-      // After toolbar animation completes, fade out the icons
-      toolbarIcons.forEach(icon => {
-        icon.classList.add('hidden');
-      });
-    }, 300);
   }
 }
 
