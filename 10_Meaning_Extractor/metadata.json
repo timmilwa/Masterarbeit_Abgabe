@@ -1,0 +1,7 @@
+{
+  "name": "UX Insight Mapper",
+  "description": "An AI-powered UX analysis tool that uses the Means-End Chain theory to map design attributes to psychological consequences and core human values directly onto image elements.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
