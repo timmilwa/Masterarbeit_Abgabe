@@ -2,6 +2,7 @@ const { ipcRenderer } = require('electron');
 const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X, MousePointerClick, Clipboard } = require('lucide');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 // DOM Elements
 const overlayContainer = document.getElementById('overlay-container');
@@ -13,7 +14,9 @@ const screenshotOverlay = document.getElementById('screenshot-overlay');
 const selectionBox = document.getElementById('selection-box');
 const fileInput = document.getElementById('file-input');
 const selectTool = document.getElementById('select-tool');
+const postitTool = document.getElementById('postit-tool');
 const uploadTool = document.getElementById('upload-tool');
+const duplicateTool = document.getElementById('duplicate-tool');
 const settingsPopup = document.getElementById('settings-popup');
 const settingsModalOverlay = document.getElementById('settings-modal-overlay');
 const settingsModal = document.getElementById('settings-modal');
@@ -63,6 +66,7 @@ const fpsCounterDpr = document.getElementById('fps-counter-dpr');
 const fpsCounterSettingsIcon = document.getElementById('fps-counter-settings-icon');
 const dprModeSelect = document.getElementById('dpr-mode-select');
 const fpsCounterToggle = document.getElementById('fps-counter-toggle');
+const demoDataToggle = document.getElementById('demo-data-toggle');
 const demoModeToggle = document.getElementById('demo-mode-toggle');
 const openScreenRecordingPermissionsButton = document.getElementById('open-screen-recording-permissions');
 const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
@@ -2256,6 +2260,7 @@ function toggleOverlay() {
 
     // Deselect any selected images
     selectedImageIndices = [];
+    updateDownloadButtonState();
 
     // Save current canvas position before closing
     savedCanvasScale = canvasScale;
@@ -2599,7 +2604,9 @@ function updateCachedBlurredBackground() {
 async function captureBackground() {
   try {
     const sources = await ipcRenderer.invoke('get-sources');
-    if (sources.length === 0) return;
+    if (sources.length === 0) {
+      return Promise.reject(new Error('No sources'));
+    }
 
     const source = sources[0];
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -8102,6 +8109,9 @@ function handleSelectionChange(newIndex) {
     exitReflectionMode();
   }
 
+  // Update download button state
+  updateDownloadButtonState();
+
   // Button is now drawn on canvas, so we just need to redraw
   requestDraw();
 }
@@ -10267,6 +10277,38 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
   img.src = dataURL;
 }
 
+// Toolbar sliding background functionality
+const toolbarSlidingBg = document.querySelector('.toolbar-sliding-bg');
+let activeToolPosition = 1; // 1 for select-tool, 2 for postit-tool
+
+function updateSlidingBackground(position) {
+  if (!toolbarSlidingBg) return;
+  
+  activeToolPosition = position;
+  toolbarSlidingBg.classList.remove('position-1', 'position-2');
+  toolbarSlidingBg.classList.add(`position-${position}`);
+  
+  // Update active states
+  if (selectTool && postitTool) {
+    selectTool.classList.toggle('active', position === 1);
+    postitTool.classList.toggle('active', position === 2);
+  }
+}
+
+// Select tool click handler
+if (selectTool) {
+  selectTool.addEventListener('click', () => {
+    updateSlidingBackground(1);
+  });
+}
+
+// Postit tool click handler
+if (postitTool) {
+  postitTool.addEventListener('click', () => {
+    updateSlidingBackground(2);
+  });
+}
+
 // Upload tool
 uploadTool.addEventListener('click', () => {
   fileInput.click();
@@ -10283,6 +10325,94 @@ fileInput.addEventListener('change', (e) => {
   }
   fileInput.value = '';
 });
+
+// Update download button state based on selection
+function updateDownloadButtonState() {
+  if (!duplicateTool) return;
+  
+  const hasSelection = selectedImageIndices.length === 1 && 
+                       selectedImageIndices[0] >= 0 && 
+                       selectedImageIndices[0] < images.length;
+  
+  if (hasSelection) {
+    duplicateTool.style.opacity = '1';
+    duplicateTool.style.cursor = 'pointer';
+    duplicateTool.disabled = false;
+  } else {
+    duplicateTool.style.opacity = '0.5';
+    duplicateTool.style.cursor = 'not-allowed';
+    duplicateTool.disabled = true;
+  }
+}
+
+// Save selected image to downloads folder
+function saveSelectedImageToDownloads() {
+  // Check if there's exactly one selected image
+  if (selectedImageIndices.length !== 1 || 
+      selectedImageIndices[0] < 0 || 
+      selectedImageIndices[0] >= images.length) {
+    return;
+  }
+  
+  const selectedIndex = selectedImageIndices[0];
+  const img = images[selectedIndex];
+  
+  if (!img || !img.element) {
+    return;
+  }
+  
+  try {
+    // Create a temporary canvas to render the image
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = img.width;
+    tempCanvas.height = img.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    // Draw the image to the canvas
+    tempCtx.drawImage(img.element, 0, 0, img.width, img.height);
+    
+    // Convert canvas to data URL (base64)
+    const dataURL = tempCanvas.toDataURL('image/png');
+    
+    // Extract base64 data (remove data:image/png;base64, prefix)
+    const base64Data = dataURL.replace(/^data:image\/png;base64,/, '');
+    
+    // Get downloads folder path
+    const downloadsPath = path.join(os.homedir(), 'Downloads');
+    
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `kaleido-image-${timestamp}.png`;
+    const filePath = path.join(downloadsPath, filename);
+    
+    // Convert base64 to buffer and save
+    const buffer = Buffer.from(base64Data, 'base64');
+    fs.writeFile(filePath, buffer, (err) => {
+      if (err) {
+        console.error('Error saving image:', err);
+        showToast('Failed to save image', true);
+      } else {
+        showToast(`Image saved to Downloads/${filename}`);
+      }
+    });
+  } catch (error) {
+    console.error('Error saving image:', error);
+    showToast('Failed to save image', true);
+  }
+}
+
+// Download tool (save selected image)
+duplicateTool.addEventListener('click', () => {
+  // Only save if there's a selection
+  if (selectedImageIndices.length === 1 && 
+      selectedImageIndices[0] >= 0 && 
+      selectedImageIndices[0] < images.length) {
+    saveSelectedImageToDownloads();
+  }
+});
+
+// Initialize download button state
+updateDownloadButtonState();
 
 // Settings modal can be opened via action button (action-settings-button)
 
@@ -10845,7 +10975,169 @@ function clearDemoMode() {
   draw();
 }
 
-// Demo mode toggle handler
+// Demo data: weather images with example pins (feature, emotions, value)
+const DEMO_DATA_IMAGE_NAME = 'demo-data-weather.png';
+const DEMO_DATA_RAIN_IMAGE_NAME = 'demo-data-weather-rain.png';
+const DEMO_DATA_IMAGE_GAP = 40;
+
+function loadDemoData() {
+  images = [];
+  selectedImageIndices = [];
+
+  const demoImagePath = path.join(__dirname, 'assets', DEMO_DATA_IMAGE_NAME);
+  const demoRainImagePath = path.join(__dirname, 'assets', DEMO_DATA_RAIN_IMAGE_NAME);
+
+  try {
+    const imageBuffer = fs.readFileSync(demoImagePath);
+    const imageBase64 = imageBuffer.toString('base64');
+    const imageDataURL = `data:image/png;base64,${imageBase64}`;
+
+    const img = new Image();
+    img.onload = () => {
+      const cssDims = getCanvasCSSDimensions();
+      const maxWidth = cssDims.width * 0.9;
+      const maxHeight = cssDims.height * 0.9;
+
+      let scaledWidth = img.width;
+      let scaledHeight = img.height;
+
+      if (scaledWidth > maxWidth || scaledHeight > maxHeight) {
+        const scaleX = maxWidth / scaledWidth;
+        const scaleY = maxHeight / scaledHeight;
+        const scale = Math.min(scaleX, scaleY);
+        scaledWidth = scaledWidth * scale;
+        scaledHeight = scaledHeight * scale;
+      }
+
+      const visibleCenterX = -canvasTranslateX / canvasScale + (cssDims.width / canvasScale) / 2;
+      const visibleCenterY = -canvasTranslateY / canvasScale + (cssDims.height / canvasScale) / 2;
+      const imageX = visibleCenterX - scaledWidth / 2;
+      const imageY = visibleCenterY - scaledHeight / 2;
+
+      const imageObj = {
+        element: img,
+        x: imageX,
+        y: imageY,
+        width: scaledWidth,
+        height: scaledHeight,
+        aspectRatio: img.width / img.height,
+        finalPosition: null,
+        id: generateId(),
+        version: 1,
+        pins: [],
+        title: null,
+        focus: null,
+        titleGenerated: false
+      };
+
+      const pins = [
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.22 }, semanticLocation: '', feature: 'Current temperature (66°)', emotionalAspects: ['Informed', 'Reassured'], valueAspects: ['Clarity', 'Practicality'] },
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.30 }, semanticLocation: '', feature: 'Weather condition label (Sunny)', emotionalAspects: ['Pleasant', 'Calm'], valueAspects: ['Readability', 'Simplicity'] },
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.42 }, semanticLocation: '', feature: 'Hourly forecast strip', emotionalAspects: ['Prepared', 'Confident'], valueAspects: ['Planning', 'Accessibility'] },
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.72 }, semanticLocation: '', feature: '10-day forecast', emotionalAspects: ['Organized', 'In control'], valueAspects: ['Long-term planning', 'Overview'] }
+      ];
+      imageObj.pins = pins;
+      images.push(imageObj);
+      selectedImageIndices = [0];
+
+      // Load second demo image (rain weather) and place to the right of the first
+      const rainBuffer = fs.readFileSync(demoRainImagePath);
+      const rainDataURL = `data:image/png;base64,${rainBuffer.toString('base64')}`;
+      const imgRain = new Image();
+      imgRain.onload = () => {
+        const first = images[0];
+        let rw = imgRain.width;
+        let rh = imgRain.height;
+        if (rw > maxWidth || rh > maxHeight) {
+          const sx = maxWidth / rw;
+          const sy = maxHeight / rh;
+          const s = Math.min(sx, sy);
+          rw = rw * s;
+          rh = rh * s;
+        }
+        const rainX = first.x + first.width + DEMO_DATA_IMAGE_GAP;
+        const rainY = first.y;
+
+        const rainObj = {
+          element: imgRain,
+          x: rainX,
+          y: rainY,
+          width: rw,
+          height: rh,
+          aspectRatio: imgRain.width / imgRain.height,
+          finalPosition: null,
+          id: generateId(),
+          version: 1,
+          pins: [],
+          title: null,
+          focus: null,
+          titleGenerated: false
+        };
+
+        const rainPins = [
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.22 }, semanticLocation: '', feature: 'Rain cloud illustration', emotionalAspects: ['Thoughtful', 'Sober'], valueAspects: ['Atmosphere', 'Context'] },
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.38 }, semanticLocation: '', feature: 'Current temperature (27°)', emotionalAspects: ['Informed', 'Aware'], valueAspects: ['Clarity', 'Practicality'] },
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.48 }, semanticLocation: '', feature: 'Precipitation label (Rain)', emotionalAspects: ['Calm', 'Prepared'], valueAspects: ['Readability', 'Simplicity'] },
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.78 }, semanticLocation: '', feature: 'Temperature range / timeline (29°–26°)', emotionalAspects: ['Oriented', 'In control'], valueAspects: ['Planning', 'Overview'] }
+        ];
+        rainObj.pins = rainPins;
+        images.push(rainObj);
+
+        hasExitedReflectionModeOnce = true;
+        if (isOverlayActive) requestDraw();
+      };
+      imgRain.onerror = () => {
+        console.error('Failed to load demo rain image:', demoRainImagePath);
+      };
+      imgRain.src = rainDataURL;
+    };
+
+    img.onerror = () => {
+      console.error('Failed to load demo data image:', demoImagePath);
+      alert('Failed to load demo data image. Please ensure ' + DEMO_DATA_IMAGE_NAME + ' exists in assets.');
+    };
+
+    img.src = imageDataURL;
+  } catch (error) {
+    console.error('Failed to load demo data image:', error);
+    alert('Failed to load demo data image. Please ensure ' + DEMO_DATA_IMAGE_NAME + ' and ' + DEMO_DATA_RAIN_IMAGE_NAME + ' exist in assets.');
+  }
+}
+
+function clearDemoData() {
+  if (isReflectionMode) {
+    exitReflectionMode();
+  }
+  images = [];
+  selectedImageIndices = [];
+  if (isOverlayActive) {
+    toggleOverlay();
+  }
+  draw();
+}
+
+// Demo data toggle handler (Development section) — on by default
+if (demoDataToggle) {
+  const savedDemoData = localStorage.getItem('demoDataEnabled');
+  const isDemoDataEnabled = savedDemoData === null ? true : savedDemoData === 'true';
+  demoDataToggle.checked = isDemoDataEnabled;
+
+  if (isDemoDataEnabled) {
+    setTimeout(() => loadDemoData(), 500);
+  }
+
+  demoDataToggle.addEventListener('change', (e) => {
+    const isEnabled = e.target.checked;
+    localStorage.setItem('demoDataEnabled', isEnabled.toString());
+    if (isEnabled) {
+      loadDemoData();
+    } else {
+      clearDemoData();
+    }
+  });
+}
+
+// Demo mode toggle handler (demo data takes precedence on startup)
 if (demoModeToggle) {
   // Load saved demo mode state - default to false if not set
   const savedDemoMode = localStorage.getItem('demoMode');
@@ -10856,12 +11148,10 @@ if (demoModeToggle) {
   const isDemoModeEnabled = localStorage.getItem('demoMode') === 'true';
   demoModeToggle.checked = isDemoModeEnabled;
 
-  // If demo mode was enabled, load it on startup
-  if (isDemoModeEnabled) {
-    // Wait for canvas to be ready
-    setTimeout(() => {
-      loadDemoMode();
-    }, 500);
+  // If demo mode was enabled (and demo data is off), load it on startup
+  const demoDataOn = localStorage.getItem('demoDataEnabled') === null ? true : localStorage.getItem('demoDataEnabled') === 'true';
+  if (isDemoModeEnabled && !demoDataOn) {
+    setTimeout(() => loadDemoMode(), 500);
   }
 
   demoModeToggle.addEventListener('change', (e) => {
