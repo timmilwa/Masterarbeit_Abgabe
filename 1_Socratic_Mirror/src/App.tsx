@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
-import { Settings, Send, Sparkles } from "lucide-react"
+import { Settings, Send, Sparkles, Mic, Square } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -18,6 +18,41 @@ const GEMINI_MODELS = [
 type GeminiModel = typeof GEMINI_MODELS[number]['value']
 
 const DEFAULT_INSTRUCTIONS = 'Du bist ein Reflexionsassistent, der Menschen hilft, über Gegenstände nachzudenken. Stelle offene, nachdenkliche Fragen, die den Benutzer dazu anregen, tief über den Gegenstand nachzudenken.'
+
+// Web Speech API types (not in all TS libs)
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number
+  results: SpeechRecognitionResultList
+}
+interface SpeechRecognitionResultList {
+  length: number
+  item(index: number): SpeechRecognitionResult
+  [index: number]: SpeechRecognitionResult
+}
+interface SpeechRecognitionResult {
+  length: number
+  item(index: number): SpeechRecognitionAlternative
+  [index: number]: SpeechRecognitionAlternative
+  isFinal: boolean
+}
+interface SpeechRecognitionAlternative {
+  transcript: string
+  confidence: number
+}
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  start(): void
+  stop(): void
+  onresult: ((e: SpeechRecognitionEvent) => void) | null
+  onerror: ((e: Event) => void) | null
+  onend: (() => void) | null
+}
+const SpeechRecognitionAPI = typeof window !== 'undefined' && (
+  (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionInstance }).SpeechRecognition ||
+  (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionInstance }).webkitSpeechRecognition
+) as (new () => SpeechRecognitionInstance) | false
 
 type Message = {
   id: string
@@ -40,8 +75,10 @@ function App() {
   const [instructions, setInstructions] = useState<string>(DEFAULT_INSTRUCTIONS)
   const [reflectionObject, setReflectionObject] = useState<string>("")
   const [isLoading, setIsLoading] = useState(false)
+  const [isListening, setIsListening] = useState(false)
   const settingsRef = useRef<HTMLDivElement>(null)
   const instructionsRef = useRef<HTMLTextAreaElement | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
 
   // Auto-resize textarea to fit content
   const adjustTextareaHeight = useCallback((textarea: HTMLTextAreaElement | null) => {
@@ -171,6 +208,61 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
     }
   }
 
+
+  // Voice-to-text: set up Speech Recognition
+  useEffect(() => {
+    if (!SpeechRecognitionAPI) return
+    const recognition = new SpeechRecognitionAPI()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'de-DE'
+
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      let toAppend = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i]
+        const transcript = result[0]?.transcript ?? ''
+        if (result.isFinal) {
+          toAppend += transcript
+        }
+      }
+      if (toAppend) {
+        setInputValue((prev) => (prev + toAppend).trim())
+      }
+    }
+
+    recognition.onerror = () => {
+      setIsListening(false)
+    }
+    recognition.onend = () => {
+      setIsListening(false)
+    }
+
+    recognitionRef.current = recognition
+    return () => {
+      try {
+        recognition.stop()
+      } catch {
+        // ignore
+      }
+      recognitionRef.current = null
+    }
+  }, [])
+
+  const toggleVoiceInput = () => {
+    if (!SpeechRecognitionAPI || !recognitionRef.current) return
+    if (isListening) {
+      recognitionRef.current.stop()
+      setIsListening(false)
+    } else {
+      try {
+        recognitionRef.current.start()
+        setIsListening(true)
+      } catch (err) {
+        console.error('Speech recognition start failed:', err)
+      }
+    }
+  }
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -310,6 +402,26 @@ WICHTIG: Stelle NUR EINE offene, nachdenkliche Frage (keine Aussagen, keine Mehr
             disabled={isLoading}
             className="flex-1 bg-transparent px-2 py-3 text-base outline-none placeholder:text-muted-foreground/50 text-foreground disabled:opacity-50"
           />
+
+          <Button
+            type="button"
+            onClick={toggleVoiceInput}
+            size="icon"
+            disabled={!SpeechRecognitionAPI || isLoading}
+            title={isListening ? "Spracheingabe beenden" : "Spracheingabe starten"}
+            className={cn(
+              "h-10 w-10 rounded-xl transition-all duration-300",
+              isListening
+                ? "bg-red-500 text-white shadow-md animate-pulse"
+                : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+            )}
+          >
+            {isListening ? (
+              <Square className="h-4 w-4" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
+          </Button>
 
           <Button
             onClick={handleSend}
