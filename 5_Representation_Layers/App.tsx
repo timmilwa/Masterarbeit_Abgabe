@@ -275,7 +275,7 @@ function App() {
                      className={`w-full py-3 rounded-lg font-bold text-sm shadow-sm transition-all
                        ${!imageFile || !objectName.trim() 
                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                         : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                         : 'bg-black text-white hover:bg-gray-800'
                        }
                      `}
                    >

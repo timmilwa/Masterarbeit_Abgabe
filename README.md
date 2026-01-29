@@ -11,6 +11,9 @@ In den meisten Fällen ist zur Nutzung lediglich die lokale Hinterlegung eines e
 4. Befehl "npm run dev" eingeben, um den Entwicklungsserver zu starten.
 5. Ein Browser-Fenster öffnet sich automatisch, oder die Anwendung kann über den im Terminal angezeigten Link geöffnet werden (z.B. http://localhost:55180).
 
+
+zB proto 4 braucht was anderes !!!!
+
 ### Kontakt 
 email: tim@timmilwa.com <br>
 web: timmilwa.com 
