@@ -195,8 +195,8 @@ export default function App() {
               </p>
             </div>
           ) : (
-            <div className="space-y-6">
-              <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="space-y-6 flex flex-col min-h-0">
+              <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col min-h-0">
                 <MeansEndCanvas imageSrc={image} chains={chains} />
               </div>
 

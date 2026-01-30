@@ -33,13 +33,14 @@ export const MeansEndCanvas: React.FC<Props> = ({ imageSrc, chains }) => {
   };
 
   return (
-    <div className="relative w-full" ref={containerRef}>
-      <img
-        src={imageSrc}
-        alt="Analysis target"
-        className="w-full h-auto rounded-xl shadow-lg border border-gray-100"
-        onLoad={handleImageLoad}
-      />
+    <div className="flex items-center justify-center min-h-0" style={{ height: 'calc(100vh - 12rem)' }} ref={containerRef}>
+      <div className="relative max-h-full max-w-full inline-block">
+        <img
+          src={imageSrc}
+          alt="Analysis target"
+          className="max-h-full max-w-full w-auto h-auto object-contain rounded-xl shadow-lg border border-gray-100"
+          onLoad={handleImageLoad}
+        />
 
       {chains.map((chain) => {
         const { xmin, ymin, xmax, ymax } = chain.boundingBox;
@@ -106,6 +107,7 @@ export const MeansEndCanvas: React.FC<Props> = ({ imageSrc, chains }) => {
           </React.Fragment>
         );
       })}
+      </div>
     </div>
   );
 };

@@ -34,7 +34,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, cur
         </label>
       ) : (
         <div className="relative group">
-          <img src={currentImage} alt="Uploaded preview" className="w-full h-auto rounded-xl shadow-sm border border-gray-200" />
+          <img src={currentImage} alt="Uploaded preview" className="w-full h-auto max-h-44 object-contain rounded-xl shadow-sm border border-gray-200" />
           <label className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-xl cursor-pointer">
             <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full text-sm font-medium shadow-lg">
               <ImageIcon className="w-4 h-4" />
