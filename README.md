@@ -32,7 +32,5 @@ Variante 4 (für Proto 11)
 (der vollständige Code für Proto 11 kann als 11.1_Kaleido_Code eingesehen werden. Er kann mit Variante 1 ausgeführt werden.)
 
 ### Kontakt 
-email: tim@timmilwa.com <br>
-web: timmilwa.com 
-
+email: tim@timmilwa.com 
 
