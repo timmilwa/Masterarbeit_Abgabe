@@ -29,7 +29,7 @@ Variante 4 (für Proto 11)
 2. Ordner zu 11_Kaleido_App öffnen und auf 'Kaleido.app'-Datei doppelklicken. 
 3. App installieren und aufpoppende Aufforderungen auf Systemzugriffe erlauben. 
 
-(der vollständige Code für Proto 11 kann als 11.1_Kaleido_Code eingesehen werden. Er kann mit Variante 1 ausgeführt werden.)
+(der vollständige Code für Proto 11 kann als 11.1_Kaleido_Code eingesehen werden. Er kann mit "npm i" und dann "npm start" ausgeführt werden.)
 
 ### Kontakt 
 email: tim@timmilwa.com 
