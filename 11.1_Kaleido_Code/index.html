@@ -67,6 +67,21 @@
             visibility: visible !important;
         }
 
+        /* Closing overlay: fade everything together quickly */
+        #overlay-container.closing-overlay #side-panel,
+        #overlay-container.closing-overlay #bottom-toolbar,
+        #overlay-container.closing-overlay #reflection-button,
+        #overlay-container.closing-overlay #fps-counter {
+            opacity: 0;
+            transition: opacity 0.15s ease-out;
+            pointer-events: none;
+        }
+
+        #overlay-container.closing-overlay #bottom-toolbar {
+            transform: translate(-50%, 150%);
+            transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+        }
+
         /* Canvas */
         #canvas {
             position: absolute !important;
@@ -155,6 +170,30 @@
         .tool-button svg {
             width: 27px;
             height: 27px;
+        }
+
+        /* Nudge the leftmost (selection) tool icon slightly right */
+        #select-tool svg {
+            transform: translateX(2px);
+        }
+
+        /* Make the pluses inside toolbar inputs a bit larger */
+        #pin-confirm-button,
+        #emotional-aspect-add-button,
+        #emotions-answer-add-button,
+        #value-aspect-add-button {
+            font-size: 20px;
+            line-height: 1;
+        }
+
+        /* Rounded annotation input + fully rounded add button */
+        #pin-feature-input {
+            border-radius: 999px;
+        }
+
+        #pin-confirm-button {
+            border-radius: 999px;
+            background: #f97316;
         }
 
 
@@ -317,14 +356,31 @@
             stroke: currentColor;
         }
 
-        /* Side Panel */
-        #side-panel {
+        /* Side panel stack (panel + button) */
+        .side-panel-stack {
             position: fixed;
             top: 50px;
             right: 50px;
-            width: 400px;
             display: none;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-end;
             z-index: 1500;
+        }
+
+        /* Show stack when overlay active and not reflection */
+        #overlay-container.active:not(.reflection-mode) .side-panel-stack {
+            display: flex;
+        }
+
+        /* Hide stack during transitions */
+        #overlay-container.active.transitioning-to-reflection .side-panel-stack,
+        #overlay-container.exiting-screenshot .side-panel-stack {
+            display: none;
+        }
+
+        #side-panel {
+            width: 400px;
             background-color: #F5F4F5;
             border: 1px solid #D3D3D3;
             border-radius: 14px;
@@ -332,18 +388,77 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
 
-        /* Show side panel when canvas is active and reflection mode is NOT active */
-        #overlay-container.active:not(.reflection-mode) #side-panel {
-            display: block;
-        }
-
-        /* Also show during transition to reflection mode */
-        #overlay-container.active.transitioning-to-reflection #side-panel {
-            display: block;
-        }
-
         .side-panel-content {
             padding: 10px;
+        }
+
+        #generate-variant-button {
+            background: #000000;
+            color: #ffffff;
+            border: none;
+            border-radius: 999px;
+            padding: 10px 32px;
+            min-width: 260px;
+            font-size: 14px;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.25);
+            transition: opacity 0.2s ease;
+            font-weight: 500;
+        }
+
+        .generate-variant-wrapper {
+            width: 400px;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Dim the button when no items exist in the sidebar */
+        .side-panel-stack.no-cards #generate-variant-button {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .side-panel-stack.base-image-missing #generate-variant-button {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .side-panel-stack.no-change #generate-variant-button {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        /* Sidebar feature pills */
+        .aspect-card .targeted-feature-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #ffffff;
+            border: 0px solid #3B82F6;
+            background: #3B82F6;
+            min-height: 28px;
+            line-height: 1;
+            font-weight: 500;
+        }
+
+        .aspect-card .targeted-feature-close svg {
+            stroke: #ffffff;
+        }
+
+        .aspect-card .add-targeted-feature-pill {
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid #3B82F6;
+            background: transparent;
+            color: #3B82F6;
+            font-size: 12px;
+            min-height: 28px;
+            line-height: 1;
+            cursor: pointer;
+            font-weight: 500;
         }
 
         .base-image-container {
@@ -494,9 +609,9 @@
 
         #selection-box {
             position: absolute;
-            border: 3px solid #3b82f6;
-            outline: 2px solid #3b82f6;
-            outline-offset: -1px;
+            border: 0;
+            outline: 4px dashed #3b82f6;
+            outline-offset: 2px;
             background: transparent;
             pointer-events: none;
             z-index: 3001;
@@ -1162,17 +1277,42 @@
             margin-right: 4px;
         }
 
-        /* Control Panel Input Animations */
+        /* Reflection mode: keep control-panel inputs stable (no "jumping" animations).
+           We clip via wrapper layers whose HEIGHT changes; inner elements don't animate. */
         #control-panel-inputs input,
         #control-panel-inputs button,
         #control-panel-inputs > div {
-            transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+            transition: none !important;
         }
 
-        #control-panel-inputs input.animating,
-        #control-panel-inputs button.animating,
-        #control-panel-inputs > div.animating {
-            transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        #control-panel-inputs .accordion-input-layer {
+            position: absolute;
+            overflow: hidden;
+            display: none;
+            pointer-events: none; /* children re-enable */
+        }
+
+        #control-panel-inputs .accordion-input-layer * {
+            pointer-events: auto;
+        }
+
+        /* Canvas comment mode - orange styling for postit tool */
+        #pin-placement-ui.canvas-comment-mode #pin-feature-input {
+            border-color: #FF9000;
+        }
+
+        #pin-placement-ui.canvas-comment-mode #pin-feature-input:focus {
+            border-color: #FF9000;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(255, 144, 0, 0.2);
+        }
+
+        #pin-placement-ui.canvas-comment-mode #pin-confirm-button {
+            background: #FF9000;
+        }
+
+        #pin-placement-ui.canvas-comment-mode #pin-confirm-button:hover {
+            background: #e68200;
         }
     </style>
 </head>
@@ -1249,17 +1389,22 @@
         <!-- Reflection Mode Button -->
         <button id="reflection-button">Enter reflection</button>
 
-        <!-- Side Panel -->
-        <div id="side-panel">
-            <div class="side-panel-content">
-                <!-- Base Image Container -->
-                <div class="base-image-container"></div>
+        <!-- Side Panel + button -->
+        <div class="side-panel-stack">
+            <div id="side-panel">
+                <div class="side-panel-content">
+                    <!-- Base Image Container -->
+                    <div class="base-image-container"></div>
 
-                <!-- Divider -->
-                <div class="container-divider"></div>
+                    <!-- Divider -->
+                    <div class="container-divider"></div>
 
-                <!-- Aspect Cards Container -->
-                <div class="aspect-cards-container"></div>
+                    <!-- Aspect Cards Container -->
+                    <div class="aspect-cards-container"></div>
+                </div>
+            </div>
+            <div class="generate-variant-wrapper">
+                <button id="generate-variant-button">Generate New Variant</button>
             </div>
         </div>
 
@@ -1292,31 +1437,41 @@
 
     <!-- Pin Placement UI -->
     <div id="pin-placement-ui" style="display: none; position: fixed; z-index: 2000;">
-        <input type="text" id="pin-feature-input" placeholder="Enter feature description" style="padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;">
-        <button id="pin-confirm-button" style="margin-left: 8px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">+</button>
+        <input type="text" id="pin-feature-input" placeholder="Enter feature description" style="padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 999px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;">
+        <button id="pin-confirm-button" style="margin-left: 8px; background: #f97316; color: white; border: none; border-radius: 999px; cursor: pointer; font-size: 20px; width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center;">+</button>
     </div>
 
     <!-- Control Panel Input Fields -->
-    <div id="control-panel-inputs" style="position: fixed; z-index: 2001; display: none; pointer-events: none;">
-        <!-- General Info Inputs -->
-        <div id="product-name-container" style="position: absolute; display: none; pointer-events: auto;">
-            <input type="text" id="product-name-input" value="demo object" style="padding: 8px 32px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: 100%; box-sizing: border-box;">
-            <div id="product-name-edit-icon" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: none; color: oklch(0.145 0 0); opacity: 0.6;"></div>
+    <div id="control-panel-inputs" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2001; display: none; pointer-events: none;">
+        <!-- General Info (white accordion) -->
+        <div id="general-info-input-layer" class="accordion-input-layer">
+            <div id="product-name-container" style="position: absolute; display: none; pointer-events: auto;">
+                <input type="text" id="product-name-input" value="demo object" style="padding: 8px 32px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: 100%; box-sizing: border-box;">
+                <div id="product-name-edit-icon" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: none; color: oklch(0.145 0 0); opacity: 0.6;"></div>
+            </div>
+            <div id="focus-input-container" style="position: absolute; display: none; pointer-events: auto;">
+                <input type="text" id="focus-input" placeholder="Optional" style="padding: 8px 40px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: calc(100% - 40px); box-sizing: border-box; display: inline-block;">
+                <button id="focus-save-button" style="position: absolute; right: 0; top: 0; width: 32px; height: 32px; padding: 0; background: #030213; color: white; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto;">
+                    <div id="focus-save-icon" style="width: 16px; height: 16px; color: white;"></div>
+                </button>
+            </div>
         </div>
-        <div id="focus-input-container" style="position: absolute; display: none; pointer-events: auto;">
-            <input type="text" id="focus-input" placeholder="Optional" style="padding: 8px 40px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: calc(100% - 40px); box-sizing: border-box; display: inline-block;">
-            <button id="focus-save-button" style="position: absolute; right: 0; top: 0; width: 32px; height: 32px; padding: 0; background: #030213; color: white; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto;">
-                <div id="focus-save-icon" style="width: 16px; height: 16px; color: white;"></div>
-            </button>
-        </div>
-        <!-- Emotional and Value Aspect Inputs -->
+
+        <!-- Emotional and Value Aspect Inputs (legacy; currently hidden by JS) -->
         <input type="text" id="emotional-aspect-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
-        <button id="emotional-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
-        <!-- Emotions Tab Answer Input -->
-        <input type="text" id="emotions-answer-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto; display: none;">
-        <button id="emotions-answer-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto; display: none;">+</button>
-        <input type="text" id="value-aspect-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
-        <button id="value-aspect-add-button" style="position: absolute; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; pointer-events: auto;">+</button>
+        <button id="emotional-aspect-add-button" style="position: absolute; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 18px; width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto;">+</button>
+
+        <!-- Emotions (yellow accordion) -->
+        <div id="emotions-input-layer" class="accordion-input-layer">
+            <input type="text" id="emotions-answer-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto; display: none;">
+        <button id="emotions-answer-add-button" style="position: absolute; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 18px; width: 32px; height: 32px; padding: 0; display: none; align-items: center; justify-content: center; pointer-events: auto;">+</button>
+        </div>
+
+        <!-- Values (green accordion) -->
+        <div id="values-input-layer" class="accordion-input-layer">
+            <input type="text" id="value-aspect-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
+        <button id="value-aspect-add-button" style="position: absolute; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 18px; width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto;">+</button>
+        </div>
     </div>
 
 

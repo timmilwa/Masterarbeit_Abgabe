@@ -47,6 +47,9 @@ const pinPlacementUI = document.getElementById('pin-placement-ui');
 const pinFeatureInput = document.getElementById('pin-feature-input');
 const pinConfirmButton = document.getElementById('pin-confirm-button');
 const controlPanelInputs = document.getElementById('control-panel-inputs');
+const generalInfoInputLayer = document.getElementById('general-info-input-layer');
+const emotionsInputLayer = document.getElementById('emotions-input-layer');
+const valuesInputLayer = document.getElementById('values-input-layer');
 const emotionalAspectInput = document.getElementById('emotional-aspect-input');
 const emotionalAspectAddButton = document.getElementById('emotional-aspect-add-button');
 const emotionsAnswerInput = document.getElementById('emotions-answer-input');
@@ -60,6 +63,22 @@ const focusInputContainer = document.getElementById('focus-input-container');
 const focusInput = document.getElementById('focus-input');
 const focusSaveButton = document.getElementById('focus-save-button');
 const focusSaveIcon = document.getElementById('focus-save-icon');
+const sidePanelStack = document.querySelector('.side-panel-stack');
+const generateVariantButton = document.getElementById('generate-variant-button');
+
+function refreshVariantButtonState() {
+  if (!sidePanelStack) return;
+  const hasCards = aspectCards.length > 0;
+  const hasBaseImage = baseImageId !== null;
+  const hasManualChange = aspectCards.some(card =>
+    card.activeAction ||
+    (card.transformedAspect && card.transformedAspect !== card.originalAspect)
+  );
+
+  sidePanelStack.classList.toggle('no-cards', !hasCards);
+  sidePanelStack.classList.toggle('base-image-missing', hasCards && !hasBaseImage);
+  sidePanelStack.classList.toggle('no-change', hasCards && hasBaseImage && !hasManualChange);
+}
 const fpsCounter = document.getElementById('fps-counter');
 const fpsCounterText = document.getElementById('fps-counter-text');
 const fpsCounterDpr = document.getElementById('fps-counter-dpr');
@@ -250,8 +269,16 @@ let pinFeatureText = ''; // Text for feature during pin placement
 let pinExpansionAnimation = null; // { pinId, startTime, duration, fromState: 'collapsed'|'expanded', toState: 'collapsed'|'expanded' }
 const PIN_EXPANSION_DURATION = 350; // Animation duration in milliseconds
 
+// Canvas comment system state
+let canvasComments = [];              // Array of canvas comment objects
+let isPlacingCanvasComment = false;   // Whether currently placing a canvas comment
+let tempCanvasCommentLocation = null; // Temporary location during placement {x, y} in canvas coords
+let selectedCanvasCommentId = null;   // Currently selected canvas comment ID
+let tooltipCanvasCommentId = null;    // Canvas comment with visible tooltip
+
 // Hovered aspect dot state - tracks which dot is currently hovered
 let hoveredAspectDot = null; // { pinId, type: 'emotional'|'value', index, text, x, y, isValue: boolean }
+const aspectDotsForHitTesting = [];
 
 // Sidebar state
 let baseImageId = null; // ID of the base image in sidebar (null when empty)
@@ -1301,6 +1328,7 @@ function updateBaseImageCard() {
       fileInput.click();
     });
   }
+  refreshVariantButtonState();
 }
 
 // Create aspect card
@@ -1328,6 +1356,39 @@ function createAspectCard(pinId, type, aspectText, targetedFeature) {
     isGenerating: false,
     targetedFeature: targetedFeature || '',
     isEditing: false
+    ,
+    manualEdit: false
+  };
+
+  aspectCards.push(card);
+  updateAspectCards();
+  return card.id;
+}
+
+// Create canvas comment card (for sidebar)
+function createCanvasCommentCard(commentId, commentText) {
+  // Check if card already exists for this comment
+  const existingCard = aspectCards.find(card =>
+    card.type === 'comment' &&
+    card.commentId === commentId
+  );
+
+  if (existingCard) {
+    // Card already exists, just update UI
+    updateAspectCards();
+    return existingCard.id;
+  }
+
+  const card = {
+    id: generateId(),
+    commentId, // Store reference to the canvas comment
+    type: 'comment',
+    originalAspect: commentText,
+    transformedAspect: null,
+    activeAction: null,
+    isGenerating: false,
+    targetedFeature: '',
+    isEditing: false
   };
 
   aspectCards.push(card);
@@ -1352,59 +1413,83 @@ function updateAspectCards() {
     aspectCardsContainer.innerHTML = `
       <div style="display: flex; align-items: center; gap: 12px; padding: 20px 10px; color: #999; font-size: 14px;">
         <div style="width: 12px; height: 12px; border-radius: 50%; background: #ccc; flex-shrink: 0;"></div>
-        <span>Click on a pin and select a dot to get started</span>
+        <span>Click on a dot or comment to get started</span>
       </div>
     `;
+    refreshVariantButtonState();
     return;
   }
 
+  refreshVariantButtonState();
+
   const cardsHTML = aspectCards.map(card => {
     const isEmotion = card.type === 'emotional';
-    const color = isEmotion ? '#F5C842' : '#4CAF50'; // Yellow for emotion, green for value
+    const isComment = card.type === 'comment';
+    const color = isComment ? '#FF9000' : (isEmotion ? '#F5C842' : '#4CAF50'); // Orange for comment, Yellow for emotion, green for value
+    const typeLabel = isComment ? 'Comment' : (isEmotion ? 'Emotion' : 'Value');
     const actions = ['Reduce', 'Exaggerate', 'Invert', 'Random'];
+
+    // For comment type, render a simpler card without actions or targeted features
+    if (isComment) {
+      return `
+        <div class="aspect-card" data-card-id="${card.id}" style="position: relative; padding: 12px; margin-bottom: 10px; background: white; border-radius: 10px; border: 1px solid #DEDEDE;">
+          <button class="aspect-card-close" style="position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: background 0.2s;" title="Remove comment card">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+              <div style="width: 12px; height: 12px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></div>
+              <div style="font-size: 12px; color: #999; font-weight: 500;">${typeLabel}</div>
+            </div>
+            <div style="font-size: 16px; font-weight: 600; color: ${color};">
+              <span class="original-aspect-text">${card.originalAspect}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     return `
       <div class="aspect-card" data-card-id="${card.id}" style="position: relative; padding: 12px; margin-bottom: 10px; background: white; border-radius: 10px; border: 1px solid #DEDEDE;">
         <button class="aspect-card-close" style="position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: background 0.2s;" title="Remove aspect card">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
-        
+
         <div style="margin-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
             <div style="width: 12px; height: 12px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></div>
-            <div style="font-size: 12px; color: #999; font-weight: 500;">${isEmotion ? 'Emotion' : 'Value'}</div>
+            <div style="font-size: 12px; color: #999; font-weight: 500;">${typeLabel}</div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="font-size: 16px; font-weight: 600; color: ${color}; flex: 1;">
+            <div style="font-size: 16px; font-weight: 600; color: ${color}; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               ${card.transformedAspect ? `
                 <span style="text-decoration: line-through; color: #999;">${card.originalAspect}</span>
                 <span style="margin: 0 8px;">→</span>
                 <span class="transformed-aspect-text" style="color: ${color};">${card.transformedAspect}</span>
               ` : `<span class="original-aspect-text">${card.originalAspect}</span>`}
+          <button class="aspect-edit-btn" data-card-id="${card.id}" data-manual="${card.manualEdit ? 'true' : 'false'}" style="width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; color: ${color};" title="${card.manualEdit ? 'Reset aspect' : 'Edit aspect'}">
+            ${card.manualEdit ? `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>` : `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`}
+          </button>
             </div>
-            ${card.transformedAspect ? `
-              <button class="aspect-edit-btn" style="width: 20px; height: 20px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; color: ${color}; flex-shrink: 0;" title="Edit transformed aspect">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-              </button>
-            ` : ''}
           </div>
         </div>
-        
+
         ${card.isEditing ? `
           <input type="text" class="aspect-edit-input" value="${card.transformedAspect || card.originalAspect}" style="width: 100%; padding: 6px 8px; border: 1px solid #DEDEDE; border-radius: 6px; font-size: 14px; margin-bottom: 12px;" />
         ` : ''}
-        
+
         ${card.isGenerating ? `
           <div style="padding: 8px; background: #F5F5F5; border-radius: 6px; margin-bottom: 12px; text-align: center; color: #999; font-size: 12px;">
             Generating...
           </div>
         ` : ''}
-        
+
         <div style="margin-bottom: 12px;">
           <div style="font-size: 12px; color: #999; margin-bottom: 6px; font-weight: 500;">Actions</div>
           <div style="display: flex; gap: 6px; flex-wrap: wrap;">
             ${actions.map(action => `
-              <button class="aspect-action-btn ${card.activeAction === action ? 'active' : ''}" 
+              <button class="aspect-action-btn ${card.activeAction === action ? 'active' : ''}"
                       data-action="${action}"
                       style="padding: 6px 12px; border: 1px solid #DEDEDE; background: ${card.activeAction === action ? color : 'white'}; color: ${card.activeAction === action ? 'white' : '#000'}; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s; ${card.activeAction === action ? 'font-weight: 600;' : ''}">
                 ${action}${card.activeAction === action ? ' ✕' : ''}
@@ -1412,19 +1497,19 @@ function updateAspectCards() {
             `).join('')}
           </div>
         </div>
-        
+
         <div>
           <div style="font-size: 12px; color: #999; margin-bottom: 6px; font-weight: 500;">Targeted Feature</div>
           ${card.targetedFeature ? `
-            <div style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; background: #3B82F6; color: #fff; border-radius: 20px; font-size: 12px;">
+            <div class="targeted-feature-pill">
               <span>${card.targetedFeature}</span>
-              <button class="targeted-feature-close" style="width: 14px; height: 14px; border: none; background: transparent; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; margin-left: 4px;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              <button class="targeted-feature-close" style="width: 14px; height: 14px; border: none; background: transparent; color: #3B82F6; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; margin-left: 4px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
             </div>
           ` : ''}
-          <button class="add-targeted-feature-btn" style="margin-top: 6px; padding: 6px 12px; background: #3B82F6; color: white; border: none; border-radius: 6px; font-size: 12px; cursor: pointer;">
-            Add feature +
+          <button class="add-targeted-feature-pill add-targeted-feature-btn">
+            Add feature
           </button>
         </div>
       </div>
@@ -1455,18 +1540,27 @@ function updateAspectCards() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const cardId = btn.closest('.aspect-card').dataset.cardId;
+      const isManual = btn.dataset.manual === 'true';
       const card = aspectCards.find(c => c.id === cardId);
       if (card) {
-        card.isEditing = true;
-        updateAspectCards();
-        // Focus input
-        setTimeout(() => {
-          const input = aspectCardsContainer.querySelector(`.aspect-card[data-card-id="${cardId}"] .aspect-edit-input`);
-          if (input) {
-            input.focus();
-            input.select();
-          }
-        }, 0);
+        if (isManual) {
+          card.manualEdit = false;
+          card.transformedAspect = null;
+          card.activeAction = null;
+          card.isEditing = false;
+          updateAspectCards();
+        } else {
+          card.isEditing = true;
+          updateAspectCards();
+          // Focus input
+          setTimeout(() => {
+            const input = aspectCardsContainer.querySelector(`.aspect-card[data-card-id="${cardId}"] .aspect-edit-input`);
+            if (input) {
+              input.focus();
+              input.select();
+            }
+          }, 0);
+        }
       }
     });
   });
@@ -1476,7 +1570,9 @@ function updateAspectCards() {
       const cardId = input.closest('.aspect-card').dataset.cardId;
       const card = aspectCards.find(c => c.id === cardId);
       if (card) {
-        card.transformedAspect = input.value.trim() || card.originalAspect;
+        const trimmed = input.value.trim() || card.originalAspect;
+        card.transformedAspect = trimmed;
+        card.manualEdit = trimmed !== card.originalAspect;
         card.isEditing = false;
         card.activeAction = null; // Deselect active action when manually editing
         updateAspectCards();
@@ -1534,10 +1630,12 @@ function handleAspectAction(cardId, action) {
   if (card.activeAction === action) {
     card.activeAction = null;
     card.transformedAspect = null;
+    card.manualEdit = false;
     updateAspectCards();
     return;
   }
 
+  card.manualEdit = false;
   card.activeAction = action;
   card.isGenerating = true;
   updateAspectCards();
@@ -1983,15 +2081,35 @@ function isMouseOverUI(x, y) {
   return false;
 }
 
+// Hit-test helper for aspect dots (emotions and values)
+function getAspectDotAt(clientX, clientY) {
+  for (let i = aspectDotsForHitTesting.length - 1; i >= 0; i--) {
+    const dot = aspectDotsForHitTesting[i];
+    const hitRadius = dot.hitRadius ?? 0;
+    const dx = clientX - dot.x;
+    const dy = clientY - dot.y;
+    if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+      return dot;
+    }
+  }
+  return null;
+}
+
 // Create custom cursor from provided SVG
-let customCursorURL = null;
+const commentModeCursorSvg = `<svg fill="none" height="21" viewBox="0 0 21 21" width="21" xmlns="http://www.w3.org/2000/svg"><g stroke="#fff"><circle cx="10.5" cy="10.5" fill="#ff9000" r="9.75" stroke-width="1.5"/><g stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"><path d="m6 10.5h9"/><path d="m10.5 6v9"/></g></g></svg>`;
+
+let defaultCursorURL = null;
+let commentCursorURL = null;
 
 function createCustomCursor() {
-  if (customCursorURL) {
-    return `url(${customCursorURL}) 1 1, auto`;
+  return activeToolPosition === 2 ? getCommentCursor() : getDefaultCursor();
+}
+
+function getDefaultCursor() {
+  if (defaultCursorURL) {
+    return `url(${defaultCursorURL}) 1 1, auto`;
   }
 
-  // SVG from cursor_Vector 1.svg
   const svg = `<svg width="19" height="19" viewBox="0 0 19 19" fill="none" xmlns="http://www.w3.org/2000/svg">
 <g clip-path="url(#clip0_453_10617)">
 <path d="M1.04081 1.69181C1.00134 1.60072 0.990166 1.49988 1.00875 1.40236C1.02732 1.30485 1.07479 1.21517 1.14498 1.14498C1.21517 1.07479 1.30485 1.02732 1.40236 1.00875C1.49988 0.990166 1.60072 1.00134 1.69181 1.04081L17.6918 7.54081C17.7891 7.58044 17.8714 7.64971 17.9271 7.73879C17.9828 7.82787 18.009 7.93222 18.0021 8.03704C17.9951 8.14186 17.9553 8.24182 17.8883 8.32274C17.8213 8.40365 17.7305 8.46141 17.6288 8.48781L11.5048 10.0678C11.1588 10.1568 10.8429 10.3368 10.59 10.5891C10.3372 10.8415 10.1565 11.157 10.0668 11.5028L8.48781 17.6288C8.46141 17.7305 8.40365 17.8213 8.32274 17.8883C8.24182 17.9553 8.14186 17.9951 8.03704 18.0021C7.93222 18.009 7.82787 17.9828 7.73879 17.9271C7.64971 17.8714 7.58044 17.7891 7.54081 17.6918L1.04081 1.69181Z" fill="black" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2003,9 +2121,20 @@ function createCustomCursor() {
 </defs>
 </svg>`;
   const blob = new Blob([svg], { type: 'image/svg+xml' });
-  customCursorURL = URL.createObjectURL(blob);
+  defaultCursorURL = URL.createObjectURL(blob);
   // Hotspot at (1, 1) - tip of the pointer
-  return `url(${customCursorURL}) 1 1, auto`;
+  return `url(${defaultCursorURL}) 1 1, auto`;
+}
+
+function getCommentCursor() {
+  if (commentCursorURL) {
+    return `url(${commentCursorURL}) 10 10, auto`;
+  }
+
+  const blob = new Blob([commentModeCursorSvg], { type: 'image/svg+xml' });
+  commentCursorURL = URL.createObjectURL(blob);
+  // Hotspot in the center of the circle
+  return `url(${commentCursorURL}) 10 10, auto`;
 }
 
 // Toggle Overlay
@@ -2013,6 +2142,8 @@ function toggleOverlay() {
   isOverlayActive = !isOverlayActive;
 
   if (isOverlayActive) {
+    // Ensure closing state is cleared when opening
+    overlayContainer.classList.remove('closing-overlay');
     // Show SVGs immediately when overlay opens
     // Reset FPS tracking when overlay opens
     fpsLastTime = performance.now();
@@ -2211,8 +2342,11 @@ function toggleOverlay() {
       });
     }
   } else {
+    // Start synchronized fade-out for overlay UI
+    overlayContainer.classList.add('closing-overlay');
     // Hide action buttons when closing overlay
     hideActionButtons();
+    updateSlidingBackground(1);
 
     // Exit reflection mode if active (without animation since we're closing)
     if (isReflectionMode) {
@@ -2282,6 +2416,7 @@ function toggleOverlay() {
 
     // Wait for fade-out animation to complete before hiding overlay
     setTimeout(() => {
+      overlayContainer.classList.remove('closing-overlay');
       overlayContainer.classList.remove('active');
       updateToolbarVisibility();
       updateBottomToolbarVisibility(); // Hide bottom toolbar and SVGs
@@ -2927,6 +3062,7 @@ function draw() {
   }
 
   ctx.restore();
+  aspectDotsForHitTesting.length = 0;
 
   // Draw pins for all images (after transform is restored for fixed screen size)
   if (isReflectionMode && reflectionImageIndex >= 0) {
@@ -2965,6 +3101,25 @@ function draw() {
   // Draw pin placement UI if placing a pin
   if (isPlacingPin && tempPinLocation) {
     drawPinPlacementUI();
+  }
+
+  // Draw canvas comments (only when not in reflection mode)
+  if (!isReflectionMode) {
+    drawCanvasComments();
+
+    // Draw placement UI if placing a canvas comment
+    if (isPlacingCanvasComment && tempCanvasCommentLocation) {
+      drawCanvasCommentPlacementUI();
+    }
+
+    // Draw tooltip for selected canvas comment
+    if (tooltipCanvasCommentId) {
+      const comment = canvasComments.find(c => c.id === tooltipCanvasCommentId);
+      if (comment) {
+        const screenPos = canvasToScreen(comment.location.x, comment.location.y);
+        drawCanvasCommentTooltip(comment, screenPos.x, screenPos.y);
+      }
+    }
   }
 
   // Draw selection border and handles for all selected images (after transform is restored for fixed screen size)
@@ -3330,6 +3485,212 @@ function drawPinPlacementUI() {
     ctx.arc(dotX, dotY, baseBlueRadius, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]); // Reset line dash
+  }
+
+  ctx.restore();
+}
+
+// Draw canvas comment placement UI on canvas
+function drawCanvasCommentPlacementUI() {
+  if (!tempCanvasCommentLocation || !isPlacingCanvasComment) return;
+
+  // Calculate comment position in screen coordinates
+  const screenPos = canvasToScreen(tempCanvasCommentLocation.x, tempCanvasCommentLocation.y);
+
+  ctx.save();
+
+  // Use same size as the actual comment dot (12px radius)
+  const baseOrangeRadius = 12;
+  const whiteStrokeWidth = 3;
+
+  // Draw dot in front of text box and dashed line connecting comment to dot
+  if (pinPlacementUI && pinPlacementUI.style.display !== 'none' && pinFeatureInput) {
+    const inputRect = pinFeatureInput.getBoundingClientRect();
+
+    // Calculate dot position: left edge of the input box with gap, vertically centered
+    const gapBetweenDotAndInput = 20;
+    const dotX = inputRect.left - gapBetweenDotAndInput;
+    const dotY = inputRect.top + inputRect.height / 2;
+
+    // Draw dashed line from comment location to dot
+    ctx.strokeStyle = '#FF9000'; // Orange color
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(screenPos.x, screenPos.y);
+    ctx.lineTo(dotX, dotY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw dot in front of text box (same size as comment)
+    ctx.fillStyle = '#FF9000'; // Orange color
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, baseOrangeRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw white stroke around dot - dashed when comment is not saved
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = whiteStrokeWidth;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, baseOrangeRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+}
+
+// Draw a single canvas comment
+function drawSingleCanvasComment(comment) {
+  if (!comment || !comment.location) return;
+
+  // Convert canvas coords to screen coords
+  const screenPos = canvasToScreen(comment.location.x, comment.location.y);
+
+  ctx.save();
+
+  const baseOrangeRadius = 12;
+  const whiteStrokeWidth = 3;
+  const isSelected = selectedCanvasCommentId === comment.id;
+
+  // Draw orange circle (larger if selected)
+  const radius = isSelected ? baseOrangeRadius * 1.2 : baseOrangeRadius;
+  ctx.fillStyle = '#FF9000';
+  ctx.beginPath();
+  ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Draw white stroke border
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = whiteStrokeWidth;
+  ctx.beginPath();
+  ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Draw all canvas comments
+function drawCanvasComments() {
+  if (canvasComments.length === 0) return;
+
+  canvasComments.forEach(comment => {
+    drawSingleCanvasComment(comment);
+  });
+}
+
+// Draw canvas comment tooltip
+function drawCanvasCommentTooltip(comment, screenX, screenY) {
+  if (!comment || !comment.text) return;
+
+  ctx.save();
+
+  // Tooltip styling (similar to drawUnifiedTooltip)
+  const tooltipPadding = 10;
+  const tooltipFontSize = 14;
+  const tooltipMaxWidth = 250;
+  const deleteButtonSize = 20;
+  const deleteButtonPadding = 4;
+
+  ctx.font = `${tooltipFontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  // Measure text
+  const textMetrics = ctx.measureText(comment.text);
+  const textWidth = Math.min(textMetrics.width, tooltipMaxWidth);
+
+  // Always show delete button for canvas comments
+  const showDeleteButton = true;
+
+  // Calculate tooltip dimensions
+  const tooltipContentWidth = showDeleteButton
+    ? textWidth + deleteButtonSize + deleteButtonPadding * 3
+    : textWidth;
+  const tooltipWidth = tooltipContentWidth + tooltipPadding * 2;
+  const tooltipHeight = Math.max(tooltipFontSize + tooltipPadding * 2, deleteButtonSize + tooltipPadding * 2);
+
+  // Position tooltip to the right of anchor, vertically centered
+  const tooltipOffsetX = 20;
+  const tooltipX = screenX + tooltipOffsetX;
+  const tooltipY = screenY - tooltipHeight / 2;
+
+  // Calculate vertical center for alignment
+  const contentCenterY = tooltipY + tooltipHeight / 2;
+
+  // Position delete button
+  const deleteButtonX = tooltipX + tooltipWidth - deleteButtonSize - tooltipPadding - deleteButtonPadding;
+  const deleteButtonY = contentCenterY - deleteButtonSize / 2;
+
+  // Store tooltip bounds for click detection
+  const rect = canvas.getBoundingClientRect();
+  const boundsKey = `canvasCommentTooltipBounds_${comment.id}`;
+  window[boundsKey] = {
+    x: tooltipX + rect.left,
+    y: tooltipY + rect.top,
+    width: tooltipWidth,
+    height: tooltipHeight,
+    deleteButtonX: deleteButtonX + rect.left,
+    deleteButtonY: deleteButtonY + rect.top,
+    deleteButtonWidth: deleteButtonSize,
+    deleteButtonHeight: deleteButtonSize,
+    commentId: comment.id
+  };
+
+  // Draw tooltip background with rounded corners (dark style)
+  ctx.fillStyle = 'rgba(30, 30, 30, 0.95)';
+  const cornerRadius = 8;
+  ctx.beginPath();
+  ctx.moveTo(tooltipX + cornerRadius, tooltipY);
+  ctx.lineTo(tooltipX + tooltipWidth - cornerRadius, tooltipY);
+  ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY, tooltipX + tooltipWidth, tooltipY + cornerRadius);
+  ctx.lineTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight - cornerRadius);
+  ctx.quadraticCurveTo(tooltipX + tooltipWidth, tooltipY + tooltipHeight, tooltipX + tooltipWidth - cornerRadius, tooltipY + tooltipHeight);
+  ctx.lineTo(tooltipX + cornerRadius, tooltipY + tooltipHeight);
+  ctx.quadraticCurveTo(tooltipX, tooltipY + tooltipHeight, tooltipX, tooltipY + tooltipHeight - cornerRadius);
+  ctx.lineTo(tooltipX, tooltipY + cornerRadius);
+  ctx.quadraticCurveTo(tooltipX, tooltipY, tooltipX + cornerRadius, tooltipY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Draw tooltip border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Draw tooltip text (vertically centered)
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(comment.text, tooltipX + tooltipPadding, contentCenterY);
+
+  // Draw delete button
+  if (showDeleteButton) {
+    const deleteCenterX = deleteButtonX + deleteButtonSize / 2;
+    const deleteCenterY = contentCenterY;
+
+    // Check if mouse is hovering over delete button
+    const bounds = window[boundsKey];
+    const isHoveringDelete = bounds &&
+      lastMouseX >= bounds.deleteButtonX &&
+      lastMouseX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+      lastMouseY >= bounds.deleteButtonY &&
+      lastMouseY <= bounds.deleteButtonY + bounds.deleteButtonHeight;
+
+    // Delete button background on hover
+    if (isHoveringDelete) {
+      ctx.fillStyle = 'rgba(255, 144, 0, 0.2)'; // Light orange background on hover
+      ctx.beginPath();
+      ctx.arc(deleteCenterX, deleteCenterY, deleteButtonSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw Trash2 icon
+    if (Trash2 && Array.isArray(Trash2)) {
+      const iconColor = isHoveringDelete ? '#FF9000' : 'rgba(255, 255, 255, 0.7)';
+      const iconSize = deleteButtonSize * 0.65;
+      drawLucideIcon(ctx, Trash2, deleteCenterX, deleteCenterY, iconSize, iconColor);
+    }
   }
 
   ctx.restore();
@@ -4091,6 +4452,17 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
           // Get animated opacity (new dots fade in)
           const animatedOpacity = getAnimatedDotOpacity(pin.id, 'value', index, dotOpacity);
 
+          const hitRadius = dotRadius + 6;
+          aspectDotsForHitTesting.push({
+            pinId: pin.id,
+            type: 'value',
+            index,
+            text: aspect,
+            x: dotX,
+            y: dotY,
+            hitRadius
+          });
+
           // Draw dot with white border (same size as blue pin)
           ctx.save();
           ctx.globalAlpha = animatedOpacity;
@@ -4252,6 +4624,17 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
           // Get animated opacity (new dots fade in)
           const animatedOpacity = getAnimatedDotOpacity(pin.id, 'emotional', index, dotOpacity);
+
+          const hitRadius = dotRadius + 6;
+          aspectDotsForHitTesting.push({
+            pinId: pin.id,
+            type: 'emotional',
+            index,
+            text: aspect,
+            x: dotX,
+            y: dotY,
+            hitRadius
+          });
 
           // Draw dot with white border (same size as blue pin)
           ctx.save();
@@ -5425,6 +5808,34 @@ function getPinAt(screenX, screenY, img) {
   return null;
 }
 
+// Get canvas comment at screen coordinates
+function getCanvasCommentAt(screenX, screenY) {
+  if (canvasComments.length === 0) return null;
+
+  // Convert screen to canvas coordinates
+  const canvasPos = screenToCanvas(screenX, screenY);
+  const hitRadius = 15; // Hit radius in canvas coordinates
+
+  // Check comments in reverse order (top to bottom)
+  for (let i = canvasComments.length - 1; i >= 0; i--) {
+    const comment = canvasComments[i];
+    if (!comment || !comment.location) continue;
+
+    const dx = canvasPos.x - comment.location.x;
+    const dy = canvasPos.y - comment.location.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Scale hit radius based on current zoom level
+    const scaledHitRadius = hitRadius / canvasScale;
+
+    if (distance <= scaledHitRadius) {
+      return comment;
+    }
+  }
+
+  return null;
+}
+
 // Delete a pin from an image
 function deletePin(img, pinId) {
   if (!img || !img.pins) return;
@@ -6229,11 +6640,6 @@ function drawReflectionControlPanel(img) {
       if (progress < 1) {
         const t = progress;
         easedProgress = 1 - Math.pow(1 - t, 3);
-        if (animation.toHeight > animation.fromHeight && progress > 0.7) {
-          const overshoot = (progress - 0.7) / 0.3;
-          const bounce = Math.sin(overshoot * Math.PI) * 0.1;
-          easedProgress = Math.min(1, easedProgress + bounce);
-        }
       } else {
         easedProgress = 1;
       }
@@ -6284,12 +6690,6 @@ function drawReflectionControlPanel(img) {
           // Cubic ease-out with bounce
           const t = animationProgress;
           easedProgress = 1 - Math.pow(1 - t, 3);
-          // Add slight overshoot for bounce effect (only when opening)
-          if (animation.toHeight > animation.fromHeight && animationProgress > 0.7) {
-            const overshoot = (animationProgress - 0.7) / 0.3;
-            const bounce = Math.sin(overshoot * Math.PI) * 0.1; // 10% bounce
-            easedProgress = Math.min(1, easedProgress + bounce);
-          }
         } else {
           easedProgress = 1;
         }
@@ -6316,29 +6716,8 @@ function drawReflectionControlPanel(img) {
         const contentHeight = animatedHeight;
         const contentPadding = 20;
 
-        // Calculate scale factor for content during animation (for smooth compression/expansion)
-        // When closing: scale from 1.0 to 0, when opening: scale from 0 to 1.0
-        let contentScaleY = 1.0;
-        if (isAnimatingThis && animation) {
-          const calculatedHeight = calculateAccordionContentHeight(accordion.id);
-          const targetHeight = isExpanded ? calculatedHeight : 0;
-          const startHeight = animation.fromHeight - 20; // Subtract overlap
-          const endHeight = animation.toHeight - 20; // Subtract overlap
-
-          if (endHeight > 0) {
-            // Opening or expanding
-            const currentVisibleHeight = Math.max(0, animatedHeight - 20);
-            contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
-          } else {
-            // Closing
-            if (startHeight > 0) {
-              const currentVisibleHeight = Math.max(0, animatedHeight - 20);
-              contentScaleY = currentVisibleHeight / startHeight;
-            }
-          }
-          // Clamp to valid range
-          contentScaleY = Math.max(0, Math.min(1, contentScaleY));
-        }
+        // We only animate the container height; inner content stays stable (no scale squash).
+        const contentScaleY = 1.0;
 
         // Draw gray content rectangle with only bottom corners rounded (behind the header)
         ctx.save();
@@ -6388,15 +6767,16 @@ function drawReflectionControlPanel(img) {
             }
 
             // Combine content scale with opacity for smoother animation
-            const effectiveOpacity = labelOpacity * Math.max(0, Math.min(1, contentScaleY));
+            const effectiveOpacity = labelOpacity;
 
             if (effectiveOpacity > 0) {
               // Apply scale transform for content during animation
               ctx.save();
-              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
-              ctx.translate(panelX, contentOriginY);
-              ctx.scale(1, contentScaleY);
-              ctx.translate(-panelX, -contentOriginY);
+              // Clip to the currently visible accordion height (prevents inner content spilling out)
+              ctx.beginPath();
+              ctx.rect(panelX, barY + barHeight, panelWidth, visibleHeight);
+              ctx.clip();
+              // No content scaling (prevents "jumping" inner content)
 
               const labelY = barY + barHeight + 20; // Start 20px below the bar
               const labelToInputSpacing = 4; // Reduced spacing between label and input
@@ -6446,15 +6826,16 @@ function drawReflectionControlPanel(img) {
             }
 
             // Combine content scale with opacity for smoother animation
-            const effectiveOpacity = contentOpacity * Math.max(0, Math.min(1, contentScaleY));
+            const effectiveOpacity = contentOpacity;
 
             if (effectiveOpacity > 0) {
               // Apply scale transform for content during animation
               ctx.save();
-              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
-              ctx.translate(panelX, contentOriginY);
-              ctx.scale(1, contentScaleY);
-              ctx.translate(-panelX, -contentOriginY);
+              // Clip to the currently visible accordion height (prevents inner content spilling out)
+              ctx.beginPath();
+              ctx.rect(panelX, barY + barHeight, panelWidth, visibleHeight);
+              ctx.clip();
+              // No content scaling (prevents "jumping" inner content)
 
               const contentY = barY + barHeight + 20; // Start 20px below the bar
               const messagePadding = 12;
@@ -6612,15 +6993,16 @@ function drawReflectionControlPanel(img) {
             }
 
             // Combine content scale with opacity for smoother animation
-            const effectiveOpacity = contentOpacity * Math.max(0, Math.min(1, contentScaleY));
+            const effectiveOpacity = contentOpacity;
 
             if (effectiveOpacity > 0) {
               // Apply scale transform for content during animation
               ctx.save();
-              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
-              ctx.translate(panelX, contentOriginY);
-              ctx.scale(1, contentScaleY);
-              ctx.translate(-panelX, -contentOriginY);
+              // Clip to the currently visible accordion height (prevents inner content spilling out)
+              ctx.beginPath();
+              ctx.rect(panelX, barY + barHeight, panelWidth, visibleHeight);
+              ctx.clip();
+              // No content scaling (prevents "jumping" inner content)
 
               const contentY = barY + barHeight + 20; // Start 20px below the bar
               const messagePadding = 12;
@@ -6750,15 +7132,16 @@ function drawReflectionControlPanel(img) {
             }
 
             // Combine content scale with opacity for smoother animation
-            const effectiveOpacity = contentOpacity * Math.max(0, Math.min(1, contentScaleY));
+            const effectiveOpacity = contentOpacity;
 
             if (effectiveOpacity > 0) {
               // Apply scale transform for content during animation
               ctx.save();
-              const contentOriginY = barY + barHeight; // Origin for scaling (at top of content area)
-              ctx.translate(panelX, contentOriginY);
-              ctx.scale(1, contentScaleY);
-              ctx.translate(-panelX, -contentOriginY);
+              // Clip to the currently visible accordion height (prevents inner content spilling out)
+              ctx.beginPath();
+              ctx.rect(panelX, barY + barHeight, panelWidth, visibleHeight);
+              ctx.clip();
+              // No content scaling (prevents "jumping" inner content)
 
               const contentY = barY + barHeight + 20; // Start 20px below the bar
               const messagePadding = 12;
@@ -7587,6 +7970,17 @@ function enterReflectionMode(fromScreenshot = false) {
   // Reset pin placement state
   hidePinPlacementUI();
   selectedPinId = null;
+
+  // Reset canvas comment placement state when entering reflection mode
+  hideCanvasCommentPlacementUI();
+  tooltipCanvasCommentId = null;
+  selectedCanvasCommentId = null;
+  // Clear canvas comment tooltip bounds
+  for (let k in window) {
+    if (k.startsWith('canvasCommentTooltipBounds_')) {
+      delete window[k];
+    }
+  }
   // Reset question ID when entering reflection mode
   currentQuestionId = 0;
   featuresQuestionText = isAIModeEnabled() ? "Generating..." : DEMO_FEATURES_QUESTION;
@@ -7705,6 +8099,9 @@ function enterReflectionMode(fromScreenshot = false) {
   // This ensures the icon switches to X immediately when canvas opens
   if (fromScreenshot && isExitingScreenshotMode) {
     isExitingScreenshotMode = false;
+    if (overlayContainer) {
+      overlayContainer.classList.remove('exiting-screenshot');
+    }
     // Keep circles collected (X state) when canvas/overlay is active
     // Don't uncollect - overlay should show X state
     if (!isCirclesCollected) {
@@ -8414,12 +8811,23 @@ window.addEventListener('keydown', (e) => {
     // Check if an input field is currently focused
     const activeElement = document.activeElement;
     if (activeElement && (activeElement === pinFeatureInput || activeElement === emotionalAspectInput || activeElement === valueAspectInput)) {
-      // Blur the input field and cancel pin placement if placing a pin
+      // Blur the input field and cancel pin/canvas comment placement
       activeElement.blur();
-      if (isPlacingPin && tempPinLocation) {
+      if (isPlacingCanvasComment && tempCanvasCommentLocation) {
+        hideCanvasCommentPlacementUI();
+        requestDraw();
+      } else if (isPlacingPin && tempPinLocation) {
         hidePinPlacementUI();
         draw();
       }
+      e.preventDefault();
+      return;
+    }
+
+    // If placing a canvas comment (even if input not focused), cancel placement
+    if (isPlacingCanvasComment && tempCanvasCommentLocation) {
+      hideCanvasCommentPlacementUI();
+      requestDraw();
       e.preventDefault();
       return;
     }
@@ -8629,17 +9037,18 @@ canvas.addEventListener('mousedown', (e) => {
   if (isAnimating) return;
 
   // Check if clicking on an aspect dot
-  if (hoveredAspectDot && e.button === 0) {
+  const clickedAspectDot = e.button === 0 ? (hoveredAspectDot || getAspectDotAt(e.clientX, e.clientY)) : null;
+  if (clickedAspectDot) {
     // Find the pin and get the targeted feature
-    const img = images.find(img => img.pins?.some(p => p.id === hoveredAspectDot.pinId));
+    const img = images.find(img => img.pins?.some(p => p.id === clickedAspectDot.pinId));
     if (img) {
-      const pin = img.pins.find(p => p.id === hoveredAspectDot.pinId);
+      const pin = img.pins.find(p => p.id === clickedAspectDot.pinId);
       if (pin) {
         const targetedFeature = pin.feature || '';
         createAspectCard(
-          hoveredAspectDot.pinId,
-          hoveredAspectDot.type,
-          hoveredAspectDot.text,
+          clickedAspectDot.pinId,
+          clickedAspectDot.type,
+          clickedAspectDot.text,
           targetedFeature
         );
         e.stopPropagation();
@@ -8662,6 +9071,46 @@ canvas.addEventListener('mousedown', (e) => {
       enterReflectionMode();
     }
     return;
+  }
+
+  // Canvas comment interactions (works with both select and postit tools, NOT in reflection mode)
+  if (!isReflectionMode) {
+    // Check if clicking on delete button in canvas comment tooltip
+    for (let key in window) {
+      if (key.startsWith('canvasCommentTooltipBounds_')) {
+        const bounds = window[key];
+        if (bounds && bounds.commentId) {
+          // Check if clicking on delete button
+          if (e.clientX >= bounds.deleteButtonX &&
+            e.clientX <= bounds.deleteButtonX + bounds.deleteButtonWidth &&
+            e.clientY >= bounds.deleteButtonY &&
+            e.clientY <= bounds.deleteButtonY + bounds.deleteButtonHeight) {
+            // Clicked on delete button
+            deleteCanvasComment(bounds.commentId);
+            return;
+          }
+        }
+      }
+    }
+
+    // Check if clicking on existing canvas comment - add to sidebar
+    const clickedComment = getCanvasCommentAt(e.clientX, e.clientY);
+    if (clickedComment) {
+      // Add comment to sidebar
+      createCanvasCommentCard(clickedComment.id, clickedComment.text);
+      return;
+    }
+
+    // Canvas comment placement (only when postit tool is active)
+    if (activeToolPosition === 2) {
+      // Start new comment placement
+      const canvasPos = screenToCanvas(e.clientX, e.clientY);
+      isPlacingCanvasComment = true;
+      tempCanvasCommentLocation = { x: canvasPos.x, y: canvasPos.y };
+      showCanvasCommentPlacementUI(e.clientX, e.clientY);
+      requestDraw();
+      return;
+    }
   }
 
   // When NOT in reflection mode, handle pin clicks for viewing/expanding
@@ -9322,6 +9771,75 @@ canvas.addEventListener('mousemove', (e) => {
   } else if (isPointOnReflectionButton(e.clientX, e.clientY)) {
     // Show pointer cursor when hovering over reflection button
     canvas.style.cursor = 'pointer';
+    // Clear canvas comment tooltip when hovering over reflection button
+    if (tooltipCanvasCommentId !== null) {
+      tooltipCanvasCommentId = null;
+      selectedCanvasCommentId = null;
+      for (let k in window) {
+        if (k.startsWith('canvasCommentTooltipBounds_')) {
+          delete window[k];
+        }
+      }
+      requestDraw();
+    }
+  } else if (!isReflectionMode) {
+    // Check for canvas comment hover
+    const hoveredComment = getCanvasCommentAt(e.clientX, e.clientY);
+
+    // Check if mouse is over the canvas comment tooltip (for delete button access)
+    let isOverCanvasCommentTooltip = false;
+    if (tooltipCanvasCommentId !== null) {
+      const bounds = window[`canvasCommentTooltipBounds_${tooltipCanvasCommentId}`];
+      if (bounds &&
+        e.clientX >= bounds.x &&
+        e.clientX <= bounds.x + bounds.width &&
+        e.clientY >= bounds.y &&
+        e.clientY <= bounds.y + bounds.height) {
+        isOverCanvasCommentTooltip = true;
+      }
+    }
+
+    if (hoveredComment) {
+      // Hovering over a canvas comment - show pointer cursor and tooltip
+      canvas.style.cursor = 'pointer';
+      if (tooltipCanvasCommentId !== hoveredComment.id) {
+        tooltipCanvasCommentId = hoveredComment.id;
+        selectedCanvasCommentId = hoveredComment.id;
+        requestDraw();
+      }
+    } else if (isOverCanvasCommentTooltip) {
+      // Hovering over the tooltip - keep it visible and show pointer cursor
+      canvas.style.cursor = 'pointer';
+    } else {
+      // Not hovering over any comment or tooltip - hide tooltip if visible
+      if (tooltipCanvasCommentId !== null) {
+        // Clear all canvas comment tooltip bounds
+        for (let k in window) {
+          if (k.startsWith('canvasCommentTooltipBounds_')) {
+            delete window[k];
+          }
+        }
+        tooltipCanvasCommentId = null;
+        selectedCanvasCommentId = null;
+        requestDraw();
+      }
+      // Set appropriate cursor
+      if (activeToolPosition === 2) {
+        // Postit tool active - show comment-mode cursor for placement
+        canvas.style.cursor = createCustomCursor();
+      } else if (selectedImageIndices.length === 1 && selectedImageIndices[0] >= 0) {
+        const img = images[selectedImageIndices[0]];
+        const handle = getResizeHandleAt(e.clientX, e.clientY, img);
+        if (handle) {
+          const cursors = { nw: 'nw-resize', ne: 'ne-resize', se: 'se-resize', sw: 'sw-resize' };
+          canvas.style.cursor = cursors[handle];
+        } else {
+          canvas.style.cursor = createCustomCursor();
+        }
+      } else {
+        canvas.style.cursor = createCustomCursor();
+      }
+    }
   } else if (selectedImageIndices.length === 1 && selectedImageIndices[0] >= 0) {
     const img = images[selectedImageIndices[0]];
     const handle = getResizeHandleAt(e.clientX, e.clientY, img);
@@ -9651,6 +10169,9 @@ function endScreenshotMode() {
   // Don't clear selection bounds here - keep them during fade-in
   // They will be cleared when fade-in completes or overlay opens
   isExitingScreenshotMode = true; // Start transition state
+  if (overlayContainer) {
+    overlayContainer.classList.add('exiting-screenshot');
+  }
   screenshotOutlineFadeStartTime = 0; // Reset fade start time
   // Stop cursor maintenance
   stopCursorMaintenance();
@@ -10283,15 +10804,29 @@ let activeToolPosition = 1; // 1 for select-tool, 2 for postit-tool
 
 function updateSlidingBackground(position) {
   if (!toolbarSlidingBg) return;
-  
+
   activeToolPosition = position;
   toolbarSlidingBg.classList.remove('position-1', 'position-2');
   toolbarSlidingBg.classList.add(`position-${position}`);
-  
+
   // Update active states
   if (selectTool && postitTool) {
     selectTool.classList.toggle('active', position === 1);
     postitTool.classList.toggle('active', position === 2);
+  }
+
+  // When switching away from postit tool (position 2), clean up canvas comment state
+  if (position !== 2) {
+    hideCanvasCommentPlacementUI();
+    tooltipCanvasCommentId = null;
+    selectedCanvasCommentId = null;
+    // Clear canvas comment tooltip bounds
+    for (let k in window) {
+      if (k.startsWith('canvasCommentTooltipBounds_')) {
+        delete window[k];
+      }
+    }
+    requestDraw();
   }
 }
 
@@ -11939,6 +12474,9 @@ function updateCirclePositions() {
     // When animation completes and we're exiting screenshot mode, clear the transition flag
     if (isExitingScreenshotMode && hoverAnimationProgress <= 0) {
       isExitingScreenshotMode = false;
+      if (overlayContainer) {
+        overlayContainer.classList.remove('exiting-screenshot');
+      }
     }
   }
 
@@ -12279,6 +12817,9 @@ function drawCircles() {
       // When rotation completes and we're exiting screenshot mode, clear the transition flag
       if (isExitingScreenshotMode && hoverAnimationProgress <= 0) {
         isExitingScreenshotMode = false;
+        if (overlayContainer) {
+          overlayContainer.classList.remove('exiting-screenshot');
+        }
       }
     }
 
@@ -12606,6 +13147,82 @@ function confirmPinPlacement() {
   draw();
 }
 
+// Canvas Comment Placement UI Functions
+function showCanvasCommentPlacementUI(screenX, screenY) {
+  if (!pinPlacementUI) return;
+
+  // Add canvas-comment-mode class for orange styling
+  pinPlacementUI.classList.add('canvas-comment-mode');
+
+  pinPlacementUI.style.display = 'block';
+  pinPlacementUI.style.left = (screenX + 20) + 'px';
+  pinPlacementUI.style.top = (screenY - 20) + 'px';
+  pinPlacementUI.style.pointerEvents = 'auto';
+
+  if (pinFeatureInput) {
+    pinFeatureInput.value = '';
+    pinFeatureInput.placeholder = 'Enter comment';
+    setTimeout(() => {
+      pinFeatureInput.focus();
+    }, 10);
+  }
+}
+
+function hideCanvasCommentPlacementUI() {
+  if (pinPlacementUI) {
+    pinPlacementUI.style.display = 'none';
+    pinPlacementUI.classList.remove('canvas-comment-mode');
+  }
+  isPlacingCanvasComment = false;
+  tempCanvasCommentLocation = null;
+  if (pinFeatureInput) {
+    pinFeatureInput.placeholder = 'Enter feature description';
+    pinFeatureInput.blur();
+  }
+}
+
+function confirmCanvasCommentPlacement() {
+  if (!isPlacingCanvasComment || !tempCanvasCommentLocation || !pinFeatureInput) return;
+
+  const commentText = pinFeatureInput.value.trim();
+  if (!commentText) {
+    // Don't create comment without text
+    hideCanvasCommentPlacementUI();
+    requestDraw();
+    return;
+  }
+
+  // Create new canvas comment
+  const newComment = {
+    id: generateId(),
+    location: { x: tempCanvasCommentLocation.x, y: tempCanvasCommentLocation.y },
+    text: commentText,
+    createdAt: Date.now()
+  };
+
+  canvasComments.push(newComment);
+
+  hideCanvasCommentPlacementUI();
+  requestDraw();
+}
+
+function deleteCanvasComment(commentId) {
+  // Filter out comment from array
+  canvasComments = canvasComments.filter(c => c.id !== commentId);
+
+  // Clear selection/tooltip if deleted
+  if (selectedCanvasCommentId === commentId) {
+    selectedCanvasCommentId = null;
+  }
+  if (tooltipCanvasCommentId === commentId) {
+    tooltipCanvasCommentId = null;
+    // Clear tooltip bounds
+    delete window[`canvasCommentTooltipBounds_${commentId}`];
+  }
+
+  requestDraw();
+}
+
 function updateControlPanelInputs() {
   if (!controlPanelInputs || !emotionalAspectInput || !valueAspectInput) return;
 
@@ -12617,134 +13234,61 @@ function updateControlPanelInputs() {
 
   const fieldHeight = 32;
   const padding = 20;
-  const inputTopOffset = 20; // Offset from top of content area
-  const labelHeight = 20; // Height for labels
-  const fieldSpacing = 12; // Spacing between fields
 
   // Position general info inputs in white accordion (general-info)
   const generalInfoContentBounds = window.accordionContentBounds && window.accordionContentBounds['general-info'];
   const isGeneralInfoExpanded = expandedAccordionId === 'general-info';
   const isGeneralInfoAnimating = generalInfoContentBounds && generalInfoContentBounds.isAnimating;
-  const shouldShowGeneralInfo = isGeneralInfoExpanded && generalInfoContentBounds;
+  const shouldShowGeneralInfo = (isGeneralInfoExpanded || isGeneralInfoAnimating) && generalInfoContentBounds;
 
   if (productNameContainer && productNameInput && focusInputContainer && focusInput) {
-    if (shouldShowGeneralInfo || isGeneralInfoAnimating) {
+    if (shouldShowGeneralInfo) {
       controlPanelInputs.style.display = 'block';
 
-      // Calculate animation progress for fade-in/fade-out effect (matching accordion animation)
-      let inputOpacity = 1.0;
-      let contentScaleY = 1.0;
-      let animatedOffsetY = 0;
-
-      if (isGeneralInfoAnimating) {
-        const animation = accordionAnimations['general-info'];
-        if (animation) {
-          const elapsed = Date.now() - animation.startTime;
-          const progress = Math.min(elapsed / animation.duration, 1);
-
-          // Use same easing as accordion animation
-          let easedProgress;
-          if (progress < 1) {
-            const t = progress;
-            easedProgress = 1 - Math.pow(1 - t, 3);
-            if (animation.toHeight > animation.fromHeight && progress > 0.7) {
-              const overshoot = (progress - 0.7) / 0.3;
-              const bounce = Math.sin(overshoot * Math.PI) * 0.1;
-              easedProgress = Math.min(1, easedProgress + bounce);
-            }
-          } else {
-            easedProgress = 1;
-          }
-
-          // Calculate scale factor for content during animation
-          const calculatedHeight = calculateAccordionContentHeight('general-info');
-          const startHeight = animation.fromHeight - 20;
-          const endHeight = animation.toHeight - 20;
-
-          if (endHeight > 0) {
-            // Opening
-            const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
-            contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
-            inputOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
-          } else {
-            // Closing
-            if (startHeight > 0) {
-              const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
-              contentScaleY = currentVisibleHeight / startHeight;
-            }
-            inputOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster
-          }
-
-          // Calculate animated Y offset for smooth movement
-          animatedOffsetY = (1 - easedProgress) * (animation.toHeight - animation.fromHeight) / 2;
-        }
+      // Clip the HTML inputs by the accordion's visible content height.
+      if (generalInfoInputLayer) {
+        generalInfoInputLayer.style.display = 'block';
+        generalInfoInputLayer.style.left = generalInfoContentBounds.x + 'px';
+        generalInfoInputLayer.style.top = generalInfoContentBounds.y + 'px';
+        generalInfoInputLayer.style.width = generalInfoContentBounds.width + 'px';
+        generalInfoInputLayer.style.height = Math.max(0, generalInfoContentBounds.height) + 'px';
       }
 
-      // Combine opacity with scale for smoother effect
-      const effectiveOpacity = inputOpacity * Math.max(0, Math.min(1, contentScaleY));
-
-      // Only position if bounds are available
-      if (generalInfoContentBounds) {
-        // Position product name input (first field) - reduced gap from label
-        // generalInfoContentBounds.y = barY + barHeight, label is at barY + barHeight + 20
-        // So input should be at: labelY (barY + barHeight + 20) + label height (12px) + gap (4px)
-        const baseProductNameY = generalInfoContentBounds.y + 20 + 12 + 4; // 20px offset + 12px label + 4px gap = 36px from bounds start
-        const productNameY = baseProductNameY + animatedOffsetY;
-
-        // Set product name input value from image object
-        if (productNameInput && reflectionImg && reflectionImg.title !== undefined) {
-          productNameInput.value = reflectionImg.title || '';
-        }
-
-        productNameContainer.style.position = 'absolute';
-        productNameContainer.style.left = (generalInfoContentBounds.x + generalInfoContentBounds.padding) + 'px';
-        productNameContainer.style.top = productNameY + 'px';
-        productNameContainer.style.width = (generalInfoContentBounds.width - generalInfoContentBounds.padding * 2) + 'px';
-        productNameContainer.style.display = 'block';
-        productNameContainer.style.opacity = effectiveOpacity.toString();
-        productNameContainer.style.transform = `scaleY(${contentScaleY})`;
-        productNameContainer.style.transformOrigin = 'top';
-        if (isGeneralInfoAnimating) {
-          productNameContainer.classList.add('animating');
-        } else {
-          productNameContainer.classList.remove('animating');
-        }
-
-        // Position focus input (second field) - increased gap from first input to second label
-        // Second label is at: first label (20px) + label height (12px) + gap (4px) + input height (32px) + gap to second label (24px) = 92px from bounds start
-        // Input should be at: second label position + label height (12px) + gap (4px)
-        const baseFocusY = generalInfoContentBounds.y + 20 + 12 + 4 + fieldHeight + 24 + 12 + 4; // Aligned with second label + spacing
-        const focusY = baseFocusY + animatedOffsetY;
-
-        // Set focus input value from image object, but only if the input is not currently focused (user is not typing)
-        if (focusInput && reflectionImg && reflectionImg.focus !== undefined && document.activeElement !== focusInput) {
-          focusInput.value = reflectionImg.focus || '';
-        }
-
-        focusInputContainer.style.position = 'absolute';
-        focusInputContainer.style.left = (generalInfoContentBounds.x + generalInfoContentBounds.padding) + 'px';
-        focusInputContainer.style.top = focusY + 'px';
-        focusInputContainer.style.width = (generalInfoContentBounds.width - generalInfoContentBounds.padding * 2) + 'px';
-        focusInputContainer.style.display = 'block';
-        focusInputContainer.style.opacity = effectiveOpacity.toString();
-        focusInputContainer.style.transform = `scaleY(${contentScaleY})`;
-        focusInputContainer.style.transformOrigin = 'top';
-        if (isGeneralInfoAnimating) {
-          focusInputContainer.classList.add('animating');
-        } else {
-          focusInputContainer.classList.remove('animating');
-        }
-      } else {
-        // Bounds not available yet, but show inputs with opacity 0 so they're ready
-        productNameContainer.style.display = 'block';
-        productNameContainer.style.opacity = '0';
-        focusInputContainer.style.display = 'block';
-        focusInputContainer.style.opacity = '0';
+      // Set product name input value from image object
+      if (productNameInput && reflectionImg && reflectionImg.title !== undefined) {
+        productNameInput.value = reflectionImg.title || '';
       }
+
+      // Position within the layer (stable; no animatedOffsetY/scale/opacity animation)
+      const productNameTop = 20 + 12 + 4; // label offset + label height + gap
+      productNameContainer.style.position = 'absolute';
+      productNameContainer.style.left = padding + 'px';
+      productNameContainer.style.top = productNameTop + 'px';
+      productNameContainer.style.width = (generalInfoContentBounds.width - padding * 2) + 'px';
+      productNameContainer.style.display = 'block';
+      productNameContainer.style.opacity = '1';
+      productNameContainer.style.transform = 'none';
+      productNameContainer.classList.remove('animating');
+
+      // Set focus input value from image object, but only if the input is not currently focused (user is not typing)
+      if (focusInput && reflectionImg && reflectionImg.focus !== undefined && document.activeElement !== focusInput) {
+        focusInput.value = reflectionImg.focus || '';
+      }
+
+      const focusTop = 20 + 12 + 4 + fieldHeight + 24 + 12 + 4;
+      focusInputContainer.style.position = 'absolute';
+      focusInputContainer.style.left = padding + 'px';
+      focusInputContainer.style.top = focusTop + 'px';
+      focusInputContainer.style.width = (generalInfoContentBounds.width - padding * 2) + 'px';
+      focusInputContainer.style.display = 'block';
+      focusInputContainer.style.opacity = '1';
+      focusInputContainer.style.transform = 'none';
+      focusInputContainer.classList.remove('animating');
     } else {
       // Hide when accordion is closed
       productNameContainer.style.display = 'none';
       focusInputContainer.style.display = 'none';
+      if (generalInfoInputLayer) generalInfoInputLayer.style.display = 'none';
     }
   }
 
@@ -12762,59 +13306,14 @@ function updateControlPanelInputs() {
   // Position emotions answer input in yellow accordion (emotions)
   if (emotionsAnswerInput && emotionsAnswerAddButton) {
     if (isEmotionsExpanded || isEmotionsAnimating) {
-      // Calculate animation progress for fade-in/fade-out effect (matching accordion animation)
-      let inputOpacity = 1.0;
-      let contentScaleY = 1.0;
-      let animatedOffsetY = 0;
-
-      if (isEmotionsAnimating) {
-        const animation = accordionAnimations['emotions'];
-        if (animation) {
-          const elapsed = Date.now() - animation.startTime;
-          const progress = Math.min(elapsed / animation.duration, 1);
-
-          // Use same easing as accordion animation
-          let easedProgress;
-          if (progress < 1) {
-            const t = progress;
-            easedProgress = 1 - Math.pow(1 - t, 3);
-            if (animation.toHeight > animation.fromHeight && progress > 0.7) {
-              const overshoot = (progress - 0.7) / 0.3;
-              const bounce = Math.sin(overshoot * Math.PI) * 0.1;
-              easedProgress = Math.min(1, easedProgress + bounce);
-            }
-          } else {
-            easedProgress = 1;
-          }
-
-          // Calculate scale factor for content during animation
-          const calculatedHeight = calculateAccordionContentHeight('emotions');
-          const startHeight = animation.fromHeight - 20;
-          const endHeight = animation.toHeight - 20;
-
-          if (endHeight > 0) {
-            // Opening
-            const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
-            contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
-            inputOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
-          } else {
-            // Closing
-            if (startHeight > 0) {
-              const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
-              contentScaleY = currentVisibleHeight / startHeight;
-            }
-            inputOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster
-          }
-
-          // Calculate animated Y offset for smooth movement
-          animatedOffsetY = (1 - easedProgress) * (animation.toHeight - animation.fromHeight) / 2;
-        }
-      }
-
-      // Combine opacity with scale for smoother effect
-      const effectiveOpacity = inputOpacity * Math.max(0, Math.min(1, contentScaleY));
-
       controlPanelInputs.style.display = 'block';
+      if (emotionsInputLayer && emotionsContentBounds) {
+        emotionsInputLayer.style.display = 'block';
+        emotionsInputLayer.style.left = emotionsContentBounds.x + 'px';
+        emotionsInputLayer.style.top = emotionsContentBounds.y + 'px';
+        emotionsInputLayer.style.width = emotionsContentBounds.width + 'px';
+        emotionsInputLayer.style.height = Math.max(0, emotionsContentBounds.height) + 'px';
+      }
 
       // Calculate position: below chat bubble
       // Chat bubble starts at contentY = barY + barHeight + 20
@@ -12836,45 +13335,35 @@ function updateControlPanelInputs() {
       const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
 
       // Input position: contentY (20px below bar) + bubble height + spacing
-      const baseInputY = emotionsContentBounds.y + 20 + messageBubbleHeight + bubbleToInputSpacing;
-      const inputY = baseInputY + animatedOffsetY;
+      const inputY = 20 + messageBubbleHeight + bubbleToInputSpacing;
 
       emotionsAnswerInput.style.position = 'absolute';
-      emotionsAnswerInput.style.left = (emotionsContentBounds.x + emotionsContentBounds.padding) + 'px';
+      emotionsAnswerInput.style.left = padding + 'px';
       emotionsAnswerInput.style.top = inputY + 'px';
-      emotionsAnswerInput.style.width = (emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 40) + 'px';
+      emotionsAnswerInput.style.width = (emotionsContentBounds.width - padding * 2 - 40) + 'px';
       emotionsAnswerInput.style.display = 'block';
-      emotionsAnswerInput.style.opacity = effectiveOpacity.toString();
+      emotionsAnswerInput.style.opacity = '1';
       emotionsAnswerInput.style.background = '#fef3c7'; // Light yellow background
       emotionsAnswerInput.style.borderColor = '#6b7280'; // Muted olive green border
-      emotionsAnswerInput.style.transform = `scaleY(${contentScaleY})`;
-      emotionsAnswerInput.style.transformOrigin = 'top';
-      if (isEmotionsAnimating) {
-        emotionsAnswerInput.classList.add('animating');
-      } else {
-        emotionsAnswerInput.classList.remove('animating');
-      }
+      emotionsAnswerInput.style.transform = 'none';
+      emotionsAnswerInput.classList.remove('animating');
 
       emotionsAnswerAddButton.style.position = 'absolute';
-      emotionsAnswerAddButton.style.left = (emotionsContentBounds.x + emotionsContentBounds.width - emotionsContentBounds.padding - 30) + 'px';
+      emotionsAnswerAddButton.style.left = (emotionsContentBounds.width - padding - 30) + 'px';
       emotionsAnswerAddButton.style.top = inputY + 'px';
       emotionsAnswerAddButton.style.width = '30px';
       emotionsAnswerAddButton.style.height = fieldHeight + 'px';
       emotionsAnswerAddButton.style.display = 'block';
-      emotionsAnswerAddButton.style.opacity = effectiveOpacity.toString();
+      emotionsAnswerAddButton.style.opacity = '1';
       emotionsAnswerAddButton.style.background = '#78716c'; // Dark olive green/brown
       emotionsAnswerAddButton.style.color = '#ffffff';
-      emotionsAnswerAddButton.style.transform = `scaleY(${contentScaleY})`;
-      emotionsAnswerAddButton.style.transformOrigin = 'top';
-      if (isEmotionsAnimating) {
-        emotionsAnswerAddButton.classList.add('animating');
-      } else {
-        emotionsAnswerAddButton.classList.remove('animating');
-      }
+      emotionsAnswerAddButton.style.transform = 'none';
+      emotionsAnswerAddButton.classList.remove('animating');
     } else {
       // Hide when accordion is closed
       emotionsAnswerInput.style.display = 'none';
       emotionsAnswerAddButton.style.display = 'none';
+      if (emotionsInputLayer) emotionsInputLayer.style.display = 'none';
     }
   }
 
@@ -12884,57 +13373,7 @@ function updateControlPanelInputs() {
   const isValuesAnimating = valuesContentBounds && valuesContentBounds.isAnimating;
 
   if (valueAspectInput && valueAspectAddButton) {
-    if (isValuesExpanded && valuesContentBounds) {
-      // Calculate animation progress for fade-in/fade-out effect (matching accordion animation)
-      let inputOpacity = 1.0;
-      let contentScaleY = 1.0;
-      let animatedOffsetY = 0;
-
-      if (isValuesAnimating && accordionAnimations && accordionAnimations['values']) {
-        const animation = accordionAnimations['values'];
-        const elapsed = Date.now() - animation.startTime;
-        const progress = Math.min(elapsed / animation.duration, 1);
-
-        // Use same easing as accordion animation
-        let easedProgress;
-        if (progress < 1) {
-          const t = progress;
-          easedProgress = 1 - Math.pow(1 - t, 3);
-          if (animation.toHeight > animation.fromHeight && progress > 0.7) {
-            const overshoot = (progress - 0.7) / 0.3;
-            const bounce = Math.sin(overshoot * Math.PI) * 0.1;
-            easedProgress = Math.min(1, easedProgress + bounce);
-          }
-        } else {
-          easedProgress = 1;
-        }
-
-        // Calculate scale factor for content during animation
-        const calculatedHeight = calculateAccordionContentHeight('values');
-        const startHeight = animation.fromHeight - 20;
-        const endHeight = animation.toHeight - 20;
-
-        if (endHeight > 0) {
-          // Opening
-          const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
-          contentScaleY = calculatedHeight > 0 ? (currentVisibleHeight / calculatedHeight) : 0;
-          inputOpacity = Math.max(0, Math.min(1, (progress - 0.2) / 0.3)); // Fade in from 20% to 50%
-        } else {
-          // Closing
-          if (startHeight > 0) {
-            const currentVisibleHeight = Math.max(0, animation.fromHeight + (animation.toHeight - animation.fromHeight) * easedProgress - 20);
-            contentScaleY = currentVisibleHeight / startHeight;
-          }
-          inputOpacity = Math.max(0, 1 - progress * 1.5); // Fade out faster
-        }
-
-        // Calculate animated Y offset for smooth movement
-        animatedOffsetY = (1 - easedProgress) * (animation.toHeight - animation.fromHeight) / 2;
-      }
-
-      // Combine opacity with scale for smoother effect
-      const effectiveOpacity = inputOpacity * Math.max(0, Math.min(1, contentScaleY));
-
+    if ((isValuesExpanded || isValuesAnimating) && valuesContentBounds) {
       // Chat bubble starts at contentY = barY + barHeight + 20
       // Bubble height is calculated from text, but we'll use a reasonable estimate
       const messagePadding = 12;
@@ -12954,53 +13393,54 @@ function updateControlPanelInputs() {
       const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
 
       // Input position: contentY (20px below bar) + bubble height + spacing
-      const baseInputY = valuesContentBounds.y + 20 + messageBubbleHeight + bubbleToInputSpacing;
-      const inputY = baseInputY + animatedOffsetY;
+      const inputY = 20 + messageBubbleHeight + bubbleToInputSpacing;
 
       controlPanelInputs.style.display = 'block';
+      if (valuesInputLayer) {
+        valuesInputLayer.style.display = 'block';
+        valuesInputLayer.style.left = valuesContentBounds.x + 'px';
+        valuesInputLayer.style.top = valuesContentBounds.y + 'px';
+        valuesInputLayer.style.width = valuesContentBounds.width + 'px';
+        valuesInputLayer.style.height = Math.max(0, valuesContentBounds.height) + 'px';
+      }
       valueAspectInput.style.position = 'absolute';
-      valueAspectInput.style.left = (valuesContentBounds.x + valuesContentBounds.padding) + 'px';
+      valueAspectInput.style.left = padding + 'px';
       valueAspectInput.style.top = inputY + 'px';
-      valueAspectInput.style.width = (valuesContentBounds.width - valuesContentBounds.padding * 2 - 40) + 'px';
+      valueAspectInput.style.width = (valuesContentBounds.width - padding * 2 - 40) + 'px';
       valueAspectInput.style.display = 'block';
-      valueAspectInput.style.opacity = effectiveOpacity.toString();
+      valueAspectInput.style.opacity = '1';
       valueAspectInput.style.background = '#d1fae5'; // Light green background
       valueAspectInput.style.borderColor = '#10b981'; // Green border
-      valueAspectInput.style.transform = `scaleY(${contentScaleY})`;
-      valueAspectInput.style.transformOrigin = 'top';
-      if (isValuesAnimating) {
-        valueAspectInput.classList.add('animating');
-      } else {
-        valueAspectInput.classList.remove('animating');
-      }
+      valueAspectInput.style.transform = 'none';
+      valueAspectInput.classList.remove('animating');
 
       valueAspectAddButton.style.position = 'absolute';
-      valueAspectAddButton.style.left = (valuesContentBounds.x + valuesContentBounds.width - valuesContentBounds.padding - 30) + 'px';
+      valueAspectAddButton.style.left = (valuesContentBounds.width - padding - 30) + 'px';
       valueAspectAddButton.style.top = inputY + 'px';
       valueAspectAddButton.style.width = '30px';
       valueAspectAddButton.style.height = fieldHeight + 'px';
       valueAspectAddButton.style.display = 'block';
-      valueAspectAddButton.style.opacity = effectiveOpacity.toString();
+      valueAspectAddButton.style.opacity = '1';
       valueAspectAddButton.style.background = '#10b981'; // Green background
       valueAspectAddButton.style.color = '#ffffff';
-      valueAspectAddButton.style.transform = `scaleY(${contentScaleY})`;
-      valueAspectAddButton.style.transformOrigin = 'top';
-      if (isValuesAnimating) {
-        valueAspectAddButton.classList.add('animating');
-      } else {
-        valueAspectAddButton.classList.remove('animating');
-      }
+      valueAspectAddButton.style.transform = 'none';
+      valueAspectAddButton.classList.remove('animating');
     } else {
       // Hide when accordion is closed
       valueAspectInput.style.display = 'none';
       valueAspectAddButton.style.display = 'none';
+      if (valuesInputLayer) valuesInputLayer.style.display = 'none';
     }
   }
 
-  // Hide container if no inputs are visible
-  if ((!isGeneralInfoExpanded || !productNameContainer || productNameContainer.style.display === 'none') &&
-    (!isEmotionsExpanded || !emotionsAnswerInput || emotionsAnswerInput.style.display === 'none') &&
-    (!isValuesExpanded || !valueAspectInput || valueAspectInput.style.display === 'none')) {
+  // Hide container if no inputs are visible (including during close animations).
+  const anyVisible =
+    (productNameContainer && productNameContainer.style.display !== 'none') ||
+    (focusInputContainer && focusInputContainer.style.display !== 'none') ||
+    (emotionsAnswerInput && emotionsAnswerInput.style.display !== 'none') ||
+    (valueAspectInput && valueAspectInput.style.display !== 'none');
+
+  if (!anyVisible) {
     if (controlPanelInputs) controlPanelInputs.style.display = 'none';
   }
 
@@ -13225,7 +13665,12 @@ function deleteAspect(type, index) {
 if (pinConfirmButton) {
   pinConfirmButton.addEventListener('click', (e) => {
     e.stopPropagation();
-    confirmPinPlacement();
+    // Check if we're placing a canvas comment or a pin
+    if (isPlacingCanvasComment) {
+      confirmCanvasCommentPlacement();
+    } else {
+      confirmPinPlacement();
+    }
   });
 }
 
@@ -13233,11 +13678,21 @@ if (pinFeatureInput) {
   pinFeatureInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      confirmPinPlacement();
+      // Check if we're placing a canvas comment or a pin
+      if (isPlacingCanvasComment) {
+        confirmCanvasCommentPlacement();
+      } else {
+        confirmPinPlacement();
+      }
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      hidePinPlacementUI();
-      draw();
+      // Check if we're placing a canvas comment or a pin
+      if (isPlacingCanvasComment) {
+        hideCanvasCommentPlacementUI();
+      } else {
+        hidePinPlacementUI();
+      }
+      requestDraw();
     }
   });
 }
