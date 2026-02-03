@@ -1,1 +1,1 @@
-Test
+Der Download der fertigen App ist als Release im Github Repo bzw. und https://github.com/timmilwa/Masterarbeit_Abgabe/releases/download/v0.1.5/Kaleido.zip zu erreichen.
