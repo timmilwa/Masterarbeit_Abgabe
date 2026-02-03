@@ -462,22 +462,20 @@ function loadLabelImages() {
 if (typeof window !== 'undefined') {
   window.addEventListener('load', loadLabelImages);
   window.addEventListener('load', initializeGeneralInfoIcons);
-  window.addEventListener('load', () => {
-    // Load AI settings and custom instructions on app load
-    loadAISettings();
+  window.addEventListener('load', async () => {
+    await loadAISettings();
     loadCustomInstructions();
   });
   // Also try loading immediately in case window is already loaded
   if (document.readyState === 'complete') {
     loadLabelImages();
     initializeGeneralInfoIcons();
-    loadAISettings();
-    loadCustomInstructions();
+    (async () => { await loadAISettings(); loadCustomInstructions(); })();
   } else {
     // Try loading after a short delay
     setTimeout(loadLabelImages, 100);
-    setTimeout(() => {
-      loadAISettings();
+    setTimeout(async () => {
+      await loadAISettings();
       loadCustomInstructions();
     }, 100);
   }
@@ -513,7 +511,7 @@ function generateId() {
 
 // AI Settings State
 let aiSettings = {
-  aiModeEnabled: false,
+  aiModeEnabled: true,
   apiKey: "",
   model: "gemini-2.5-flash"
 };
@@ -531,9 +529,14 @@ let customInstructions = {
   tokenPrompt2: ""
 };
 
-// Get config file path (user-specific settings)
-function getConfigPath() {
-  return path.join(__dirname, 'config', 'ai-settings.json');
+// User data path (set once via IPC from main process - not available in renderer)
+let userDataPath = null;
+
+// Get config file path (user-specific settings). Uses Electron userData dir so config is never
+// inside the app bundle and never packaged with the build (avoids shipping your API key).
+async function getConfigPath() {
+  if (!userDataPath) userDataPath = await ipcRenderer.invoke('get-user-data-path');
+  return path.join(userDataPath, 'ai-settings.json');
 }
 
 // Get custom instructions file path (project file, part of build)
@@ -541,25 +544,17 @@ function getCustomInstructionsPath() {
   return path.join(__dirname, 'ai-custom-instructions.json');
 }
 
-// Ensure config directory exists
-function ensureConfigDirectory() {
-  const configDir = path.join(__dirname, 'config');
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true });
-  }
-}
-
 // Load AI settings from config file (user-specific: mode toggle, model, API key)
-function loadAISettings() {
+async function loadAISettings() {
   try {
-    const configPath = getConfigPath();
+    const configPath = await getConfigPath();
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf8');
       const loaded = JSON.parse(data);
       // Merge with defaults to handle missing fields
       // API key is loaded from disk if present (stored locally, gitignored)
       aiSettings = {
-        aiModeEnabled: loaded.aiModeEnabled !== undefined ? loaded.aiModeEnabled : false,
+        aiModeEnabled: loaded.aiModeEnabled !== undefined ? loaded.aiModeEnabled : true,
         apiKey: loaded.apiKey || "", // Load API key from config file if present
         model: loaded.model || "gemini-2.5-flash"
       };
@@ -611,11 +606,10 @@ function saveCustomInstructions(instructions) {
 }
 
 // Save AI settings to config file (user-specific: mode toggle, model)
-// Save AI settings to config file (including API key - stored locally, gitignored)
-function saveAISettings(settings) {
+// Save AI settings to config file (including API key - stored locally in userData, not in app bundle)
+async function saveAISettings(settings) {
   try {
-    ensureConfigDirectory();
-    const configPath = getConfigPath();
+    const configPath = await getConfigPath();
     // Update in-memory settings
     aiSettings = { ...aiSettings, ...settings };
     // Save to disk including API key (stored locally in gitignored config file)
@@ -742,8 +736,8 @@ function updateAPIKeyValidation(key) {
 }
 
 // Initialize AI settings UI when settings modal opens
-function initializeAISettingsUI() {
-  loadAISettings();
+async function initializeAISettingsUI() {
+  await loadAISettings();
   updateAISettingsUI();
 }
 
@@ -13172,17 +13166,17 @@ if (settingsTabs && settingsTabs.length > 0) {
 
 // AI Settings Event Handlers
 if (aiModeToggle) {
-  aiModeToggle.addEventListener('change', (e) => {
+  aiModeToggle.addEventListener('change', async (e) => {
     aiSettings.aiModeEnabled = e.target.checked;
-    saveAISettings({ aiModeEnabled: e.target.checked });
+    await saveAISettings({ aiModeEnabled: e.target.checked });
     updateAISettingsUI();
   });
 }
 
 if (aiModeToggleTop) {
-  aiModeToggleTop.addEventListener('change', (e) => {
+  aiModeToggleTop.addEventListener('change', async (e) => {
     aiSettings.aiModeEnabled = e.target.checked;
-    saveAISettings({ aiModeEnabled: e.target.checked });
+    await saveAISettings({ aiModeEnabled: e.target.checked });
     updateAISettingsUI();
   });
 }
@@ -13191,9 +13185,9 @@ if (aiModeToggleTop) {
 // No input event listener needed
 
 if (aiModelSelect) {
-  aiModelSelect.addEventListener('change', (e) => {
+  aiModelSelect.addEventListener('change', async (e) => {
     aiSettings.model = e.target.value;
-    saveAISettings({ model: e.target.value });
+    await saveAISettings({ model: e.target.value });
   });
 }
 
@@ -13347,7 +13341,7 @@ if (aiApiKeyPasteButton) {
       if (text && text.trim().length > 0) {
         // Save the API key to memory and persist to local config file
         aiSettings.apiKey = text.trim();
-        saveAISettings({ apiKey: text.trim() }); // Save to local config file (gitignored)
+        await saveAISettings({ apiKey: text.trim() });
         // Update UI to show the input with the key
         if (aiApiKeyInput) {
           aiApiKeyInput.value = text.trim();
@@ -13369,12 +13363,11 @@ if (aiApiKeyPasteButton) {
 
 // API Key clear button handler
 if (aiApiKeyClearBtn) {
-  aiApiKeyClearBtn.addEventListener('click', (e) => {
+  aiApiKeyClearBtn.addEventListener('click', async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // Clear the API key from memory and config file
     aiSettings.apiKey = '';
-    saveAISettings({ apiKey: '' }); // Remove from local config file
+    await saveAISettings({ apiKey: '' });
     // Update UI to show the paste button
     if (aiApiKeyInput) {
       aiApiKeyInput.value = '';

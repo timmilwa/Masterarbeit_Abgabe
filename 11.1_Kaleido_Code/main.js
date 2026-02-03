@@ -96,6 +96,9 @@ function createWindow() {
   });
 }
 
+// IPC: expose userData path to renderer (so API key config is stored outside app bundle, never shipped in build)
+ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
+
 // IPC Handler für Click-Through
 ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
   const win = BrowserWindow.fromWebContents(event.sender);
