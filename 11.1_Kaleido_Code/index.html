@@ -192,13 +192,62 @@
         }
 
         #svg-button-1 img {
-            height: 27px;
-            width: auto;
+            height: 27px !important;
+            width: auto !important;
+            max-height: none !important;
+            max-width: none !important;
         }
 
         #svg-button-2 img {
             height: 27px;
             width: auto;
+        }
+
+        #svg-button-1-2 {
+            width: auto;
+            min-width: auto;
+            padding: 0 8px;
+            position: relative;
+            z-index: 11;
+        }
+
+        #svg-button-1-2 img {
+            height: 27px !important;
+            width: auto !important;
+            max-height: none !important;
+            max-width: none !important;
+        }
+
+        .toolbar-svg-container {
+            cursor: pointer;
+        }
+
+        .toolbar-svg {
+            height: 250%;
+            width: auto;
+            display: block;
+            flex-shrink: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        #svg-vector {
+            height: 65%;
+           
+        }
+
+        .toolbar-svg-container:hover #svg-f {
+            opacity: 0.5;
+        }
+
+        .toolbar-svg-overlay {
+            position: absolute;
+            height: 20px;
+            width: auto;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 1;
         }
 
         #svg-button-3 img {
@@ -267,7 +316,7 @@
             align-items: center;
             justify-content: center;
             padding: 0 8px 0 8px;
-            gap: 8px;
+            gap: 12px;
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             opacity: 0;
@@ -402,6 +451,121 @@
             transform: rotate(10deg) translateY(-20px) scale(1.02);
         }
 
+        /* Token Stack Container */
+        .token-stack-container {
+            position: absolute;
+            width: 160px;
+            height: 100px;
+            overflow: visible;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            background-color: transparent;
+            border-radius: 0;
+            left: 50%;
+            bottom: 20px;
+            transform: translateX(-50%);
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .token-stack-background {
+            display: none;
+        }
+
+        .token-stack-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100px;
+            transform: translateY(42px) scale(0.75);
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            overflow: visible;
+        }
+
+        .token-stack-container.moved-up .token-stack-wrapper {
+            transform: translateY(-0px) scale(1);
+        }
+
+        .token-item {
+            position: absolute;
+            width: 110px;
+            height: 100px;
+            border-radius: 6px;
+            box-shadow: none;
+            transition: transform 0.4s ease, z-index 0.4s ease;
+            cursor: pointer;
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            left: 50%;
+            margin-left: -55px;
+            bottom: 0;
+            opacity: 1 !important;
+            pointer-events: auto;
+        }
+
+        /* First token - Front */
+        .token-item:nth-child(1) {
+            transform: rotate(20deg) translateX(-55px) translateY(18px);
+            z-index: 3;
+            background-image: url('assets/card-new-1.png') !important;
+        }
+
+        .token-item:nth-child(1):hover {
+            transform: rotate(20deg) translateX(-55px) translateY(15px) scale(1.02);
+        }
+
+        /* Second token - Middle */
+        .token-item:nth-child(2) {
+            transform: rotate(0deg) translateX(10px) translateY(-7px);
+            z-index: 2;
+            background-image: url('assets/card-new-2.png') !important;
+        }
+
+        .token-item:nth-child(2):hover {
+            transform: rotate(0deg) translateX(10px) translateY(-5px) scale(1.02);
+        }
+
+        /* Third token - Back */
+        .token-item:nth-child(3) {
+            transform: rotate(20deg) translateX(73px) translateY(-28px);
+            z-index: 1;
+            background-image: url('assets/card-new-3.png') !important;
+        }
+
+        .token-item:nth-child(3):hover {
+            transform: rotate(20deg) translateX(73px) translateY(-25px) scale(1.02);
+        }
+
+        /* Dragging state for tokens */
+        .token-item.dragging {
+            z-index: 10000 !important;
+            cursor: grabbing;
+            transition: none !important;
+            opacity: 1 !important;
+            pointer-events: none;
+        }
+
+        .token-item.dragging-fade-out {
+            opacity: 0 !important;
+            pointer-events: none;
+        }
+
+        .token-item.fade-in {
+            animation: cardFadeIn 0.4s ease forwards;
+        }
+
+        /* Ensure only 3 tokens exist */
+        .token-item:nth-child(n+4) {
+            display: none !important;
+        }
+
         /* Dragging state */
         .card-item.dragging {
             z-index: 10000 !important;
@@ -477,6 +641,34 @@
 
         .card-stack-container.moved-up .card-item:nth-child(3):hover {
             transform: rotate(0deg) translateX(190px) translateY(-60px) scale(1.02);
+        }
+
+        /* Token stack - moved up states */
+        .token-stack-container.moved-up .token-item:nth-child(1) {
+            transform: rotate(0deg) translateX(-110px) translateY(-35px) scale(0.9);
+            z-index: 3;
+        }
+
+        .token-stack-container.moved-up .token-item:nth-child(1):hover {
+            transform: rotate(0deg) translateX(-110px) translateY(-35px) scale(0.92);
+        }
+
+        .token-stack-container.moved-up .token-item:nth-child(2) {
+            transform: rotate(0deg) translateX(0) translateY(-35px) scale(0.9);
+            z-index: 2;
+        }
+
+        .token-stack-container.moved-up .token-item:nth-child(2):hover {
+            transform: rotate(0deg) translateX(0) translateY(-35px) scale(0.92);
+        }
+
+        .token-stack-container.moved-up .token-item:nth-child(3) {
+            transform: rotate(0deg) translateX(110px) translateY(-35px) scale(0.9);
+            z-index: 1;
+        }
+
+        .token-stack-container.moved-up .token-item:nth-child(3):hover {
+            transform: rotate(0deg) translateX(110px) translateY(-35px) scale(0.92);
         }
 
         /* Sliding background for toolbar buttons */
@@ -1672,7 +1864,7 @@
                         <img src="assets/Group_1561.svg" alt="">
                     </button>
                     <div class="card-stack-container" id="card-stack-container">
-                        <img src="assets/Group_1564.svg" alt="" class="card-stack-background" id="card-stack-background">
+                        <img src="assets/Group_1561.svg" alt="" class="card-stack-background" id="card-stack-background">
                         <div class="card-stack-wrapper">
                             <div class="card-item"></div>
                             <div class="card-item"></div>
@@ -1681,10 +1873,23 @@
                     </div>
                 </div>
                 <div class="toolbar-divider"></div>
-                <button class="tool-button" id="svg-button-2" title="">
-                    <img src="assets/Group_1e562.svg" alt="">
-                </button>
-                <div class="toolbar-divider"></div>
+                <div style="position: relative; overflow: visible; clip-path: polygon(-1000px -1000px, 1000px -1000px, 1000px 53px, -1000px 53px);">
+                    <button class="tool-button" id="svg-button-1-2" title="" style="margin-left:8px; margin-right:8px;">
+                        <img src="assets/Group_1e562.svg" alt="">
+                    </button>
+                    <div class="token-stack-container" id="token-stack-container">
+                        <img src="assets/Group_1e562.svg" alt="" class="token-stack-background" id="token-stack-background">
+                        <div class="token-stack-wrapper">
+                            <div class="token-item"></div>
+                            <div class="token-item"></div>
+                            <div class="token-item"></div>
+                        </div>
+                    </div>
+                </div>
+                <div style="position: relative; display: flex; align-items: center; justify-content: center;" class="toolbar-svg-container">
+                    <img src="assets/F.svg" alt="" id="svg-f" class="toolbar-svg">
+                    <img src="assets/Vector.svg" alt="" id="svg-vector" class="toolbar-svg-overlay">
+                </div>
                 
             </div>
         </div>

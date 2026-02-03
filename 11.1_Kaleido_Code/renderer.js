@@ -66,6 +66,36 @@ const focusSaveIcon = document.getElementById('focus-save-icon');
 const sidePanelStack = document.querySelector('.side-panel-stack');
 const generateVariantButton = document.getElementById('generate-variant-button');
 
+// Update sidebar opacity based on card/token state
+function updateSidebarOpacity() {
+  if (!sidePanelStack) return;
+  
+  // Check if any card or token is selected on canvas
+  const hasCardOrTokenSelected = selectedImageIndices.some(index => {
+    const img = images[index];
+    return img && (img.isCard || img.isToken) && !img.hidden;
+  });
+  
+  // Check if card or token is being dragged
+  const isCardOrTokenDragging = isCardDragging || isTokenDragging;
+  
+  // Check if cards or tokens are expanded in toolbar
+  const isCardOrTokenExpanded = isCardExpanded || isTokenExpanded;
+  
+  // Fade sidebar if any of these conditions are true
+  const shouldFade = hasCardOrTokenSelected || isCardOrTokenDragging || isCardOrTokenExpanded;
+  
+  if (shouldFade) {
+    sidePanelStack.style.opacity = '0';
+    sidePanelStack.style.transition = 'opacity 0.3s ease';
+    sidePanelStack.style.pointerEvents = 'none';
+  } else {
+    sidePanelStack.style.opacity = '1';
+    sidePanelStack.style.transition = 'opacity 0.3s ease';
+    sidePanelStack.style.pointerEvents = 'auto';
+  }
+}
+
 function refreshVariantButtonState() {
   if (!sidePanelStack) return;
   const hasCards = aspectCards.length > 0;
@@ -155,6 +185,7 @@ let previousCanvasTranslateX = 0;
 let previousCanvasTranslateY = 0;
 let reflectionButtonBounds = null; // Store button bounds for click detection
 let cardGenerateButtonBounds = {}; // Store generate button bounds for each card image: { imageId: { x, y, width, height, isScreenCoords } }
+let tokenPillBounds = {}; // Store pill bounds for each token image: { imageId: { pill: { x, y, width, height }, closeButton: { x, y, width, height }, isScreenCoords: true } }
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
 let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
 let emotionsAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for emotions tab
@@ -1244,9 +1275,9 @@ function getBaseImageData() {
 // Set base image (only if none exists)
 function setBaseImage(imageId) {
   if (baseImageId === null && imageId !== null) {
-    // Don't allow card images to be set as base image
+    // Don't allow card images or token images to be set as base image
     const img = images.find(img => img.id === imageId);
-    if (img && img.isCard) {
+    if (img && (img.isCard || img.isToken)) {
       return;
     }
     baseImageId = imageId;
@@ -1257,6 +1288,11 @@ function setBaseImage(imageId) {
 // Update base image (allows overwriting existing base image)
 function updateBaseImage(imageId) {
   if (imageId !== null) {
+    // Don't allow card images or token images to be set as base image
+    const img = images.find(img => img.id === imageId);
+    if (img && (img.isCard || img.isToken)) {
+      return;
+    }
     baseImageId = imageId;
     updateBaseImageCard();
   }
@@ -2108,6 +2144,9 @@ async function handleGenerateVariant() {
         generateVariantButton.textContent = 'Generate New Variant';
         generateVariantButton.style.opacity = '1';
       }
+      
+      // Refresh button visibility state
+      refreshVariantButtonState();
     };
     
     img.onerror = () => {
@@ -2126,6 +2165,9 @@ async function handleGenerateVariant() {
       generateVariantButton.textContent = 'Generate New Variant';
       generateVariantButton.style.opacity = '1';
     }
+    
+    // Refresh button visibility state
+    refreshVariantButtonState();
   }
 }
 
@@ -3521,10 +3563,21 @@ function draw() {
     });
   }
 
+  // Draw pills for token images (before transform restore, so they're part of canvas)
+  // Don't draw pills in reflection mode (they should disappear with other canvas contents)
+  if (!isReflectionMode) {
+    images.forEach((img, index) => {
+      if (img && img.isToken && !img.hidden) {
+        drawTokenPill(img);
+      }
+    });
+  }
+
   ctx.restore();
   aspectDotsForHitTesting.length = 0;
 
   // Draw pins for all images (after transform is restored for fixed screen size)
+  // Pin opacity is handled inside drawPins function when token is dragging
   if (isReflectionMode && reflectionImageIndex >= 0) {
     // In reflection mode, only draw pins for reflection image
     const reflectionImg = images[reflectionImageIndex];
@@ -3554,36 +3607,38 @@ function draw() {
   }
 
   // Draw pin thumbnail SVG overlay on card images when pins are selected
-  // For perspective cards, show overlay for all selected pins (up to 2)
+  // For analogy cards, show overlay for all selected pins (up to 2)
   // For other cards, show overlay for single selected pin
   const pinsToShow = [];
-  if (isAnyCardSelected && selectedCardIndex === 1) {
-    // Perspective card: show all pins in scaledPinIds
-    images.forEach((img) => {
-      if (!img.hidden && img.isCard && img.pins && img.pins.length > 0) {
-        scaledPinIds.forEach(pinId => {
-          const pin = img.pins.find(p => p.id === pinId);
-          if (pin) {
-            pinsToShow.push({ img, pin });
-          }
-        });
-      }
-    });
-  } else if (selectedPinId !== null) {
-    // Other cards: show single selected pin
-    images.forEach((img) => {
-      if (!img.hidden && img.isCard && img.pins && img.pins.length > 0) {
-        const selectedPin = img.pins.find(p => p.id === selectedPinId);
-        if (selectedPin) {
-          pinsToShow.push({ img, pin: selectedPin });
+  
+  // Check all selected cards
+  selectedImageIndices.forEach(idx => {
+    const img = images[idx];
+    if (!img || !img.isCard || img.hidden || !img.pins) return;
+    
+    const isAnalogyCard = img.cardIndex === 0;
+    
+    if (isAnalogyCard && scaledPinIds.length > 0) {
+      // Analogy card: show overlay for all pins in scaledPinIds that belong to this card
+      scaledPinIds.forEach((pinId, index) => {
+        const pin = img.pins.find(p => p.id === pinId);
+        if (pin) {
+          pinsToShow.push({ img, pin, index });
         }
+      });
+    } else if (!isAnalogyCard && (scaledPinId !== null || selectedPinId !== null)) {
+      // Other cards: show single selected pin
+      const pinIdToShow = scaledPinId || selectedPinId;
+      const selectedPin = img.pins.find(p => p.id === pinIdToShow);
+      if (selectedPin) {
+        pinsToShow.push({ img, pin: selectedPin, index: 0 });
       }
-    });
-  }
+    }
+  });
   
   // Draw overlay for each pin
-  pinsToShow.forEach(({ img, pin }) => {
-    drawPinThumbnailOverlay(img, pin);
+  pinsToShow.forEach(({ img, pin, index }) => {
+    drawPinThumbnailOverlay(img, pin, index);
   });
 
   // Draw red control panel in reflection mode (after transform is restored for screen coordinates)
@@ -3622,11 +3677,23 @@ function draw() {
     }
   });
 
+  // Draw blue borders for all non-token/non-card images when token is being dragged
+  if (isTokenDragging) {
+    images.forEach((img, index) => {
+      if (!img.hidden && !img.isCard && !img.isToken) {
+        // Only draw if not already drawn as selected
+        if (!selectedImageIndices.includes(index)) {
+          drawSelectionBorderAndHandles(img);
+        }
+      }
+    });
+  }
+
   // Draw reflection button if exactly one image is selected (after transform is restored for fixed size)
-  // Skip card images (they don't have reflection mode)
+  // Skip card images and token images (they don't have reflection mode)
   if (selectedImageIndices.length === 1 && selectedImageIndices[0] >= 0 && selectedImageIndices[0] < images.length) {
     const selectedImg = images[selectedImageIndices[0]];
-    if (!selectedImg.isCard) {
+    if (!selectedImg.isCard && !selectedImg.isToken) {
       drawReflectionButton(selectedImg);
     } else {
       reflectionButtonBounds = null;
@@ -3652,6 +3719,25 @@ function draw() {
     if (!currentCardIds.has(imageId)) {
       delete cardGenerateButtonBounds[imageId];
     }
+  }
+
+  // Clean up pill bounds for tokens that no longer exist (after transform restore)
+  if (!isReflectionMode) {
+    const currentTokenIds = new Set();
+    images.forEach((img) => {
+      if (img && img.isToken && !img.hidden) {
+        currentTokenIds.add(img.id);
+      }
+    });
+    // Remove pill bounds for tokens that no longer exist
+    for (let imageId in tokenPillBounds) {
+      if (!currentTokenIds.has(imageId)) {
+        delete tokenPillBounds[imageId];
+      }
+    }
+  } else {
+    // In reflection mode, clear all pill bounds
+    tokenPillBounds = {};
   }
 
   // Draw selection box if currently selecting
@@ -4311,13 +4397,29 @@ function drawSelectionBorderAndHandles(img) {
   const screenWidth = topRight.x - topLeft.x;
   const screenHeight = bottomLeft.y - topLeft.y;
 
-  // Draw selection border (fixed size in CSS pixels, independent of DPR)
-  ctx.strokeStyle = '#3b82f6';
-  ctx.lineWidth = 2; // Fixed 2 CSS pixels (context is already in screen coordinates, no DPR scaling)
-  ctx.strokeRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
+  // Draw blue border and tint for non-token/non-card images when token is being dragged
+  const isTokenDragTarget = isTokenDragging && !img.isCard && !img.isToken;
+  if (isTokenDragTarget) {
+    // Draw blue border
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2; // Fixed 2 CSS pixels (context is already in screen coordinates, no DPR scaling)
+    ctx.strokeRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
+    
+    // Draw blue tint overlay (30% opacity)
+    ctx.fillStyle = 'rgba(59, 130, 246, 0.3)'; // Blue with 30% opacity
+    ctx.fillRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
+  }
 
-  // Skip resize handles for card images (they can't be resized)
-  if (img.isCard) {
+  // Draw selection border only if image is selected (fixed size in CSS pixels, independent of DPR)
+  const isSelected = selectedImageIndices.some(idx => images[idx] === img);
+  if (isSelected) {
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2; // Fixed 2 CSS pixels (context is already in screen coordinates, no DPR scaling)
+    ctx.strokeRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
+  }
+
+  // Skip resize handles for card images, token images, and images with blue border during token drag
+  if (img.isCard || img.isToken || isTokenDragTarget) {
     return;
   }
 
@@ -4704,21 +4806,37 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   const screenX = screenPos.x;
   const screenY = screenPos.y;
 
-  const isSelected = selectedPinId === pin.id;
+  // Check if this image is an analogy card (cardIndex === 0)
+  const isAnalogyCard = img.isCard && img.cardIndex === 0;
+  
+  // Check if this pin is in the scaledPinIds array (for analogy cards) or matches scaledPinId/selectedPinId (for other cards)
+  const isInScaledPinIds = scaledPinIds.includes(pin.id);
+  const isScaledPinId = scaledPinId === pin.id;
+  const isSelectedPinId = selectedPinId === pin.id;
+  
+  // Determine if this pin should be visually "selected" (for highlighting and base size)
+  // For analogy cards: any pin in scaledPinIds is selected
+  // For other cards: only selectedPinId is selected
+  const isSelected = isAnyCardSelected && isAnalogyCard
+    ? isInScaledPinIds 
+    : isSelectedPinId;
+  
   const isExpanded = expandedPinId === pin.id;
   const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
   const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
   
   // Use global flag to prevent expansion when any card is selected
-  // This is simpler and more reliable
   const shouldPreventExpansion = isAnyCardSelected;
   
   // Only allow expansion if aspects exist AND expansion is not prevented
   const canExpand = (hasEmotionalAspects || hasValueAspects) && !shouldPreventExpansion;
 
   // Check if this pin should be scaled up (when card is selected)
-  // Support both single selection (scaledPinId) and multi-select (scaledPinIds for perspective card)
-  const isScaled = scaledPinId === pin.id || scaledPinIds.includes(pin.id);
+  // For analogy cards: check scaledPinIds array
+  // For other cards: check scaledPinId or selectedPinId
+  const isScaled = isAnyCardSelected && isAnalogyCard
+    ? isInScaledPinIds
+    : (isScaledPinId || isSelectedPinId);
   const scaleFactor = isScaled ? 1.03 : 1.0; // 3% scale up
   
   // Get animation progress (0.0 = collapsed, 1.0 = expanded)
@@ -4843,8 +4961,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected
-      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
+      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = collapsedFade * pinOpacity;
 
@@ -4871,8 +4990,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected
-      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
+      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = collapsedFade * pinOpacity;
 
@@ -5023,7 +5143,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
           // Draw dot with white border (same size as blue pin)
           ctx.save();
-          ctx.globalAlpha = animatedOpacity;
+          ctx.globalAlpha = isTokenDragging ? animatedOpacity * 0.5 : animatedOpacity;
           ctx.fillStyle = '#4CB948'; // Green
           ctx.beginPath();
           ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
@@ -5057,7 +5177,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       // Draw "Values" label SVG (curved along the ring, upper-middle section)
       if (valuesLabelImage && valuesLabelImage.complete && valuesLabelImage.naturalWidth > 0) {
         ctx.save();
-        ctx.globalAlpha = combinedProgress;
+        ctx.globalAlpha = isTokenDragging ? combinedProgress * 0.5 : combinedProgress;
 
         // Position SVG along the curve of the values ring (upper-middle, angle = -90 degrees)
         const valuesLabelAngle = -Math.PI / 2; // -90 degrees (top)
@@ -5196,7 +5316,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
           // Draw dot with white border (same size as blue pin)
           ctx.save();
-          ctx.globalAlpha = animatedOpacity;
+          ctx.globalAlpha = isTokenDragging ? animatedOpacity * 0.5 : animatedOpacity;
           ctx.fillStyle = '#F0CE25'; // Yellow
           ctx.beginPath();
           ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
@@ -5230,7 +5350,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       // Draw "Emotions" label SVG (curved along the ring, 12 o'clock position)
       if (emotionsLabelImage && emotionsLabelImage.complete && emotionsLabelImage.naturalWidth > 0) {
         ctx.save();
-        ctx.globalAlpha = expansionProgress;
+        ctx.globalAlpha = isTokenDragging ? expansionProgress * 0.5 : expansionProgress;
 
         // Position SVG along the curve of the emotions ring (12 o'clock, angle = -90 degrees)
         const emotionsLabelAngle = -Math.PI / 2; // -90 degrees (12 o'clock)
@@ -5255,8 +5375,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected
-      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
+      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = pinOpacity;
 
@@ -5279,8 +5400,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected
-      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
+      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = pinOpacity;
 
@@ -5303,8 +5425,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   }
 
   // Draw blue circle (innermost) - always visible, same size in both states
-  // Apply 50% opacity to unselected pins when a feature is selected
-  const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+  // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
+  const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+  const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
   ctx.save();
   ctx.globalAlpha = pinOpacity;
   ctx.fillStyle = '#008CFF'; // Blue
@@ -5331,7 +5454,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 }
 
 // Draw pin thumbnail SVG overlay on card images when a pin is selected
-function drawPinThumbnailOverlay(img, pin) {
+function drawPinThumbnailOverlay(img, pin, index = 0) {
   if (!img || !img.isCard || !pin || !pinThumbnailSvg || !pinThumbnailSvg.complete) {
     return;
   }
@@ -5342,11 +5465,15 @@ function drawPinThumbnailOverlay(img, pin) {
   const bottomRight = canvasToScreen(img.x + img.width, img.y + img.height);
 
   // Position SVG in top-right corner of the card image
-  // SVG is 50x50, scale it appropriately (e.g., 60x60 pixels for visibility)
+  // For analogy cards with multiple pins, stack them vertically
   const overlaySize = 60;
   const padding = 10; // Padding from edge
+  const spacing = 5; // Spacing between overlays when multiple pins
+  
+  // For analogy cards: stack overlays vertically (first pin at top, second below)
+  // For other cards: single overlay at top-right
   const overlayX = topRight.x - overlaySize - padding;
-  const overlayY = topLeft.y + padding;
+  const overlayY = topLeft.y + padding + (index * (overlaySize + spacing));
 
   ctx.save();
   ctx.drawImage(pinThumbnailSvg, overlayX, overlayY, overlaySize, overlaySize);
@@ -5367,6 +5494,11 @@ function drawPins(img, isImageSelected) {
   const dpr = getDevicePixelRatio();
   ctx.save();
 
+  // Reduce opacity when token is being dragged
+  if (isTokenDragging) {
+    ctx.globalAlpha *= 0.5;
+  }
+
   // Clear hovered states at start of each draw (will be set if mouse is over items)
   // But preserve hover state if mouse is over tooltip area (for hover persistence)
   let shouldKeepAspectDotHover = false;
@@ -5393,19 +5525,40 @@ function drawPins(img, isImageSelected) {
   const canvasRelativeX = lastMouseX - rect.left;
   const canvasRelativeY = lastMouseY - rect.top;
 
-  // Separate pins into selected and non-selected to ensure selected pin is drawn last (on top)
-  const selectedPin = selectedPinId !== null ? img.pins.find(p => p.id === selectedPinId) : null;
-  const nonSelectedPins = img.pins.filter(p => p.id !== selectedPinId);
+  // Separate pins into selected/scaled and non-selected to ensure selected/scaled pins are drawn last (on top)
+  // Check if this is an analogy card directly from the image
+  const isAnalogyCard = img.isCard && img.cardIndex === 0;
+  
+  const pinsToDrawLast = [];
+  if (isAnyCardSelected && isAnalogyCard && scaledPinIds.length > 0) {
+    // Analogy card: draw all scaled pins last
+    scaledPinIds.forEach(pinId => {
+      const pin = img.pins.find(p => p.id === pinId);
+      if (pin) {
+        pinsToDrawLast.push(pin);
+      }
+    });
+  } else if (selectedPinId !== null) {
+    // Other cards: draw only selected pin last
+    const selectedPin = img.pins.find(p => p.id === selectedPinId);
+    if (selectedPin) {
+      pinsToDrawLast.push(selectedPin);
+    }
+  }
+  
+  // Get IDs of pins to draw last (to filter them out from non-selected)
+  const pinsToDrawLastIds = new Set(pinsToDrawLast.map(p => p.id));
+  const nonSelectedPins = img.pins.filter(p => !pinsToDrawLastIds.has(p.id));
 
   // Draw non-selected pins first
   nonSelectedPins.forEach(pin => {
     drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
   });
 
-  // Draw selected pin last (on top of all other pins)
-  if (selectedPin) {
-    drawSinglePin(selectedPin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
-  }
+  // Draw selected/scaled pins last (on top of all other pins)
+  pinsToDrawLast.forEach(pin => {
+    drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
+  });
 
   ctx.restore();
 }
@@ -5424,6 +5577,11 @@ function drawPins(img, isImageSelected) {
   const dpr = getDevicePixelRatio();
   ctx.save();
 
+  // Reduce opacity when token is being dragged
+  if (isTokenDragging) {
+    ctx.globalAlpha *= 0.5;
+  }
+
   // Clear hovered states at start of each draw (will be set if mouse is over items)
   // But preserve hover state if mouse is over tooltip area (for hover persistence)
   let shouldKeepAspectDotHover = false;
@@ -5450,19 +5608,40 @@ function drawPins(img, isImageSelected) {
   const canvasRelativeX = lastMouseX - rect.left;
   const canvasRelativeY = lastMouseY - rect.top;
 
-  // Separate pins into selected and non-selected to ensure selected pin is drawn last (on top)
-  const selectedPin = selectedPinId !== null ? img.pins.find(p => p.id === selectedPinId) : null;
-  const nonSelectedPins = img.pins.filter(p => p.id !== selectedPinId);
+  // Separate pins into selected/scaled and non-selected to ensure selected/scaled pins are drawn last (on top)
+  // Check if this is an analogy card directly from the image
+  const isAnalogyCard = img.isCard && img.cardIndex === 0;
+  
+  const pinsToDrawLast = [];
+  if (isAnyCardSelected && isAnalogyCard && scaledPinIds.length > 0) {
+    // Analogy card: draw all scaled pins last
+    scaledPinIds.forEach(pinId => {
+      const pin = img.pins.find(p => p.id === pinId);
+      if (pin) {
+        pinsToDrawLast.push(pin);
+      }
+    });
+  } else if (selectedPinId !== null) {
+    // Other cards: draw only selected pin last
+    const selectedPin = img.pins.find(p => p.id === selectedPinId);
+    if (selectedPin) {
+      pinsToDrawLast.push(selectedPin);
+    }
+  }
+  
+  // Get IDs of pins to draw last (to filter them out from non-selected)
+  const pinsToDrawLastIds = new Set(pinsToDrawLast.map(p => p.id));
+  const nonSelectedPins = img.pins.filter(p => !pinsToDrawLastIds.has(p.id));
 
   // Draw non-selected pins first
   nonSelectedPins.forEach(pin => {
     drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
   });
 
-  // Draw selected pin last (on top of all other pins)
-  if (selectedPin) {
-    drawSinglePin(selectedPin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
-  }
+  // Draw selected/scaled pins last (on top of all other pins)
+  pinsToDrawLast.forEach(pin => {
+    drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
+  });
 
   // Draw tooltip for hovered aspect dot (using unified function)
   if (hoveredAspectDot) {
@@ -7694,9 +7873,18 @@ function drawAspectTag(text, x, y, type, index) {
 function drawCardGenerateButton(img) {
   if (!img || !img.isCard) return;
 
-  // Get card index from image object (stored when card was created)
+  // Check if this is a token or card
+  const isToken = img.isToken === true;
   const cardIndex = img.cardIndex !== undefined ? img.cardIndex : 0;
-  const buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
+  
+  // Use token config for tokens, card config for cards
+  let buttonConfig;
+  if (isToken) {
+    buttonConfig = tokenButtonConfig;
+  } else {
+    buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
+  }
+  
   const buttonText = buttonConfig.text;
   const buttonBgColor = buttonConfig.bgColor;
   const buttonPadding = 10; // Fixed pixel padding (screen coordinates)
@@ -7722,6 +7910,21 @@ function drawCardGenerateButton(img) {
   const buttonWidth = textWidth + buttonPadding * 2;
   const buttonHeight = textHeight + buttonPadding * 2;
 
+  // For tokens: hide button if it's wider than the image width (in screen coordinates)
+  if (isToken) {
+    const imageScreenTopLeft = canvasToScreen(img.x, img.y);
+    const imageScreenTopRight = canvasToScreen(img.x + img.width, img.y);
+    const imageScreenWidth = Math.abs(imageScreenTopRight.x - imageScreenTopLeft.x);
+    
+    if (buttonWidth > imageScreenWidth) {
+      // Don't draw the button - it's too wide
+      // Also remove any existing bounds for this image
+      delete cardGenerateButtonBounds[img.id];
+      ctx.restore();
+      return;
+    }
+  }
+
   // Store button bounds for click detection (in screen coordinates)
   cardGenerateButtonBounds[img.id] = {
     x: buttonScreenX - buttonWidth / 2,
@@ -7729,7 +7932,8 @@ function drawCardGenerateButton(img) {
     width: buttonWidth,
     height: buttonHeight,
     isScreenCoords: true,
-    cardIndex: cardIndex
+    cardIndex: cardIndex,
+    isToken: isToken
   };
 
   // Draw button background with rounded corners (fixed pixel size, screen coordinates)
@@ -7775,6 +7979,134 @@ function isPointOnCardGenerateButton(x, y) {
           y >= bounds.y &&
           y <= bounds.y + bounds.height) {
         return { imageId: imageId, cardIndex: bounds.cardIndex };
+      }
+    }
+  }
+  return null;
+}
+
+// Draw pill below token images (drawn in canvas coordinates, so it moves/zooms with canvas)
+function drawTokenPill(img) {
+  if (!img || !img.isToken) return;
+
+  const pillText = 'Generating...';
+  const pillPaddingHorizontal = 10; // Fixed pixel padding for left and right (canvas coordinates)
+  const pillPaddingVertical = 8; // Fixed pixel padding for top and bottom (canvas coordinates)
+  const pillSpacing = 8; // Fixed pixel spacing between image and pill (canvas coordinates)
+  const closeButtonSize = 16; // Size of the X button (canvas coordinates)
+  const closeButtonPadding = 6; // Padding around X button (canvas coordinates)
+
+  // Calculate pill position in canvas coordinates (below image, centered)
+  const pillCanvasX = img.x + img.width / 2;
+  const pillCanvasY = img.y + img.height + pillSpacing;
+
+  // Measure text (need to measure in canvas coordinates, accounting for current transform)
+  ctx.save();
+  // Font size in canvas coordinates (will be scaled by canvas transform)
+  ctx.font = `12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  const textMetrics = ctx.measureText(pillText);
+  const textWidth = textMetrics.width;
+  const textHeight = 16; // Fixed pixel text height (canvas coordinates)
+
+  // Calculate pill dimensions (text + horizontal padding + close button)
+  const pillWidth = textWidth + pillPaddingHorizontal * 2 + closeButtonSize + closeButtonPadding;
+  const pillHeight = Math.max(textHeight + pillPaddingVertical * 2, closeButtonSize + pillPaddingVertical * 2);
+
+  // Calculate positions in canvas coordinates
+  const pillLeft = pillCanvasX - pillWidth / 2;
+  const pillTop = pillCanvasY;
+  const closeButtonX = pillLeft + pillWidth - closeButtonPadding - closeButtonSize / 2;
+  const closeButtonY = pillCanvasY + pillHeight / 2;
+
+  // Convert to screen coordinates for click detection (after transform is restored)
+  // Store canvas coordinates, will convert to screen when checking clicks
+  tokenPillBounds[img.id] = {
+    pill: {
+      canvasX: pillLeft,
+      canvasY: pillTop,
+      canvasWidth: pillWidth,
+      canvasHeight: pillHeight
+    },
+    closeButton: {
+      canvasX: closeButtonX - closeButtonSize / 2,
+      canvasY: closeButtonY - closeButtonSize / 2,
+      canvasWidth: closeButtonSize,
+      canvasHeight: closeButtonSize
+    },
+    isScreenCoords: false, // Stored in canvas coordinates
+    imageId: img.id
+  };
+
+  // Draw pill background with rounded corners (pill shape) in canvas coordinates
+  const cornerRadius = pillHeight / 2 + 2; // Extra rounded (pill shape) - increased for more rounding
+  const pillRight = pillLeft + pillWidth;
+
+  // Draw rounded rectangle background (black)
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.moveTo(pillLeft + cornerRadius, pillTop);
+  ctx.lineTo(pillRight - cornerRadius, pillTop);
+  ctx.quadraticCurveTo(pillRight, pillTop, pillRight, pillTop + cornerRadius);
+  ctx.lineTo(pillRight, pillTop + pillHeight - cornerRadius);
+  ctx.quadraticCurveTo(pillRight, pillTop + pillHeight, pillRight - cornerRadius, pillTop + pillHeight);
+  ctx.lineTo(pillLeft + cornerRadius, pillTop + pillHeight);
+  ctx.quadraticCurveTo(pillLeft, pillTop + pillHeight, pillLeft, pillTop + pillHeight - cornerRadius);
+  ctx.lineTo(pillLeft, pillTop + cornerRadius);
+  ctx.quadraticCurveTo(pillLeft, pillTop, pillLeft + cornerRadius, pillTop);
+  ctx.closePath();
+  ctx.fill();
+
+  // Draw "Generating..." text (white, left-aligned)
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(pillText, pillLeft + pillPaddingHorizontal, pillTop + pillHeight / 2);
+
+  // Draw X button (white)
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  const xSize = closeButtonSize * 0.6; // Size of X lines
+  ctx.beginPath();
+  // Draw X (two diagonal lines)
+  ctx.moveTo(closeButtonX - xSize / 2, closeButtonY - xSize / 2);
+  ctx.lineTo(closeButtonX + xSize / 2, closeButtonY + xSize / 2);
+  ctx.moveTo(closeButtonX + xSize / 2, closeButtonY - xSize / 2);
+  ctx.lineTo(closeButtonX - xSize / 2, closeButtonY + xSize / 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Check if a point is on a token pill close button
+function isPointOnTokenPillCloseButton(x, y) {
+  for (let imageId in tokenPillBounds) {
+    const bounds = tokenPillBounds[imageId];
+    if (bounds && bounds.closeButton) {
+      let btnX, btnY, btnWidth, btnHeight;
+      
+      if (bounds.isScreenCoords) {
+        // Legacy: screen coordinates (shouldn't happen anymore)
+        btnX = bounds.closeButton.x;
+        btnY = bounds.closeButton.y;
+        btnWidth = bounds.closeButton.width;
+        btnHeight = bounds.closeButton.height;
+      } else {
+        // Canvas coordinates - convert to screen coordinates
+        const btn = bounds.closeButton;
+        const topLeft = canvasToScreen(btn.canvasX, btn.canvasY);
+        const bottomRight = canvasToScreen(btn.canvasX + btn.canvasWidth, btn.canvasY + btn.canvasHeight);
+        btnX = topLeft.x;
+        btnY = topLeft.y;
+        btnWidth = bottomRight.x - topLeft.x;
+        btnHeight = bottomRight.y - topLeft.y;
+      }
+      
+      if (x >= btnX &&
+          x <= btnX + btnWidth &&
+          y >= btnY &&
+          y <= btnY + btnHeight) {
+        return { imageId: bounds.imageId };
       }
     }
   }
@@ -8625,7 +8957,10 @@ function handleSelectionChange(newIndex) {
     }
   }
   
-  console.log('Selection changed - isAnyCardSelected:', isAnyCardSelected, 'selectedCardIndex:', selectedCardIndex, 'selectedImageIndices:', selectedImageIndices);
+  
+  // Track previous card index to detect card type changes
+  const previousCardIndex = window.previousSelectedCardIndex !== undefined ? window.previousSelectedCardIndex : null;
+  window.previousSelectedCardIndex = selectedCardIndex;
   
   if (isAnyCardSelected) {
     // When a card is selected, collapse any expanded pins immediately
@@ -8637,8 +8972,19 @@ function handleSelectionChange(newIndex) {
       startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
       expandedPinId = null;
     }
+    
+    // If switching from analogy card to non-analogy card (or vice versa), clear the other selection mode
+    if (previousCardIndex !== null && previousCardIndex !== selectedCardIndex) {
+      if (previousCardIndex === 0 && selectedCardIndex !== 0) {
+        // Switching FROM analogy TO non-analogy - clear multi-select
+        scaledPinIds = [];
+      } else if (previousCardIndex !== 0 && selectedCardIndex === 0) {
+        // Switching FROM non-analogy TO analogy - clear single select
+        scaledPinId = null;
+      }
+    }
   } else {
-    // No card selected - clear scaled pins
+    // No card selected - clear all scaled pins
     scaledPinId = null;
     scaledPinIds = [];
     selectedPinId = null;
@@ -8647,6 +8993,9 @@ function handleSelectionChange(newIndex) {
 
   // Update download button state
   updateDownloadButtonState();
+
+  // Update sidebar opacity
+  updateSidebarOpacity();
 
   // Button is now drawn on canvas, so we just need to redraw
   requestDraw();
@@ -8767,6 +9116,11 @@ function isPointOnReflectionButton(x, y) {
 
 // Get resize handle at point
 function getResizeHandleAt(x, y, img) {
+  // Skip resize handles for card images and token images (they can't be resized)
+  if (img.isCard || img.isToken) {
+    return null;
+  }
+
   // Convert to screen coordinates for hit detection (handles are drawn in screen coordinates)
   const topLeft = canvasToScreen(img.x, img.y);
   const topRight = canvasToScreen(img.x + img.width, img.y);
@@ -9214,6 +9568,31 @@ canvas.addEventListener('mousedown', (e) => {
     return;
   }
 
+  // Check if clicking on token pill close button
+  const tokenPillClick = isPointOnTokenPillCloseButton(e.clientX, e.clientY);
+  if (tokenPillClick) {
+    e.stopPropagation();
+    e.preventDefault();
+    // Find and delete the token image
+    const tokenIndex = images.findIndex(img => img.id === tokenPillClick.imageId);
+    if (tokenIndex >= 0) {
+      // Remove from images array
+      images.splice(tokenIndex, 1);
+      // Remove from selected indices if it was selected
+      selectedImageIndices = selectedImageIndices.filter(idx => idx !== tokenIndex).map(idx => idx > tokenIndex ? idx - 1 : idx);
+      // Remove pill bounds
+      delete tokenPillBounds[tokenPillClick.imageId];
+      // Update selection
+      if (selectedImageIndices.length > 0) {
+        handleSelectionChange(selectedImageIndices[0]);
+      } else {
+        handleSelectionChange(-1);
+      }
+      requestDraw();
+    }
+    return;
+  }
+
   // Check if clicking on reflection button
   if (isPointOnReflectionButton(e.clientX, e.clientY)) {
     e.stopPropagation();
@@ -9281,50 +9660,80 @@ canvas.addEventListener('mousedown', (e) => {
         e.stopPropagation();
         
         // CRITICAL CHECK FIRST: Use global flag to prevent expansion when any card is selected
-        console.log('Pin clicked - isAnyCardSelected:', isAnyCardSelected, 'pinId:', clickedPin.id);
-        
         if (isAnyCardSelected) {
-          console.log('Card selected (isAnyCardSelected=true) - preventing expansion, using scaling instead');
           // Card image is selected - pins should only scale, never expand
           
           // Cancel any ongoing expansion animation for this pin immediately
           if (pinExpansionAnimation && pinExpansionAnimation.pinId === clickedPin.id) {
-            console.log('Cancelling expansion animation for pin:', clickedPin.id);
             pinExpansionAnimation = null;
           }
           
           // Clear expandedPinId for this pin immediately
           if (expandedPinId === clickedPin.id) {
-            console.log('Clearing expandedPinId for pin:', clickedPin.id);
             expandedPinId = null;
           }
           
           // Handle scaling instead of expansion
-          if (scaledPinId === clickedPin.id) {
-            console.log('Pin already scaled - deselecting');
-            // Already scaled - deselect it
-            scaledPinId = null;
-            selectedPinId = null;
-            tooltipPinId = null;
-          } else {
-            console.log('Scaling pin:', clickedPin.id);
-            // Scale this pin
-            scaledPinId = clickedPin.id;
-            selectedPinId = clickedPin.id;
-            tooltipPinId = clickedPin.id;
-            // Collapse any other expanded pin
-            if (expandedPinId !== null) {
-              console.log('Collapsing other expanded pin:', expandedPinId);
-              startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
-              expandedPinId = null;
+          // Check if this image (which contains the clicked pin) is a selected card
+          const isThisCardSelected = img.isCard && selectedImageIndices.includes(i);
+          const cardIndex = isThisCardSelected ? (img.cardIndex !== undefined ? img.cardIndex : null) : null;
+          const isAnalogyCard = cardIndex === 0;
+          
+          if (isAnalogyCard) {
+            // Analogy card: allow up to 2 pins selected
+            const pinIndex = scaledPinIds.indexOf(clickedPin.id);
+            if (pinIndex >= 0) {
+              // Pin already selected - deselect it
+              scaledPinIds.splice(pinIndex, 1);
+              if (scaledPinIds.length === 0) {
+                selectedPinId = null;
+                tooltipPinId = null;
+              } else {
+                // Keep first pin as selectedPinId for tooltip
+                selectedPinId = scaledPinIds[0];
+                tooltipPinId = scaledPinIds[0];
+              }
+            } else {
+              // Pin not selected - add it (max 2)
+              if (scaledPinIds.length < 2) {
+                scaledPinIds.push(clickedPin.id);
+                selectedPinId = clickedPin.id; // Most recently clicked
+                tooltipPinId = clickedPin.id;
+              } else {
+                // Already have 2 pins - replace the first one
+                scaledPinIds[0] = clickedPin.id;
+                selectedPinId = clickedPin.id;
+                tooltipPinId = clickedPin.id;
+              }
             }
+            // Clear single selection mode
+            scaledPinId = null;
+          } else {
+            // Other cards: single selection only
+            if (scaledPinId === clickedPin.id) {
+              // Already scaled - deselect it
+              scaledPinId = null;
+              selectedPinId = null;
+              tooltipPinId = null;
+            } else {
+              // Scale this pin
+              scaledPinId = clickedPin.id;
+              selectedPinId = clickedPin.id;
+              tooltipPinId = clickedPin.id;
+            }
+            // Clear multi-select array for non-analogy cards
+            scaledPinIds = [];
+          }
+          
+          // Collapse any other expanded pin
+          if (expandedPinId !== null) {
+            startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+            expandedPinId = null;
           }
           requestDraw();
-          console.log('Returning early - expansion should be prevented');
           return; // CRITICAL: Must return here to prevent ANY expansion logic
         }
         
-        console.log('Card image NOT selected (isAnyCardSelected=false) - allowing normal expansion behavior');
 
         // Normal pin behavior (when card image is NOT selected)
         const hasEmotionalAspects = clickedPin.emotionalAspects && clickedPin.emotionalAspects.length > 0;
@@ -9336,8 +9745,8 @@ canvas.addEventListener('mousedown', (e) => {
         tooltipPinId = clickedPin.id;
         
         // Clear scaled pins if clicking on a different pin (only for single-select cards)
-        if (isAnyCardSelected && selectedCardIndex !== 1) {
-          // For non-perspective cards, clear single selection if clicking different pin
+        if (isAnyCardSelected && selectedCardIndex !== 0) {
+          // For non-analogy cards, clear single selection if clicking different pin
           if (scaledPinId !== null && scaledPinId !== clickedPin.id) {
             scaledPinId = null;
           }
@@ -9767,8 +10176,8 @@ canvas.addEventListener('mousedown', (e) => {
       // Set base image if sidebar is empty
       if (baseImageId === null && imgIndex >= 0 && imgIndex < images.length) {
         const selectedImg = images[imgIndex];
-        // Don't allow card images to be set as base image
-        if (selectedImg && selectedImg.id && !selectedImg.isCard) {
+        // Don't allow card images or token images to be set as base image
+        if (selectedImg && selectedImg.id && !selectedImg.isCard && !selectedImg.isToken) {
           setBaseImage(selectedImg.id);
         }
       }
@@ -9994,6 +10403,14 @@ canvas.addEventListener('mousemove', (e) => {
         const img = images[index];
         img.x += deltaX;
         img.y += deltaY;
+        
+        // Also move any tokens attached to this image
+        images.forEach((tokenImg, tokenIndex) => {
+          if (tokenImg.isToken && tokenImg.parentImageId === img.id) {
+            tokenImg.x += deltaX;
+            tokenImg.y += deltaY;
+          }
+        });
       }
     });
 
@@ -10111,6 +10528,64 @@ canvas.addEventListener('mouseup', (e) => {
     }
 
     isSelecting = false;
+  }
+
+  // Check if any tokens were dragged off their parent images
+  if (isDragging && selectedImageIndices.length > 0) {
+    const tokensToDelete = [];
+    selectedImageIndices.forEach(index => {
+      if (index >= 0 && index < images.length) {
+        const img = images[index];
+        // If this is a token with a parent image, check if it's still over the parent
+        if (img.isToken && img.parentImageId) {
+          const parentImage = images.find(p => p.id === img.parentImageId);
+          if (parentImage) {
+            // Check if token center is still within parent image bounds
+            const tokenCenterX = img.x + img.width / 2;
+            const tokenCenterY = img.y + img.height / 2;
+            const isOverParent = tokenCenterX >= parentImage.x &&
+                                 tokenCenterX <= parentImage.x + parentImage.width &&
+                                 tokenCenterY >= parentImage.y &&
+                                 tokenCenterY <= parentImage.y + parentImage.height;
+            
+            if (!isOverParent) {
+              // Token was dragged off parent - mark for deletion
+              tokensToDelete.push(index);
+            }
+          } else {
+            // Parent image no longer exists - delete token
+            tokensToDelete.push(index);
+          }
+        }
+      }
+    });
+    
+    // Delete tokens that were dragged off
+    if (tokensToDelete.length > 0) {
+      // Sort indices in descending order to delete from end to start (preserves indices)
+      tokensToDelete.sort((a, b) => b - a);
+      tokensToDelete.forEach(tokenIndex => {
+        const tokenImg = images[tokenIndex];
+        // Remove pill bounds
+        if (tokenImg && tokenImg.id) {
+          delete tokenPillBounds[tokenImg.id];
+        }
+        // Remove from images array
+        images.splice(tokenIndex, 1);
+        // Update selected indices (remove deleted index and adjust others)
+        selectedImageIndices = selectedImageIndices
+          .filter(idx => idx !== tokenIndex)
+          .map(idx => idx > tokenIndex ? idx - 1 : idx);
+      });
+      
+      // Update selection
+      if (selectedImageIndices.length > 0) {
+        handleSelectionChange(selectedImageIndices[0]);
+      } else {
+        handleSelectionChange(-1);
+      }
+      requestDraw();
+    }
   }
 
   isDragging = false;
@@ -11032,14 +11507,13 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
 }
 
 // Add card image to canvas (special version for cards from toolbar)
-function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0) {
-  console.log('addCardImageToCanvas called with:', { screenX, screenY, dataURLLength: dataURL.length, cardIndex });
+function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0, fixedWidth = 400, useExactPosition = false, parentImageId = null) {
+  console.log('addCardImageToCanvas called with:', { screenX, screenY, dataURLLength: dataURL.length, cardIndex, fixedWidth, useExactPosition });
   const img = new Image();
   img.onload = () => {
     console.log('Card image loaded:', { width: img.width, height: img.height });
     
-    // Use fixed width of 400 pixels, maintain aspect ratio
-    const fixedWidth = 400;
+    // Use provided fixed width (default 400 pixels), maintain aspect ratio
     const aspectRatio = img.width / img.height;
     const scaledWidth = fixedWidth;
     const scaledHeight = fixedWidth / aspectRatio;
@@ -11049,8 +11523,10 @@ function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0) {
     const intendedX = canvasPos.x - scaledWidth / 2;
     const intendedY = canvasPos.y - scaledHeight / 2;
 
-    // Use overlap avoidance for positioning
-    const position = findNonOverlappingPosition(intendedX, intendedY, scaledWidth, scaledHeight);
+    // Use exact position if specified (for tokens dropped on images), otherwise use overlap avoidance
+    const position = useExactPosition 
+      ? { x: intendedX, y: intendedY }
+      : findNonOverlappingPosition(intendedX, intendedY, scaledWidth, scaledHeight);
 
     const imageObj = {
       element: img,
@@ -11066,8 +11542,10 @@ function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0) {
       title: null,
       focus: null,
       titleGenerated: false,
-      isCard: true, // Mark as card image
-      cardIndex: cardIndex // Store which card type this is (0=Analogy, 1=Perspective, 2=Lucky)
+      isCard: fixedWidth === 400, // Mark as card image only if full size (400px)
+      isToken: fixedWidth === 100, // Mark as token image if small size (100px)
+      cardIndex: cardIndex, // Store which card/token type this is
+      parentImageId: parentImageId // Store parent image ID for tokens (null for cards)
     };
 
     console.log('Adding card image to canvas:', { x: imageObj.x, y: imageObj.y, width: imageObj.width, height: imageObj.height });
@@ -14275,11 +14753,32 @@ let draggedCardOffsetX = 0;
 let draggedCardOffsetY = 0;
 let isCardExpanded = false;
 
+// Token stack variables
+let tokenStackContainer = null;
+let tokenStackWrapper = null;
+let tokenStackBackground = null;
+let tokenItems = [];
+let isTokenExpanded = false;
+let isTokenDragging = false;
+let draggedToken = null;
+let draggedTokenIndex = -1;
+let draggedTokenOriginalParent = null;
+let draggedTokenOriginalIndex = -1;
+let draggedTokenOffsetX = 0;
+let draggedTokenOffsetY = 0;
+
 // Map card indices to their corresponding image files
 const cardImageMap = {
   0: 'Analogycardbig.png',      // First card - Analogy card
   1: 'Perspectivecardbig.png',  // Second card - Perspective card
   2: 'Luckycardbig.png'         // Third card - Lucky card
+};
+
+// Map token indices to their corresponding image files (using same images as tokens)
+const tokenImageMap = {
+  0: 'card-new-1.png',      // First token
+  1: 'card-new-2.png',      // Second token
+  2: 'card-new-3.png'        // Third token
 };
 
 // Map card indices to their button text and colors
@@ -14289,9 +14788,36 @@ const cardButtonConfig = {
   2: { text: 'Generate Impulse', bgColor: 'rgba(147, 51, 234, 0.95)' }      // Purple for Lucky card
 };
 
+// Token button config (simpler - just "Generate" with black)
+const tokenButtonConfig = {
+  text: 'Generate',
+  bgColor: 'rgba(0, 0, 0, 0.95)' // Black
+};
+
 // Helper function to get card image path
 function getCardImagePath(cardIndex) {
   const imageFileName = cardImageMap[cardIndex];
+  if (!imageFileName) {
+    return null;
+  }
+  
+  const possiblePaths = [
+    path.join(__dirname, 'assets', imageFileName),
+    path.join(process.cwd(), 'assets', imageFileName)
+  ];
+  
+  for (const testPath of possiblePaths) {
+    if (fs.existsSync(testPath)) {
+      return testPath;
+    }
+  }
+  
+  return null;
+}
+
+// Helper function to get token image path
+function getTokenImagePath(tokenIndex) {
+  const imageFileName = tokenImageMap[tokenIndex];
   if (!imageFileName) {
     return null;
   }
@@ -14364,6 +14890,12 @@ let svgButton1 = null;
 function toggleCardExpansion() {
   if (!cardStackContainer) return;
   
+  // If tokens are expanded, collapse them first
+  if (isTokenExpanded && tokenStackContainer) {
+    tokenStackContainer.classList.remove('moved-up');
+    isTokenExpanded = false;
+  }
+  
   if (isCardExpanded) {
     // Collapse cards
     cardStackContainer.classList.remove('moved-up');
@@ -14373,6 +14905,9 @@ function toggleCardExpansion() {
     cardStackContainer.classList.add('moved-up');
     isCardExpanded = true;
   }
+  
+  // Update sidebar opacity
+  updateSidebarOpacity();
 }
 
 // Initialize card stack
@@ -14460,6 +14995,9 @@ function initializeCardStack() {
       draggedCardIndex = index;
       draggedCardOriginalParent = cardStackWrapper;
       draggedCardOriginalIndex = index;
+      
+      // Update sidebar opacity
+      updateSidebarOpacity();
 
       const cardRect = cardItem.getBoundingClientRect();
       draggedCardOffsetX = e.clientX - cardRect.left;
@@ -14623,6 +15161,7 @@ function initializeCardStack() {
           // Clean up if somehow we got here without proper state
           isCardDragging = false;
           draggedCard = null;
+          updateSidebarOpacity();
           return;
         }
 
@@ -14633,6 +15172,9 @@ function initializeCardStack() {
           draggedCardIndex = -1;
           draggedCardOriginalParent = null;
           draggedCardOriginalIndex = -1;
+          
+          // Update sidebar opacity
+          updateSidebarOpacity();
           
           // Remove event listeners
           if (currentCardDragHandler) {
@@ -14648,6 +15190,9 @@ function initializeCardStack() {
 
         isCardDragging = false;
         const wasDragging = draggedCard !== null;
+        
+        // Update sidebar opacity
+        updateSidebarOpacity();
 
         // Check if dropped on canvas
         const canvasRect = canvas.getBoundingClientRect();
@@ -14816,11 +15361,478 @@ function initializeCardStack() {
   }
 }
 
+// Toggle token expansion
+function toggleTokenExpansion() {
+  if (!tokenStackContainer) return;
+  
+  // If cards are expanded, collapse them first
+  if (isCardExpanded && cardStackContainer) {
+    cardStackContainer.classList.remove('moved-up');
+    isCardExpanded = false;
+  }
+  
+  if (isTokenExpanded) {
+    // Collapse tokens
+    tokenStackContainer.classList.remove('moved-up');
+    isTokenExpanded = false;
+  } else {
+    // Expand tokens
+    tokenStackContainer.classList.add('moved-up');
+    isTokenExpanded = true;
+  }
+  
+  // Update sidebar opacity
+  updateSidebarOpacity();
+}
+
+// Initialize token stack
+function initializeTokenStack() {
+  tokenStackContainer = document.getElementById('token-stack-container');
+  tokenStackWrapper = tokenStackContainer?.querySelector('.token-stack-wrapper');
+  tokenStackBackground = tokenStackContainer?.querySelector('.token-stack-background');
+  tokenItems = tokenStackContainer ? Array.from(tokenStackContainer.querySelectorAll('.token-item')) : [];
+
+  if (tokenStackContainer && tokenItems.length > 0) {
+    console.log('Token stack initialized:', { container: tokenStackContainer, items: tokenItems.length });
+    
+    // Click on token stack container to expand/collapse
+    tokenStackContainer.addEventListener('click', (e) => {
+      console.log('Token stack container clicked', { target: e.target, isExpanded: isTokenExpanded });
+      
+      // Don't expand if clicking on a token item when expanded (that's for dragging)
+      if (e.target.classList.contains('token-item') && isTokenExpanded) {
+        return;
+      }
+      
+      // Toggle expanded state
+      toggleTokenExpansion();
+    });
+
+    // Also handle clicks on token items when NOT expanded (to expand)
+    tokenItems.forEach((tokenItem, index) => {
+      tokenItem.addEventListener('click', (e) => {
+        console.log('Token item clicked', { index, isExpanded: isTokenExpanded, target: e.target });
+        
+        // Only handle clicks when tokens are NOT expanded (default state)
+        if (!isTokenExpanded) {
+          e.stopPropagation(); // Prevent container click handler
+          console.log('Expanding tokens from token item click');
+          toggleTokenExpansion();
+        }
+      });
+    });
+
+    // Handle clicks on wrapper and background image
+    if (tokenStackWrapper) {
+      tokenStackWrapper.addEventListener('click', (e) => {
+        // Only if not clicking on a token item
+        if (!e.target.classList.contains('token-item')) {
+          toggleTokenExpansion();
+        }
+      });
+    }
+
+    if (tokenStackBackground) {
+      tokenStackBackground.addEventListener('click', (e) => {
+        toggleTokenExpansion();
+      });
+    }
+
+    // Handle click on svg-button-1-2 to collapse tokens
+    const svgButton1_2 = document.getElementById('svg-button-1-2');
+    if (svgButton1_2) {
+      svgButton1_2.addEventListener('click', (e) => {
+        if (isTokenExpanded) {
+          tokenStackContainer.classList.remove('moved-up');
+          isTokenExpanded = false;
+        }
+      });
+    }
+
+    // Global mouse move and mouse up handlers for token dragging
+    let currentTokenDragHandler = null;
+    let currentTokenMouseUpHandler = null;
+    let tokenDragStartX = 0;
+    let tokenDragStartY = 0;
+    let tokenHasMoved = false;
+    const TOKEN_DRAG_THRESHOLD = 5; // pixels
+
+    // Token dragging functionality (only when expanded)
+    tokenItems.forEach((tokenItem, index) => {
+      tokenItem.addEventListener('mousedown', (e) => {
+        // Only allow dragging when tokens are expanded
+        if (!tokenStackContainer.classList.contains('moved-up')) {
+          // In default state, let the click handler handle expansion
+          return;
+        }
+
+        // When expanded, prevent default and stop propagation to start dragging
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Store initial mouse position
+        tokenDragStartX = e.clientX;
+        tokenDragStartY = e.clientY;
+        tokenHasMoved = false;
+
+        isTokenDragging = true;
+        draggedToken = tokenItem;
+        draggedTokenIndex = index;
+        draggedTokenOriginalParent = tokenStackWrapper;
+        draggedTokenOriginalIndex = index;
+        
+        // Update sidebar opacity
+        updateSidebarOpacity();
+
+        const tokenRect = tokenItem.getBoundingClientRect();
+        draggedTokenOffsetX = e.clientX - tokenRect.left;
+        draggedTokenOffsetY = e.clientY - tokenRect.top;
+
+        // Mouse move handler
+        currentTokenDragHandler = (e) => {
+          if (!isTokenDragging || !draggedToken) return;
+
+          // Check if token is still in DOM
+          if (!draggedToken.parentElement) {
+            console.log('WARNING: Token not in DOM during mousemove!');
+            return;
+          }
+
+          // Check if mouse has moved enough to start dragging
+          const deltaX = Math.abs(e.clientX - tokenDragStartX);
+          const deltaY = Math.abs(e.clientY - tokenDragStartY);
+          
+          if (!tokenHasMoved && (deltaX > TOKEN_DRAG_THRESHOLD || deltaY > TOKEN_DRAG_THRESHOLD)) {
+            // Mouse moved enough - start dragging
+            tokenHasMoved = true;
+            
+            // Store original parent and index before moving
+            const originalParent = draggedTokenOriginalParent;
+            const originalIndex = draggedTokenOriginalIndex;
+            
+            // Get current token rect BEFORE moving (while still in original position)
+            const currentRect = draggedToken.getBoundingClientRect();
+            
+            // Verify token is visible before moving
+            const computedStyle = window.getComputedStyle(draggedToken);
+            const bgImage = computedStyle.backgroundImage;
+            
+            // Create a placeholder to maintain the token's position
+            const placeholder = document.createElement('div');
+            placeholder.className = 'token-item-placeholder';
+            placeholder.style.width = '110px';
+            placeholder.style.height = '100px';
+            placeholder.style.visibility = 'hidden';
+            placeholder.style.pointerEvents = 'none';
+            
+            // Insert placeholder at token's position
+            if (originalParent && draggedToken.nextSibling) {
+              originalParent.insertBefore(placeholder, draggedToken.nextSibling);
+            } else if (originalParent) {
+              originalParent.appendChild(placeholder);
+            }
+            
+            // Add dragging class
+            draggedToken.classList.add('dragging');
+            
+            // Set ALL styles BEFORE moving to body
+            draggedToken.style.cssText = `
+              position: fixed !important;
+              left: ${currentRect.left}px !important;
+              top: ${currentRect.top}px !important;
+              width: ${currentRect.width}px !important;
+              height: ${currentRect.height}px !important;
+              margin-left: 0 !important;
+              z-index: 10000 !important;
+              transition: none !important;
+              opacity: 1 !important;
+              visibility: visible !important;
+              pointer-events: none !important;
+              display: block !important;
+              background-image: ${bgImage} !important;
+              background-size: contain !important;
+              background-position: center !important;
+              background-repeat: no-repeat !important;
+            `;
+            
+            // Force a reflow to ensure styles are applied
+            void draggedToken.offsetWidth;
+            
+            // NOW move to body
+            document.body.appendChild(draggedToken);
+            
+            // Force another reflow after moving
+            void draggedToken.offsetWidth;
+
+            // Immediately update to cursor position after moving
+            const newX = e.clientX - draggedTokenOffsetX;
+            const newY = e.clientY - draggedTokenOffsetY;
+            draggedToken.style.left = newX + 'px';
+            draggedToken.style.top = newY + 'px';
+
+            // Lower DPR for smooth dragging
+            setInteracting(true);
+            
+            // Request redraw to update pin opacity and blue borders
+            requestDraw();
+          }
+
+          // Update position if we've started dragging
+          if (tokenHasMoved && draggedToken && draggedToken.parentElement) {
+            const newX = e.clientX - draggedTokenOffsetX;
+            const newY = e.clientY - draggedTokenOffsetY;
+
+            draggedToken.style.left = newX + 'px';
+            draggedToken.style.top = newY + 'px';
+            
+            // Request redraw to update pin opacity and blue borders
+            requestDraw();
+
+            // Check if over canvas and show token preview
+            const canvasRect = canvas.getBoundingClientRect();
+            const isOverCanvas = e.clientX >= canvasRect.left && 
+                                e.clientX <= canvasRect.right &&
+                                e.clientY >= canvasRect.top && 
+                                e.clientY <= canvasRect.bottom;
+
+            if (isOverCanvas && isOverlayActive) {
+              // Convert mouse position to canvas coordinates
+              const canvasPos = screenToCanvas(e.clientX, e.clientY);
+              
+              // Create token preview if it doesn't exist
+              if (!cardPreviewElement) {
+                // Create image element for preview
+                cardPreviewImage = new Image();
+                cardPreviewImage.onload = () => {
+                  if (!cardPreviewElement) {
+                    cardPreviewElement = document.createElement('img');
+                    cardPreviewElement.style.position = 'fixed';
+                    cardPreviewElement.style.pointerEvents = 'none';
+                    cardPreviewElement.style.zIndex = '9999';
+                    cardPreviewElement.style.opacity = '0.5';
+                    document.body.appendChild(cardPreviewElement);
+                  }
+                };
+                
+                const imagePath = getTokenImagePath(draggedTokenIndex);
+                
+                if (imagePath) {
+                  const imageBuffer = fs.readFileSync(imagePath);
+                  const imageBase64 = imageBuffer.toString('base64');
+                  cardPreviewImage.src = `data:image/png;base64,${imageBase64}`;
+                }
+              }
+              
+              // Update preview position
+              if (cardPreviewElement && cardPreviewImage && cardPreviewImage.complete) {
+                cardPreviewCanvasX = canvasPos.x;
+                cardPreviewCanvasY = canvasPos.y;
+                updateCardPreviewPosition();
+              }
+            } else {
+              // Remove preview if not over canvas
+              removeCardPreview();
+            }
+          }
+        };
+
+        // Mouse up handler
+        currentTokenMouseUpHandler = (e) => {
+          if (!isTokenDragging || !draggedToken) {
+            // Clean up if somehow we got here without proper state
+            isTokenDragging = false;
+            draggedToken = null;
+            updateSidebarOpacity();
+            return;
+          }
+
+          // If mouse didn't move enough, just restore the token (it was just a click, not a drag)
+          if (!tokenHasMoved) {
+            isTokenDragging = false;
+            draggedToken = null;
+            draggedTokenIndex = -1;
+            draggedTokenOriginalParent = null;
+            draggedTokenOriginalIndex = -1;
+            
+            // Update sidebar opacity
+            updateSidebarOpacity();
+            
+            // Remove event listeners
+            if (currentTokenDragHandler) {
+              document.removeEventListener('mousemove', currentTokenDragHandler);
+              currentTokenDragHandler = null;
+            }
+            if (currentTokenMouseUpHandler) {
+              document.removeEventListener('mouseup', currentTokenMouseUpHandler);
+              currentTokenMouseUpHandler = null;
+            }
+            return;
+          }
+
+          isTokenDragging = false;
+          const wasDragging = draggedToken !== null;
+          
+          // Update sidebar opacity
+          updateSidebarOpacity();
+
+          // Check if dropped on canvas
+          const canvasRect = canvas.getBoundingClientRect();
+          const isOverCanvas = e.clientX >= canvasRect.left && 
+                              e.clientX <= canvasRect.right &&
+                              e.clientY >= canvasRect.top && 
+                              e.clientY <= canvasRect.bottom;
+
+          if (isOverCanvas && isOverlayActive && tokenHasMoved) {
+            // Check if dropped on an image (tokens can only be dropped on images)
+            const droppedImageIndex = getImageAt(e.clientX, e.clientY);
+            
+            // Store references before clearing variables
+            const tokenToRestore = draggedToken;
+            const originalParent = draggedTokenOriginalParent;
+            const originalIndex = draggedTokenOriginalIndex;
+            
+            // Find and remove placeholder if it exists
+            const placeholder = originalParent?.querySelector('.token-item-placeholder');
+            
+            // Remove token preview
+            removeCardPreview();
+
+            if (droppedImageIndex >= 0) {
+              // Dropped on an image - add token to canvas
+              try {
+                const imagePath = getTokenImagePath(draggedTokenIndex);
+                
+                if (imagePath) {
+                  const imageBuffer = fs.readFileSync(imagePath);
+                  const imageBase64 = imageBuffer.toString('base64');
+                  const imageDataURL = `data:image/png;base64,${imageBase64}`;
+                  
+                  // Get the parent image ID
+                  const parentImage = images[droppedImageIndex];
+                  const parentImageId = parentImage ? parentImage.id : null;
+                  
+                  // Add image to canvas at the exact drop position (using same function as cards, but half size)
+                  // Use exact position since we're dropping on an image
+                  // Store parentImageId so token moves with parent image
+                  addCardImageToCanvas(imageDataURL, e.clientX, e.clientY, draggedTokenIndex, 100, true, parentImageId);
+                } else {
+                  console.warn('Token image file not found for token index:', draggedTokenIndex);
+                }
+              } catch (error) {
+                console.error('Error loading token image:', error);
+              }
+            }
+            // If dropped on empty canvas (droppedImageIndex < 0), just fade away without adding
+            
+            // Fade out dragged token
+            tokenToRestore.classList.add('dragging-fade-out');
+            tokenToRestore.style.opacity = '0';
+            tokenToRestore.style.transition = 'opacity 0.3s ease';
+
+            // Reset token stack to default (collapsed) - other tokens will animate down
+            tokenStackContainer.classList.remove('moved-up');
+            isTokenExpanded = false;
+
+            // Restore token to toolbar after fade out
+            setTimeout(() => {
+              if (tokenToRestore && originalParent) {
+                // Reset all inline styles to let CSS take over
+                tokenToRestore.style.cssText = '';
+                tokenToRestore.classList.remove('dragging', 'dragging-fade-out');
+                tokenToRestore.classList.add('fade-in');
+                
+                // Replace placeholder with token, or insert at original position
+                if (placeholder && placeholder.parentElement === originalParent) {
+                  originalParent.replaceChild(tokenToRestore, placeholder);
+                } else {
+                  // Insert back at original position
+                  const siblings = originalParent.querySelectorAll('.token-item:not(.token-item-placeholder)');
+                  if (originalIndex < siblings.length) {
+                    originalParent.insertBefore(tokenToRestore, siblings[originalIndex]);
+                  } else {
+                    originalParent.appendChild(tokenToRestore);
+                  }
+                }
+                
+                // Remove fade-in class after animation
+                setTimeout(() => {
+                  tokenToRestore.classList.remove('fade-in');
+                }, 400);
+              }
+            }, 300);
+          } else {
+            // Not dropped on canvas - restore token to original position
+            const tokenToRestore = draggedToken;
+            const originalParent = draggedTokenOriginalParent;
+            const originalIndex = draggedTokenOriginalIndex;
+            
+            // Find and remove placeholder if it exists
+            const placeholder = originalParent?.querySelector('.token-item-placeholder');
+            
+            if (tokenToRestore && originalParent) {
+              // Reset all inline styles to let CSS take over
+              tokenToRestore.style.cssText = '';
+              tokenToRestore.classList.remove('dragging', 'dragging-fade-out');
+
+              // Replace placeholder with token, or insert at original position
+              if (placeholder && placeholder.parentElement === originalParent) {
+                originalParent.replaceChild(tokenToRestore, placeholder);
+              } else {
+                // Insert back at original position
+                const siblings = originalParent.querySelectorAll('.token-item:not(.token-item-placeholder)');
+                if (originalIndex < siblings.length) {
+                  originalParent.insertBefore(tokenToRestore, siblings[originalIndex]);
+                } else {
+                  originalParent.appendChild(tokenToRestore);
+                }
+              }
+            }
+
+            // Reset token stack to default (collapsed)
+            tokenStackContainer.classList.remove('moved-up');
+            isTokenExpanded = false;
+          }
+
+          // Reset dragging state
+          draggedToken = null;
+          draggedTokenIndex = -1;
+          draggedTokenOriginalParent = null;
+          draggedTokenOriginalIndex = -1;
+
+          // Remove token preview
+          removeCardPreview();
+
+          // Restore DPR
+          setInteracting(false);
+
+          // Remove event listeners
+          if (currentTokenDragHandler) {
+            document.removeEventListener('mousemove', currentTokenDragHandler);
+            currentTokenDragHandler = null;
+          }
+          if (currentTokenMouseUpHandler) {
+            document.removeEventListener('mouseup', currentTokenMouseUpHandler);
+            currentTokenMouseUpHandler = null;
+          }
+        };
+
+        // Add event listeners
+        document.addEventListener('mousemove', currentTokenDragHandler);
+        document.addEventListener('mouseup', currentTokenMouseUpHandler);
+      });
+    });
+  }
+}
+
 // Initialize card stack when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeCardStack);
+  document.addEventListener('DOMContentLoaded', () => {
+    initializeCardStack();
+    initializeTokenStack();
+  });
 } else {
   initializeCardStack();
+  initializeTokenStack();
 }
 
 // Initial draw
