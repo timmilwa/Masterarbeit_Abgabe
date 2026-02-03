@@ -29,8 +29,8 @@ Setup Variante 3 (für Proto 8)
 3. Text aus der 'InputPrompt.txt'-Datei mit eigenen Inhalten ausfüllen und in den gleichen Texte, wie zuvor schicken. 
 
 Setup Variante 4 (für Proto 11)
-1. ZIP-Datei des Repos herunterladen (grüner Button oben rechts) und entpacken.
-2. Ordner zu 11_Kaleido_App öffnen, ZIP entpacken, und auf 'Kaleido.app'-Datei doppelklicken. 
+1. Download über https://www.timmilwa.com/kaleido und entpacken.
+2. Auf 'Kaleido.app'-Datei doppelklicken. 
 3. App installieren und aufpoppende Aufforderungen auf Systemzugriffe erlauben. 
 
 (der vollständige Code für Proto 11 kann als 11.1_Kaleido_Code eingesehen werden. Er kann mit "npm i" und dann "npm start" ausgeführt werden.)
