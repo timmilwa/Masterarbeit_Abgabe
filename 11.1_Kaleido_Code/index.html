@@ -23,6 +23,7 @@
 
         body {
             font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-weight: 450;
             overflow: hidden;
             background: transparent;
             width: 100vw !important;
@@ -71,7 +72,7 @@
         #overlay-container.closing-overlay #side-panel,
         #overlay-container.closing-overlay #bottom-toolbar,
         #overlay-container.closing-overlay #reflection-button,
-        #overlay-container.closing-overlay #fps-counter {
+        #overlay-container.closing-overlay #top-right-toggles {
             opacity: 0;
             transition: opacity 0.15s ease-out;
             pointer-events: none;
@@ -110,7 +111,7 @@
         }
 
         #canvas.fade-out {
-            animation: canvasFadeOut 0.15s ease-out forwards;
+            animation: canvasFadeOut 0.3s ease-out forwards;
         }
 
         @keyframes canvasFadeOut {
@@ -172,6 +173,36 @@
             height: 27px;
         }
 
+        /* SVG buttons with images */
+        .tool-button img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        /* Allow wider buttons for SVG images */
+        #svg-button-1,
+        #svg-button-2 {
+            width: auto;
+            min-width: 46px;
+            padding: 0 8px;
+        }
+
+        #svg-button-1 img {
+            height: 27px;
+            width: auto;
+        }
+
+        #svg-button-2 img {
+            height: 27px;
+            width: auto;
+        }
+
+        #svg-button-3 img {
+            height: 46px;
+            width: auto;
+        }
+
         /* Nudge the leftmost (selection) tool icon slightly right */
         #select-tool svg {
             transform: translateX(2px);
@@ -189,11 +220,28 @@
         /* Rounded annotation input + fully rounded add button */
         #pin-feature-input {
             border-radius: 999px;
+            border-color: #008CFF; /* Blue border for feature pins */
+            height: 32px; /* Match button height */
+            box-sizing: border-box; /* Include border in height calculation */
+        }
+
+        #pin-feature-input:focus {
+            border-color: #008CFF;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 140, 255, 0.2);
         }
 
         #pin-confirm-button {
             border-radius: 999px;
-            background: #f97316;
+            background: #008CFF; /* Blue background for feature pins */
+            height: 32px; /* Match input field height */
+            width: 32px; /* Keep it square */
+            margin-left: 4px !important; /* Reduce gap between input and button */
+            margin-top: 2px !important; /* Move button down 2px relative to input */
+        }
+
+        #pin-confirm-button:hover {
+            background: #0073d9; /* Darker blue on hover */
         }
 
 
@@ -215,7 +263,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 0 16px 0 8px;
+            padding: 0 8px 0 8px;
             gap: 8px;
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
@@ -234,6 +282,12 @@
             gap: 8px;
             align-items: center;
             position: relative;
+            overflow: visible;
+        }
+
+        /* Allow card stack to extend above toolbar */
+        #bottom-toolbar {
+            overflow: visible;
         }
 
         /* Toolbar divider */
@@ -250,6 +304,175 @@
             width: 100px;
             height: 46px;
             flex-shrink: 0;
+        }
+
+        /* Card Stack Container */
+        .card-stack-container {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            overflow: visible;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            background-color: transparent;
+            border-radius: 0;
+            left: 50%;
+            bottom: 20px;
+            transform: translateX(-50%);
+            z-index: 10;
+            pointer-events: auto;
+        }
+
+
+        .card-stack-background {
+            display: none;
+        }
+
+        .card-stack-wrapper {
+            position: relative;
+            width: 100%;
+            height: 200px;
+            transform: translateY(85px) scale(0.75);
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            overflow: visible;
+        }
+
+        .card-stack-container.moved-up .card-stack-wrapper {
+            transform: translateY(-0px) scale(1);
+        }
+
+        .card-item {
+            position: absolute;
+            width: 180px;
+            height: 125px;
+            border-radius: 16px;
+            box-shadow: none;
+            transition: transform 0.4s ease, z-index 0.4s ease;
+            cursor: pointer;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            left: 50%;
+            margin-left: -90px;
+            bottom: 0;
+            opacity: 1 !important;
+        }
+
+        /* Front card - Reflective Analogy (beige) - most visible */
+        .card-item:nth-child(1) {
+            transform: rotate(-10deg) translateY(0);
+            z-index: 3;
+            background-image: url('assets/card-reflective-analogy.png') !important;
+        }
+
+        .card-item:nth-child(1):hover {
+            transform: rotate(-10deg) translateY(0) scale(1.02);
+        }
+
+        /* Middle card - Perspective Switch (light blue) */
+        .card-item:nth-child(2) {
+            transform: rotate(0deg) translateY(-10px);
+            z-index: 2;
+            background-image: url('assets/card-perspective-switch.png') !important;
+        }
+
+        .card-item:nth-child(2):hover {
+            transform: rotate(0deg) translateY(-10px) scale(1.02);
+        }
+
+        /* Back card - Feeling Lucky (light purple) - least visible */
+        .card-item:nth-child(3) {
+            transform: rotate(10deg) translateY(-20px);
+            z-index: 1;
+            background-image: url('assets/card-feeling-lucky.png') !important;
+        }
+
+        .card-item:nth-child(3):hover {
+            transform: rotate(10deg) translateY(-20px) scale(1.02);
+        }
+
+        /* Dragging state */
+        .card-item.dragging {
+            z-index: 10000 !important;
+            cursor: grabbing;
+            transition: none !important;
+            opacity: 1 !important;
+            pointer-events: none;
+        }
+
+        .card-item.dragging-fade-out {
+            opacity: 0 !important;
+            pointer-events: none;
+        }
+
+        .card-item.fade-in {
+            animation: cardFadeIn 0.4s ease forwards;
+        }
+
+        @keyframes cardFadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* Red rectangle on canvas */
+        .canvas-red-rectangle {
+            position: absolute;
+            border: 2px solid #FF0000;
+            background-color: rgba(255, 0, 0, 0.1);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            z-index: 100;
+            top: 0;
+            left: 0;
+        }
+
+        .canvas-red-rectangle.fade-in {
+            opacity: 1;
+        }
+
+        /* Ensure only 3 cards exist */
+        .card-item:nth-child(n+4) {
+            display: none !important;
+        }
+
+        /* When moved up, arrange cards horizontally next to each other with no rotation */
+        .card-stack-container.moved-up .card-item:nth-child(1) {
+            transform: rotate(0deg) translateX(-190px) translateY(-60px);
+            z-index: 3;
+        }
+
+        .card-stack-container.moved-up .card-item:nth-child(1):hover {
+            transform: rotate(0deg) translateX(-190px) translateY(-60px) scale(1.02);
+        }
+
+        .card-stack-container.moved-up .card-item:nth-child(2) {
+            transform: rotate(0deg) translateX(0) translateY(-60px);
+            z-index: 2;
+        }
+
+        .card-stack-container.moved-up .card-item:nth-child(2):hover {
+            transform: rotate(0deg) translateX(0) translateY(-60px) scale(1.02);
+        }
+
+        .card-stack-container.moved-up .card-item:nth-child(3) {
+            transform: rotate(0deg) translateX(190px) translateY(-60px);
+            z-index: 1;
+        }
+
+        .card-stack-container.moved-up .card-item:nth-child(3):hover {
+            transform: rotate(0deg) translateX(190px) translateY(-60px) scale(1.02);
         }
 
         /* Sliding background for toolbar buttons */
@@ -299,10 +522,10 @@
 
         /* FPS Counter */
         #fps-counter {
-            display: none;
+            display: flex;
             position: fixed;
-            top: 20px;
-            right: 20px;
+            top: 120px; /* Positioned below the toggles with more spacing */
+            left: 20px;
             background-color: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
@@ -317,10 +540,16 @@
             user-select: none;
             align-items: center;
             gap: 8px;
+            opacity: 1;
+            transition: opacity 0.3s ease;
         }
 
-        #overlay-container.active #fps-counter.visible {
+        #fps-counter.visible {
             display: flex;
+        }
+
+        #fps-counter:not(.visible) {
+            display: none;
         }
 
         #fps-counter-text {
@@ -524,8 +753,54 @@
             border-color: #3B82F6;
         }
 
+        /* Top Left Toggles Container */
+        #top-right-toggles {
+            position: fixed;
+            top: 40px;
+            left: 20px;
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 2000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        #overlay-container.active #top-right-toggles {
+            display: flex;
+        }
+
+        #overlay-container.active #top-right-toggles.show-on-hover,
+        #overlay-container.active #top-right-toggles:hover {
+            opacity: 1;
+        }
+
+        .top-toggle-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            color: #ffffff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            pointer-events: auto;
+            user-select: none;
+        }
+
+
+        .top-toggle-label {
+            pointer-events: none;
+            user-select: none;
+            white-space: nowrap;
+        }
+
         #ai-mode-toggle-top {
-            margin-left: 8px;
             cursor: pointer;
             pointer-events: auto;
             opacity: 0.8;
@@ -536,11 +811,23 @@
             opacity: 1;
         }
 
+        #demo-data-toggle-top {
+            cursor: pointer;
+            pointer-events: auto;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        #demo-data-toggle-top:hover {
+            opacity: 1;
+        }
+
         .top-toggle {
             position: relative;
             display: inline-block;
             width: 28px;
             height: 16px;
+            flex-shrink: 0;
         }
 
         .top-toggle input {
@@ -610,8 +897,8 @@
         #selection-box {
             position: absolute;
             border: 0;
-            outline: 4px dashed #3b82f6;
-            outline-offset: 2px;
+            outline: 6px dashed #3b82f6;
+            outline-offset: -4px;
             background: transparent;
             pointer-events: none;
             z-index: 3001;
@@ -1067,7 +1354,7 @@
             right: 45px;
             padding: 8px 8px 8px 14px;
             background: rgba(255, 0, 0, 0.8);
-            border: none;
+            border: 1px solid rgba(0, 0, 0, 0.15);
             border-radius: 30px;
             cursor: pointer;
             z-index: 3000;
@@ -1086,7 +1373,7 @@
         }
 
         .action-button.animating {
-            bottom: 60px !important; /* Start position - stacked near circle button */
+            bottom: 40px !important; /* Start position - stacked near circle button */
             opacity: 0 !important; /* Start invisible when stacked */
         }
 
@@ -1116,7 +1403,7 @@
         }
 
         #action-settings-button {
-            bottom: 250px;
+            bottom: 230px;
         }
 
         #action-settings-button.visible {
@@ -1129,7 +1416,7 @@
         }
 
         #action-open-canvas-button {
-            bottom: 195px;
+            bottom: 175px;
         }
 
         #action-open-canvas-button.visible {
@@ -1142,7 +1429,7 @@
         }
 
         #action-capture-artefact-button {
-            bottom: 140px;
+            bottom: 120px;
         }
 
         #action-capture-artefact-button.visible {
@@ -1156,12 +1443,12 @@
 
         @keyframes actionButtonSlideUp1 {
             from {
-                bottom: 60px;
+                bottom: 40px;
                 opacity: 0;
                 transform: scale(0.9);
             }
             to {
-                bottom: 250px;
+                bottom: 230px;
                 opacity: 1;
                 transform: scale(1);
             }
@@ -1169,12 +1456,12 @@
 
         @keyframes actionButtonSlideUp2 {
             from {
-                bottom: 60px;
+                bottom: 40px;
                 opacity: 0;
                 transform: scale(0.9);
             }
             to {
-                bottom: 195px;
+                bottom: 175px;
                 opacity: 1;
                 transform: scale(1);
             }
@@ -1182,12 +1469,12 @@
 
         @keyframes actionButtonSlideUp3 {
             from {
-                bottom: 60px;
+                bottom: 40px;
                 opacity: 0;
                 transform: scale(0.9);
             }
             to {
-                bottom: 140px;
+                bottom: 120px;
                 opacity: 1;
                 transform: scale(1);
             }
@@ -1195,28 +1482,28 @@
 
         @keyframes actionButtonSlideDown1 {
             from {
-                bottom: 250px;
+                bottom: 230px;
             }
             to {
-                bottom: 60px;
+                bottom: 40px;
             }
         }
 
         @keyframes actionButtonSlideDown2 {
             from {
-                bottom: 195px;
+                bottom: 175px;
             }
             to {
-                bottom: 60px;
+                bottom: 40px;
             }
         }
 
         @keyframes actionButtonSlideDown3 {
             from {
-                bottom: 140px;
+                bottom: 120px;
             }
             to {
-                bottom: 60px;
+                bottom: 40px;
             }
         }
 
@@ -1380,9 +1667,25 @@
                     </svg>
                 </button>
                 <div class="toolbar-divider"></div>
-                <div class="toolbar-section" id="toolbar-section-1"></div>
+                <div style="position: relative; overflow: visible; clip-path: polygon(-1000px -1000px, 1000px -1000px, 1000px 53px, -1000px 53px);">
+                    <button class="tool-button" id="svg-button-1" title="" style="margin-left:8px; margin-right:8px;">
+                        <img src="assets/Group_1561.svg" alt="">
+                    </button>
+                    <div class="card-stack-container" id="card-stack-container">
+                        <img src="assets/Group_1564.svg" alt="" class="card-stack-background" id="card-stack-background">
+                        <div class="card-stack-wrapper">
+                            <div class="card-item"></div>
+                            <div class="card-item"></div>
+                            <div class="card-item"></div>
+                        </div>
+                    </div>
+                </div>
                 <div class="toolbar-divider"></div>
-                <div class="toolbar-section" id="toolbar-section-2"></div>
+                <button class="tool-button" id="svg-button-2" title="">
+                    <img src="assets/Group_1e562.svg" alt="">
+                </button>
+                <div class="toolbar-divider"></div>
+                
             </div>
         </div>
 
@@ -1408,16 +1711,28 @@
             </div>
         </div>
 
-        <!-- FPS Counter -->
-        <div id="fps-counter">
-            <span id="fps-counter-text">FPS: --</span>
-            <span id="fps-counter-dpr">DPR: --</span>
-            <div id="ai-mode-toggle-top" title="Toggle AI Mode">
+        <!-- Top Right Toggles -->
+        <div id="top-right-toggles">
+            <div class="top-toggle-item" id="ai-mode-toggle-top" title="Toggle AI Mode">
+                <span class="top-toggle-label">AI Mode</span>
                 <label class="top-toggle">
                     <input type="checkbox" id="ai-mode-toggle-top-input">
                     <span class="top-toggle-slider"></span>
                 </label>
             </div>
+            <div class="top-toggle-item" id="demo-data-toggle-top" title="Toggle Demo Data">
+                <span class="top-toggle-label">Demo Data</span>
+                <label class="top-toggle">
+                    <input type="checkbox" id="demo-data-toggle-top-input">
+                    <span class="top-toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- FPS Counter -->
+        <div id="fps-counter">
+            <span id="fps-counter-text">FPS: --</span>
+            <span id="fps-counter-dpr">DPR: --</span>
             <div id="fps-counter-settings-icon" title="Open Settings">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
@@ -1437,8 +1752,8 @@
 
     <!-- Pin Placement UI -->
     <div id="pin-placement-ui" style="display: none; position: fixed; z-index: 2000;">
-        <input type="text" id="pin-feature-input" placeholder="Enter feature description" style="padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 999px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;">
-        <button id="pin-confirm-button" style="margin-left: 8px; background: #f97316; color: white; border: none; border-radius: 999px; cursor: pointer; font-size: 20px; width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center;">+</button>
+        <input type="text" id="pin-feature-input" placeholder="Feature" style="padding: 8px; border: 1px solid #008CFF; border-radius: 999px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; height: 32px; box-sizing: border-box;">
+        <button id="pin-confirm-button" style="margin-left: 4px; margin-top: 2px; background: #008CFF; color: white; border: none; border-radius: 999px; cursor: pointer; font-size: 20px; width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center;">+</button>
     </div>
 
     <!-- Control Panel Input Fields -->
@@ -1447,10 +1762,10 @@
         <div id="general-info-input-layer" class="accordion-input-layer">
             <div id="product-name-container" style="position: absolute; display: none; pointer-events: auto;">
                 <input type="text" id="product-name-input" value="demo object" style="padding: 8px 32px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: 100%; box-sizing: border-box;">
-                <div id="product-name-edit-icon" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: none; color: oklch(0.145 0 0); opacity: 0.6;"></div>
+                <div id="product-name-edit-icon" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: auto; cursor: pointer; color: oklch(0.145 0 0); opacity: 0.6;"></div>
             </div>
             <div id="focus-input-container" style="position: absolute; display: none; pointer-events: auto;">
-                <input type="text" id="focus-input" placeholder="Optional" style="padding: 8px 40px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); width: calc(100% - 40px); box-sizing: border-box; display: inline-block;">
+                <input type="text" id="focus-input" placeholder="Optional" style="padding: 8px 40px 8px 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); color: oklch(0.145 0 0); width: calc(100% - 40px); box-sizing: border-box; display: inline-block;">
                 <button id="focus-save-button" style="position: absolute; right: 0; top: 0; width: 32px; height: 32px; padding: 0; background: #030213; color: white; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto;">
                     <div id="focus-save-icon" style="width: 16px; height: 16px; color: white;"></div>
                 </button>
@@ -1688,16 +2003,10 @@
                                 <div style="margin-bottom: 24px;">
                                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                                         <label class="settings-label" for="ai-instructions-general" style="margin-bottom: 0;">General Custom Instructions</label>
-                                        <button id="ai-instructions-general-paste-btn" class="paste-button-small" title="Paste from clipboard">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                                            </svg>
-                                        </button>
                                     </div>
-                                    <textarea id="ai-instructions-general" class="settings-input" rows="3" placeholder="General instructions for all AI interactions"></textarea>
+                                    <textarea id="ai-instructions-general" class="settings-input" rows="3" placeholder="General instructions for all AI interactions" readonly style="background-color: #f5f5f5; cursor: not-allowed;"></textarea>
                                     <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
-                                        Applied to all AI interactions as base instructions.
+                                        Applied to all AI interactions as base instructions. <strong>Read-only:</strong> Edit in <code>ai-custom-instructions.json</code> file.
                                     </p>
                                 </div>
 
@@ -1705,16 +2014,10 @@
                                 <div style="margin-bottom: 24px;">
                                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                                         <label class="settings-label" for="ai-instructions-title" style="margin-bottom: 0;">Title Generation Instructions</label>
-                                        <button id="ai-instructions-title-paste-btn" class="paste-button-small" title="Paste from clipboard">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                                            </svg>
-                                        </button>
                                     </div>
-                                    <textarea id="ai-instructions-title" class="settings-input" rows="3" placeholder="Instructions for generating image titles"></textarea>
+                                    <textarea id="ai-instructions-title" class="settings-input" rows="3" placeholder="Instructions for generating image titles" readonly style="background-color: #f5f5f5; cursor: not-allowed;"></textarea>
                                     <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
-                                        Used when generating titles for images in the general info section.
+                                        Used when generating titles for images in the general info section. <strong>Read-only:</strong> Edit in <code>ai-custom-instructions.json</code> file.
                                     </p>
                                     <!-- Title Generation Context -->
                                     <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
@@ -1730,16 +2033,10 @@
                                 <div style="margin-bottom: 24px;">
                                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                                         <label class="settings-label" for="ai-instructions-features" style="margin-bottom: 0;">Features Instructions</label>
-                                        <button id="ai-instructions-features-paste-btn" class="paste-button-small" title="Paste from clipboard">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                                            </svg>
-                                        </button>
                                     </div>
-                                    <textarea id="ai-instructions-features" class="settings-input" rows="3" placeholder="Instructions for generating feature questions"></textarea>
+                                    <textarea id="ai-instructions-features" class="settings-input" rows="3" placeholder="Instructions for generating feature questions" readonly style="background-color: #f5f5f5; cursor: not-allowed;"></textarea>
                                     <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
-                                        Used when generating questions for the features accordion.
+                                        Used when generating questions for the features accordion. <strong>Read-only:</strong> Edit in <code>ai-custom-instructions.json</code> file.
                                     </p>
                                     <!-- Features Context -->
                                     <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
@@ -1759,16 +2056,10 @@
                                 <div style="margin-bottom: 24px;">
                                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                                         <label class="settings-label" for="ai-instructions-emotions" style="margin-bottom: 0;">Emotions Instructions</label>
-                                        <button id="ai-instructions-emotions-paste-btn" class="paste-button-small" title="Paste from clipboard">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                                            </svg>
-                                        </button>
                                     </div>
-                                    <textarea id="ai-instructions-emotions" class="settings-input" rows="3" placeholder="Instructions for generating emotion questions"></textarea>
+                                    <textarea id="ai-instructions-emotions" class="settings-input" rows="3" placeholder="Instructions for generating emotion questions" readonly style="background-color: #f5f5f5; cursor: not-allowed;"></textarea>
                                     <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
-                                        Used when generating questions for the emotions accordion.
+                                        Used when generating questions for the emotions accordion. <strong>Read-only:</strong> Edit in <code>ai-custom-instructions.json</code> file.
                                     </p>
                                     <!-- Emotions Context -->
                                     <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
@@ -1786,16 +2077,10 @@
                                 <div style="margin-bottom: 24px;">
                                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                                         <label class="settings-label" for="ai-instructions-values" style="margin-bottom: 0;">Values Instructions</label>
-                                        <button id="ai-instructions-values-paste-btn" class="paste-button-small" title="Paste from clipboard">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                                            </svg>
-                                        </button>
                                     </div>
-                                    <textarea id="ai-instructions-values" class="settings-input" rows="3" placeholder="Instructions for generating value questions"></textarea>
+                                    <textarea id="ai-instructions-values" class="settings-input" rows="3" placeholder="Instructions for generating value questions" readonly style="background-color: #f5f5f5; cursor: not-allowed;"></textarea>
                                     <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
-                                        Used when generating questions for the values accordion.
+                                        Used when generating questions for the values accordion. <strong>Read-only:</strong> Edit in <code>ai-custom-instructions.json</code> file.
                                     </p>
                                     <!-- Values Context -->
                                     <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
@@ -1807,6 +2092,30 @@
                                             <li>Selected pin (location + content) - Example: "Pin at (0.45, 0.32): 'Interactive temperature gauge'" (normalized coordinates 0-1 range)</li>
                                             <li>Previously added emotions - Example: "Excitement, Trust, Anticipation"</li>
                                         </ul>
+                                    </div>
+                                </div>
+
+                                <!-- Variant Generation Prompt Template -->
+                                <div style="margin-bottom: 24px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <label class="settings-label" for="ai-instructions-variant-prompt" style="margin-bottom: 0;">Variant Generation Prompt Template</label>
+                                    </div>
+                                    <textarea id="ai-instructions-variant-prompt" class="settings-input" rows="6" placeholder="Template for variant generation prompts" readonly style="background-color: #f5f5f5; cursor: not-allowed;"></textarea>
+                                    <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 4px; opacity: 0.6;">
+                                        Customize the prompt template used when generating image variants. Use placeholders: {{GENERAL_INSTRUCTIONS}}, {{TARGETED_FEATURES}}, {{GENERAL_ASPECTS}}, {{COMMENTS}}. <strong>Read-only:</strong> Edit in <code>ai-custom-instructions.json</code> file.
+                                    </p>
+                                    <!-- Variant Prompt Context -->
+                                    <div style="margin-top: 12px; padding: 12px; background-color: #f3f3f5; border-radius: 6px;">
+                                        <strong style="font-size: 12px; color: oklch(0.145 0 0); display: block; margin-bottom: 8px;">Available Placeholders:</strong>
+                                        <ul style="font-size: 12px; color: oklch(0.145 0 0); margin: 0; padding-left: 20px; opacity: 0.8;">
+                                            <li><code>{{GENERAL_INSTRUCTIONS}}</code> - General custom instructions (if set)</li>
+                                            <li><code>{{TARGETED_FEATURES}}</code> - List of targeted feature modifications with locations</li>
+                                            <li><code>{{GENERAL_ASPECTS}}</code> - List of general aspect changes for entire image</li>
+                                            <li><code>{{COMMENTS}}</code> - List of canvas comments with their annotation locations</li>
+                                        </ul>
+                                        <p style="font-size: 11px; color: oklch(0.145 0 0); margin-top: 8px; margin-bottom: 0; opacity: 0.7; font-style: italic;">
+                                            Example: "{{GENERAL_INSTRUCTIONS}}\n\nGenerate a new version of this image:\n\n{{TARGETED_FEATURES}}\n{{GENERAL_ASPECTS}}\n{{COMMENTS}}"
+                                        </p>
                                     </div>
                                 </div>
                             </div>

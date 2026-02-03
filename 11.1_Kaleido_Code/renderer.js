@@ -79,6 +79,7 @@ function refreshVariantButtonState() {
   sidePanelStack.classList.toggle('base-image-missing', hasCards && !hasBaseImage);
   sidePanelStack.classList.toggle('no-change', hasCards && hasBaseImage && !hasManualChange);
 }
+const topRightToggles = document.getElementById('top-right-toggles');
 const fpsCounter = document.getElementById('fps-counter');
 const fpsCounterText = document.getElementById('fps-counter-text');
 const fpsCounterDpr = document.getElementById('fps-counter-dpr');
@@ -86,6 +87,7 @@ const fpsCounterSettingsIcon = document.getElementById('fps-counter-settings-ico
 const dprModeSelect = document.getElementById('dpr-mode-select');
 const fpsCounterToggle = document.getElementById('fps-counter-toggle');
 const demoDataToggle = document.getElementById('demo-data-toggle');
+const demoDataToggleTop = document.getElementById('demo-data-toggle-top-input');
 const demoModeToggle = document.getElementById('demo-mode-toggle');
 const openScreenRecordingPermissionsButton = document.getElementById('open-screen-recording-permissions');
 const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
@@ -106,6 +108,7 @@ const aiInstructionsTitle = document.getElementById('ai-instructions-title');
 const aiInstructionsFeatures = document.getElementById('ai-instructions-features');
 const aiInstructionsEmotions = document.getElementById('ai-instructions-emotions');
 const aiInstructionsValues = document.getElementById('ai-instructions-values');
+const aiInstructionsVariantPrompt = document.getElementById('ai-instructions-variant-prompt');
 const baseImageContainer = document.querySelector('.base-image-container');
 const aspectCardsContainer = document.querySelector('.aspect-cards-container');
 
@@ -443,7 +446,8 @@ let customInstructions = {
   titleGeneration: "",
   features: "",
   emotions: "",
-  values: ""
+  values: "",
+  variantGenerationPrompt: ""
 };
 
 // Get config file path (user-specific settings)
@@ -464,8 +468,7 @@ function ensureConfigDirectory() {
   }
 }
 
-// Load AI settings from config file (user-specific: mode toggle, model)
-// NOTE: API key is NOT loaded from disk - it's session-only for security
+// Load AI settings from config file (user-specific: mode toggle, model, API key)
 function loadAISettings() {
   try {
     const configPath = getConfigPath();
@@ -473,10 +476,10 @@ function loadAISettings() {
       const data = fs.readFileSync(configPath, 'utf8');
       const loaded = JSON.parse(data);
       // Merge with defaults to handle missing fields
-      // API key is always empty on load - it's session-only
+      // API key is loaded from disk if present (stored locally, gitignored)
       aiSettings = {
         aiModeEnabled: loaded.aiModeEnabled !== undefined ? loaded.aiModeEnabled : false,
-        apiKey: "", // Always start with empty API key (session-only)
+        apiKey: loaded.apiKey || "", // Load API key from config file if present
         model: loaded.model || "gemini-2.5-flash"
       };
     }
@@ -499,7 +502,8 @@ function loadCustomInstructions() {
         titleGeneration: loaded.titleGeneration || "",
         features: loaded.features || "",
         emotions: loaded.emotions || "",
-        values: loaded.values || ""
+        values: loaded.values || "",
+        variantGenerationPrompt: loaded.variantGenerationPrompt || ""
       };
     }
   } catch (error) {
@@ -523,18 +527,18 @@ function saveCustomInstructions(instructions) {
 }
 
 // Save AI settings to config file (user-specific: mode toggle, model)
-// NOTE: API key is NOT saved to disk - it's session-only for security
+// Save AI settings to config file (including API key - stored locally, gitignored)
 function saveAISettings(settings) {
   try {
     ensureConfigDirectory();
     const configPath = getConfigPath();
     // Update in-memory settings
     aiSettings = { ...aiSettings, ...settings };
-    // Save to disk WITHOUT the API key (session-only)
+    // Save to disk including API key (stored locally in gitignored config file)
     const settingsToSave = {
       aiModeEnabled: aiSettings.aiModeEnabled,
-      model: aiSettings.model
-      // apiKey is intentionally excluded - it's session-only
+      model: aiSettings.model,
+      apiKey: aiSettings.apiKey || "" // Save API key to local config file
     };
     fs.writeFileSync(configPath, JSON.stringify(settingsToSave, null, 2), 'utf8');
     return true;
@@ -626,6 +630,9 @@ function updateAISettingsUI() {
   }
   if (aiInstructionsValues) {
     aiInstructionsValues.value = customInstructions.values || '';
+  }
+  if (aiInstructionsVariantPrompt) {
+    aiInstructionsVariantPrompt.value = customInstructions.variantGenerationPrompt || '';
   }
 }
 
@@ -1225,6 +1232,14 @@ function setBaseImage(imageId) {
   }
 }
 
+// Update base image (allows overwriting existing base image)
+function updateBaseImage(imageId) {
+  if (imageId !== null) {
+    baseImageId = imageId;
+    updateBaseImageCard();
+  }
+}
+
 // Remove base image
 function removeBaseImage() {
   baseImageId = null;
@@ -1719,6 +1734,376 @@ async function generateAspectTransformation(originalAspect, action, aspectType, 
   } catch (error) {
     console.error('Error generating aspect transformation:', error);
     throw error;
+  }
+}
+
+// ============================================================================
+// Image Variant Generation Functions
+// ============================================================================
+
+// Convert normalized coordinates to semantic location description
+function getSemanticLocation(normalizedX, normalizedY) {
+  const x = normalizedX;
+  const y = normalizedY;
+  
+  // Determine vertical position
+  let vertical = '';
+  if (y < 0.33) {
+    vertical = 'upper';
+  } else if (y > 0.67) {
+    vertical = 'lower';
+  } else {
+    vertical = 'center';
+  }
+  
+  // Determine horizontal position
+  let horizontal = '';
+  if (x < 0.33) {
+    horizontal = 'left';
+  } else if (x > 0.67) {
+    horizontal = 'right';
+  } else {
+    horizontal = 'center';
+  }
+  
+  // Combine descriptions
+  if (vertical === 'center' && horizontal === 'center') {
+    return 'the center';
+  } else if (vertical === 'center') {
+    return `the ${horizontal} area`;
+  } else if (horizontal === 'center') {
+    return `the ${vertical} area`;
+  } else {
+    return `the ${vertical}-${horizontal} area`;
+  }
+}
+
+// Call Nano Banana Pro API for image generation
+async function callNanoBananaProAPI(prompt, baseImageBase64, model = 'gemini-3-pro-image-preview') {
+  if (!isAIModeEnabled()) {
+    throw new Error('AI mode is disabled');
+  }
+
+  const apiKey = aiSettings.apiKey;
+  if (!apiKey || !validateAPIKey(apiKey)) {
+    throw new Error('Invalid API key: Your API key format is invalid. Please check your settings.');
+  }
+
+  const modelName = model || 'gemini-3-pro-image-preview';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+  // Build content array with image and prompt
+  const contents = [];
+  
+  // Remove data URL prefix if present
+  const base64Data = baseImageBase64.includes(',') ? baseImageBase64.split(',')[1] : baseImageBase64;
+  contents.push({
+    parts: [
+      { inline_data: { mime_type: 'image/jpeg', data: base64Data } },
+      { text: prompt }
+    ]
+  });
+
+  const requestBody = {
+    contents: contents,
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 8192,
+      responseModalities: ["TEXT", "IMAGE"]
+    }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('Invalid API key: Your API key is invalid or has expired. Please check your settings.');
+      } else if (response.status === 429) {
+        throw new Error('Rate limit exceeded: Too many requests. Please try again later.');
+      } else {
+        throw new Error(`API error: ${errorData.error?.message || response.statusText || 'Unknown error'}`);
+      }
+    }
+
+    const data = await response.json();
+
+    // Debug: Log response structure for troubleshooting
+    console.log('API Response structure:', JSON.stringify(data, null, 2));
+
+    // Extract generated image from response
+    if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+      const parts = data.candidates[0].content.parts;
+      
+      // Look through all parts for inline_data (image data)
+      for (const part of parts) {
+        // Check for inline_data (snake_case) or inlineData (camelCase)
+        const imageData = part.inline_data || part.inlineData;
+        if (imageData && imageData.data) {
+          const mimeType = imageData.mime_type || imageData.mimeType || 'image/png';
+          return `data:${mimeType};base64,${imageData.data}`;
+        }
+      }
+      
+      // If no image found, log available parts for debugging
+      console.error('No image data found in parts. Available parts:', parts.map(p => Object.keys(p)));
+      throw new Error('API error: No image data in response. Response may contain text only.');
+    } else {
+      console.error('Invalid response structure:', data);
+      throw new Error('API error: No content in response');
+    }
+  } catch (error) {
+    if (error.message.startsWith('Invalid API key') || error.message.startsWith('Rate limit') || error.message.startsWith('API error')) {
+      throw error;
+    } else if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Network error: Could not connect to Gemini API. Please check your internet connection.');
+    } else {
+      throw new Error(`API error: ${error.message}`);
+    }
+  }
+}
+
+// Build variant generation prompt from aspect cards using template
+function buildVariantGenerationPrompt(baseImageData, aspectCards, images) {
+  const generalInstructions = customInstructions.general || '';
+  const emotionsInstructions = customInstructions.emotions || '';
+  const valuesInstructions = customInstructions.values || '';
+  
+  // Get template or use default
+  const template = customInstructions.variantGenerationPrompt || 
+    '{{GENERAL_INSTRUCTIONS}}\n\nGenerate a new version of this image with the following modifications:\n\n{{TARGETED_FEATURES}}\n{{GENERAL_ASPECTS}}\n{{COMMENTS}}\n\nMaintain all other aspects of the image unchanged.';
+  
+  // Get base image for coordinate conversion
+  const baseImage = images.find(img => img.id === baseImageId);
+  
+  // Group aspects by targeted feature
+  const featureGroups = {};
+  const generalAspects = [];
+  const commentCards = [];
+  
+  for (const card of aspectCards) {
+    // Handle comment cards separately
+    if (card.type === 'comment') {
+      commentCards.push(card);
+      continue;
+    }
+    
+    // Only include cards with active changes
+    const hasActiveAction = card.activeAction !== null;
+    const hasTransformedAspect = card.transformedAspect && card.transformedAspect !== card.originalAspect;
+    if (!hasActiveAction && !hasTransformedAspect) continue;
+    
+    const aspectText = card.transformedAspect || card.originalAspect;
+    const aspectType = card.type === 'emotional' ? 'emotion' : 'value';
+    
+    if (card.targetedFeature && card.targetedFeature.trim()) {
+      // Targeted feature aspect
+      const feature = card.targetedFeature.trim();
+      if (!featureGroups[feature]) {
+        featureGroups[feature] = [];
+      }
+      featureGroups[feature].push({ aspectText, aspectType, card });
+    } else {
+      // General aspect
+      generalAspects.push({ aspectText, aspectType, card });
+    }
+  }
+  
+  // Build targeted features section
+  let targetedFeaturesText = '';
+  for (const [feature, aspects] of Object.entries(featureGroups)) {
+    // Find the pin for this feature to get location
+    let locationInfo = '';
+    const firstCard = aspects[0].card;
+    if (firstCard.pinId) {
+      const baseImage = images.find(img => img.id === baseImageId);
+      if (baseImage) {
+        const pin = baseImage.pins.find(p => p.id === firstCard.pinId);
+        if (pin && pin.location) {
+          const semanticLoc = getSemanticLocation(pin.location.x, pin.location.y);
+          locationInfo = ` located at normalized coordinates (${pin.location.x.toFixed(2)}, ${pin.location.y.toFixed(2)}) in ${semanticLoc} of the image`;
+        }
+      }
+    }
+    
+    // Combine multiple aspects for the same feature
+    const aspectDescriptions = aspects.map(a => {
+      const typeInstructions = a.aspectType === 'emotion' ? emotionsInstructions : valuesInstructions;
+      let desc = a.aspectText;
+      if (typeInstructions) {
+        desc = `${desc} (${typeInstructions})`;
+      }
+      return desc;
+    });
+    
+    const combinedAspects = aspectDescriptions.length > 1 
+      ? aspectDescriptions.join(' AND ')
+      : aspectDescriptions[0];
+    
+    targetedFeaturesText += `- Modify the feature "${feature}"${locationInfo} to express: ${combinedAspects}\n`;
+  }
+  
+  // Build general aspects section
+  let generalAspectsText = '';
+  for (const aspect of generalAspects) {
+    const typeInstructions = aspect.aspectType === 'emotion' ? emotionsInstructions : valuesInstructions;
+    let desc = aspect.aspectText;
+    if (typeInstructions) {
+      desc = `${desc} (${typeInstructions})`;
+    }
+    generalAspectsText += `- Apply ${desc} ${aspect.aspectType} change to the entire image composition\n`;
+  }
+  
+  // Build comments section
+  let commentsText = '';
+  if (baseImage && commentCards.length > 0) {
+    // Add header to clarify these are modification instructions, not visual annotations
+    commentsText += 'Additional modification requests:\n';
+    
+    for (const card of commentCards) {
+      // Find the actual comment object
+      const comment = canvasComments.find(c => c.id === card.commentId);
+      if (comment && comment.location) {
+        // Convert canvas coordinates to normalized coordinates relative to base image
+        const normalizedX = (comment.location.x - baseImage.x) / baseImage.width;
+        const normalizedY = (comment.location.y - baseImage.y) / baseImage.height;
+        
+        // Check if comment is within image bounds (0-1 range)
+        if (normalizedX >= 0 && normalizedX <= 1 && normalizedY >= 0 && normalizedY <= 1) {
+          const semanticLoc = getSemanticLocation(normalizedX, normalizedY);
+          // Format as modification instruction, not annotation instruction
+          commentsText += `- Modify the area at normalized coordinates (${normalizedX.toFixed(2)}, ${normalizedY.toFixed(2)}) in ${semanticLoc} of the image according to this feedback: "${comment.text}"\n`;
+        } else {
+          // Comment is outside image bounds, format as general modification instruction
+          commentsText += `- Apply modifications based on this feedback: "${comment.text}"\n`;
+        }
+      } else {
+        // Fallback: use card text if comment object not found, format as general modification instruction
+        commentsText += `- Apply modifications based on this feedback: "${card.originalAspect}"\n`;
+      }
+    }
+  }
+  
+  // Replace template placeholders
+  let prompt = template;
+  
+  // Replace {{GENERAL_INSTRUCTIONS}}
+  if (generalInstructions) {
+    prompt = prompt.replace('{{GENERAL_INSTRUCTIONS}}', generalInstructions);
+  } else {
+    prompt = prompt.replace('{{GENERAL_INSTRUCTIONS}}\n\n', '').replace('{{GENERAL_INSTRUCTIONS}}', '');
+  }
+  
+  // Replace {{TARGETED_FEATURES}}
+  if (targetedFeaturesText) {
+    prompt = prompt.replace('{{TARGETED_FEATURES}}', targetedFeaturesText);
+  } else {
+    prompt = prompt.replace('{{TARGETED_FEATURES}}\n', '').replace('{{TARGETED_FEATURES}}', '');
+  }
+  
+  // Replace {{GENERAL_ASPECTS}}
+  if (generalAspectsText) {
+    prompt = prompt.replace('{{GENERAL_ASPECTS}}', generalAspectsText);
+  } else {
+    prompt = prompt.replace('{{GENERAL_ASPECTS}}\n', '').replace('{{GENERAL_ASPECTS}}', '');
+  }
+  
+  // Replace {{COMMENTS}}
+  if (commentsText) {
+    prompt = prompt.replace('{{COMMENTS}}', commentsText);
+  } else {
+    prompt = prompt.replace('{{COMMENTS}}\n', '').replace('{{COMMENTS}}', '');
+  }
+  
+  // Clean up any double newlines that might result from empty sections
+  prompt = prompt.replace(/\n\n\n+/g, '\n\n').trim();
+  
+  return prompt;
+}
+
+// Handle generate variant button click
+async function handleGenerateVariant() {
+  // Validate prerequisites
+  if (!baseImageId) {
+    showToast('Please select a base image first', true);
+    return;
+  }
+  
+  const baseImage = images.find(img => img.id === baseImageId);
+  if (!baseImage) {
+    showToast('Base image not found', true);
+    return;
+  }
+  
+  // Check if there are any aspect cards with changes
+  const hasChanges = aspectCards.some(card => 
+    card.activeAction || (card.transformedAspect && card.transformedAspect !== card.originalAspect)
+  );
+  
+  if (!hasChanges) {
+    showToast('Please add and modify aspects before generating a variant', true);
+    return;
+  }
+  
+  // Disable button and show loading state
+  if (generateVariantButton) {
+    generateVariantButton.disabled = true;
+    generateVariantButton.textContent = 'Generating...';
+    generateVariantButton.style.opacity = '0.5';
+  }
+  
+  try {
+    // Compress base image
+    const imageBase64 = await compressImageToBase64(baseImage.element, 500);
+    
+    // Get base image data
+    const baseImageData = getBaseImageData();
+    
+    // Build prompt
+    const prompt = buildVariantGenerationPrompt(baseImageData, aspectCards, images);
+    
+    // Call API
+    const generatedImageDataURL = await callNanoBananaProAPI(prompt, imageBase64);
+    
+    // Create image element from data URL
+    const img = new Image();
+    img.onload = () => {
+      // Add image to canvas
+      addImageToCanvas(generatedImageDataURL, null, null, null, null, () => {
+        showToast('Variant generated successfully!');
+      });
+      
+      // Reset button state
+      if (generateVariantButton) {
+        generateVariantButton.disabled = false;
+        generateVariantButton.textContent = 'Generate New Variant';
+        generateVariantButton.style.opacity = '1';
+      }
+    };
+    
+    img.onerror = () => {
+      throw new Error('Failed to load generated image');
+    };
+    
+    img.src = generatedImageDataURL;
+    
+  } catch (error) {
+    console.error('Error generating variant:', error);
+    showToast(error.message || 'Failed to generate variant', true);
+    
+    // Reset button state
+    if (generateVariantButton) {
+      generateVariantButton.disabled = false;
+      generateVariantButton.textContent = 'Generate New Variant';
+      generateVariantButton.style.opacity = '1';
+    }
   }
 }
 
@@ -2253,6 +2638,15 @@ function toggleOverlay() {
       overlayContainer.classList.add('active');
       overlayContainer.style.setProperty('display', 'block', 'important');
       overlayContainer.style.setProperty('visibility', 'visible', 'important');
+      
+      // Check initial mouse position for top-left hover
+      // Use a small delay to ensure mouse position is available
+      setTimeout(() => {
+        // Get current mouse position from last known position or event
+        if (lastMouseX !== undefined && lastMouseY !== undefined) {
+          updateTopLeftHoverState(lastMouseX, lastMouseY);
+        }
+      }, 100);
 
       // Force a reflow to ensure styles are applied
       void overlayContainer.offsetWidth;
@@ -4155,15 +4549,14 @@ function getPinExpansionProgress(pinId) {
 // Helper function to draw a single pin (extracted from drawPins for reuse)
 function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionMode) {
   // Filter pins based on reflection mode
-  // When NOT in reflection mode: only show pins with feature, emotional aspects, and value aspects
+  // When NOT in reflection mode: only show pins that have a feature AND at least one emotion
   // When IN reflection mode: show all pins
   if (!isReflectionMode) {
     const hasFeature = pin.feature && pin.feature.trim().length > 0;
     const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
-    const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
 
-    // Skip this pin if it doesn't have all required aspects
-    if (!hasFeature || !hasEmotionalAspects || !hasValueAspects) {
+    // Skip this pin if it doesn't have a feature or doesn't have at least one emotion
+    if (!hasFeature || !hasEmotionalAspects) {
       return; // Skip this pin
     }
   }
@@ -4825,573 +5218,8 @@ function drawPins(img, isImageSelected) {
   if (selectedPin) {
     drawSinglePin(selectedPin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
   }
-  // Filter pins based on reflection mode
-  // When NOT in reflection mode: only show pins with feature, emotional aspects, and value aspects
-  // When IN reflection mode: show all pins
-  if (!isReflectionMode) {
-    const hasFeature = pin.feature && pin.feature.trim().length > 0;
-    const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
-    const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
 
-    // Skip this pin if it doesn't have all required aspects
-    if (!hasFeature || !hasEmotionalAspects || !hasValueAspects) {
-      return; // Skip this pin
-    }
-  }
-
-  // Calculate pin position in canvas coordinates
-  const canvasX = img.x + (pin.location.x * img.width);
-  const canvasY = img.y + (pin.location.y * img.height);
-
-  // Convert to screen coordinates (transform is already restored, CSS pixels)
-  const screenPos = canvasToScreen(canvasX, canvasY);
-  const screenX = screenPos.x;
-  const screenY = screenPos.y;
-
-  const isSelected = selectedPinId === pin.id;
-  const isExpanded = expandedPinId === pin.id;
-  const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
-  const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
-  const canExpand = hasEmotionalAspects || hasValueAspects; // Only expandable if aspects exist
-
-  // Get animation progress (0.0 = collapsed, 1.0 = expanded)
-  const expansionProgress = canExpand ? getPinExpansionProgress(pin.id) : 0.0;
-  const isExpandedState = expansionProgress > 0.5 || (isExpanded && expansionProgress === 0.0);
-
-  // Define radii for concentric rings (in CSS pixels - context is already scaled by dpr)
-  const baseBlueRadius = isSelected ? 14 : 12; // Base blue circle size - bigger when selected
-  // Blue pin is smaller in collapsed view when rings exist
-  const blueRadiusCollapsed = baseBlueRadius * 0.75; // 75% of base size when collapsed with rings
-  const blueRadiusExpanded = baseBlueRadius; // Full size when expanded
-  // Interpolate blue radius during transition (smaller when collapsed, full size when expanded)
-  const blueRadius = canExpand
-    ? blueRadiusCollapsed + (blueRadiusExpanded - blueRadiusCollapsed) * expansionProgress
-    : baseBlueRadius; // No rings, use base size
-  const whiteStrokeWidth = 3; // White stroke width
-
-  // Collapsed state radii
-  const collapsedRingThickness = 10; // Thickness of yellow rings in collapsed state (increased by 2px)
-  const collapsedGreenRingThickness = 10; // Thickness of green ring in collapsed state
-  let collapsedYellowRingInnerRadius = blueRadius;
-  let collapsedYellowRingOuterRadius = collapsedYellowRingInnerRadius + collapsedRingThickness;
-  let collapsedGreenRingInnerRadius = hasEmotionalAspects ? collapsedYellowRingOuterRadius : blueRadius;
-  let collapsedGreenRingOuterRadius = collapsedGreenRingInnerRadius + collapsedGreenRingThickness;
-
-  // Limit collapsed pin size to max 1/4 of image width (in screen coordinates)
-  // Calculate image width in screen coordinates
-  const imageTopLeft = canvasToScreen(img.x, img.y);
-  const imageTopRight = canvasToScreen(img.x + img.width, img.y);
-  const imageScreenWidth = Math.abs(imageTopRight.x - imageTopLeft.x);
-  const maxCollapsedRadius = imageScreenWidth * 0.25; // Max 1/4 of image width
-
-  // If collapsed pin exceeds max size, scale all radii down proportionally
-  if (collapsedGreenRingOuterRadius > maxCollapsedRadius && collapsedGreenRingOuterRadius > 0) {
-    const scaleFactor = maxCollapsedRadius / collapsedGreenRingOuterRadius;
-    // Scale all collapsed radii proportionally to maintain relative sizes
-    collapsedGreenRingOuterRadius = maxCollapsedRadius;
-    collapsedGreenRingInnerRadius *= scaleFactor;
-    collapsedYellowRingOuterRadius *= scaleFactor;
-    collapsedYellowRingInnerRadius *= scaleFactor;
-  }
-
-  // Expanded state radii with gaps
-  const gapSize = 5; // Small gap between areas (reduced from 8 to 5)
-  const expandedInnerOrbitRadius = 70; // Inner orbit for emotions (outer edge) - reduced thickness
-  const expandedOuterOrbitRadius = 130; // Outer orbit for values (outer edge)
-  const dotRadius = blueRadius; // Same size as blue pin
-  const dotStrokeWidth = 3; // White border on dots (same as blue pin)
-  const blurRadius = 4; // Blur radius for background blur effect (lighter blur)
-
-  // Calculate expanded ring boundaries with gaps
-  // Emotions area: starts after gap from blue, ends at innerOrbitRadius (thinner now)
-  const emotionsAreaInnerRadius = blueRadius + gapSize;
-  const emotionsAreaOuterRadius = expandedInnerOrbitRadius;
-  // Values area: starts after gap from emotions, ends at outerOrbitRadius
-  const valuesAreaInnerRadius = expandedInnerOrbitRadius + gapSize;
-  const valuesAreaOuterRadius = expandedOuterOrbitRadius;
-
-  // Calculate middle radius for dot positioning (center of each ring)
-  const emotionsDotRadius = (emotionsAreaInnerRadius + emotionsAreaOuterRadius) / 2;
-  const valuesDotRadius = (valuesAreaInnerRadius + valuesAreaOuterRadius) / 2;
-
-  // Interpolate between collapsed and expanded states for smooth transition
-  const innerOrbitRadius = collapsedYellowRingOuterRadius + (expandedInnerOrbitRadius - collapsedYellowRingOuterRadius) * expansionProgress;
-  const outerOrbitRadius = collapsedGreenRingOuterRadius + (expandedOuterOrbitRadius - collapsedGreenRingOuterRadius) * expansionProgress;
-
-  // Get values area animation progress (for scaling when first value aspect is added)
-  // This animates separately when the first value aspect is added to an already-expanded pin
-  const valuesAreaProgress = hasValueAspects ? getValuesAreaProgress(pin.id) : 1.0;
-
-  // Interpolate gap and ring boundaries during animation
-  const currentGapSize = gapSize * expansionProgress;
-  const currentEmotionsAreaInnerRadius = blueRadius + currentGapSize;
-  const currentEmotionsAreaOuterRadius = innerOrbitRadius;
-
-  // Values area radii: interpolate from collapsed green ring to expanded size
-  // When pin is already expanded (expansionProgress = 1.0), use valuesAreaProgress to scale from collapsed to expanded
-  // When pin is expanding (expansionProgress < 1.0), use expansionProgress so it scales with the pin expansion
-  const valuesAreaStartInnerRadius = hasEmotionalAspects ? collapsedYellowRingOuterRadius : blueRadius;
-  const valuesAreaStartOuterRadius = collapsedGreenRingOuterRadius;
-  const valuesAreaEndInnerRadius = innerOrbitRadius + currentGapSize;
-  const valuesAreaEndOuterRadius = outerOrbitRadius;
-
-  // Use valuesAreaProgress only if pin expansion is complete, otherwise use expansionProgress
-  const valuesAreaScaleProgress = expansionProgress >= 1.0 ? valuesAreaProgress : expansionProgress;
-  const currentValuesAreaInnerRadius = valuesAreaStartInnerRadius + (valuesAreaEndInnerRadius - valuesAreaStartInnerRadius) * valuesAreaScaleProgress;
-  const currentValuesAreaOuterRadius = valuesAreaStartOuterRadius + (valuesAreaEndOuterRadius - valuesAreaStartOuterRadius) * valuesAreaScaleProgress;
-
-  // Interpolate dot positions during animation
-  const currentEmotionsDotRadius = (currentEmotionsAreaInnerRadius + currentEmotionsAreaOuterRadius) / 2;
-  const currentValuesDotRadius = (currentValuesAreaInnerRadius + currentValuesAreaOuterRadius) / 2;
-
-  // Draw from outside to inside to create proper layering
-
-  // During transition, show both states with opacity based on progress
-  // When progress < 0.5: show collapsed state fading out
-  // When progress >= 0.5: show expanded state fading in
-
-  if (expansionProgress < 0.5 && canExpand) {
-    // TRANSITION: Collapsed state fading out (during expansion) or fading in (during collapse)
-    const collapsedFade = expansionProgress < 0.5 ? (1.0 - expansionProgress * 2) : (expansionProgress - 0.5) * 2;
-
-    // Draw green ring (outermost) if value aspects exist
-    if (hasValueAspects) {
-      ctx.save();
-      ctx.globalAlpha = collapsedFade;
-
-      // Interpolate ring size during transition
-      const currentGreenOuter = collapsedGreenRingOuterRadius + (expandedOuterOrbitRadius - collapsedGreenRingOuterRadius) * expansionProgress;
-      const currentGreenInner = collapsedGreenRingInnerRadius + (expandedOuterOrbitRadius - collapsedGreenRingInnerRadius) * expansionProgress;
-
-      // Draw green ring as a donut shape
-      ctx.fillStyle = '#4CB948'; // Green
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, currentGreenOuter, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, currentGreenInner, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
-
-      // White stroke on outer edge of green ring only
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = whiteStrokeWidth;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, currentGreenOuter, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.restore();
-    }
-
-    // Draw yellow ring if emotional aspects exist
-    if (hasEmotionalAspects) {
-      ctx.save();
-      ctx.globalAlpha = collapsedFade;
-
-      // Interpolate ring size during transition
-      const currentYellowOuter = collapsedYellowRingOuterRadius + (expandedInnerOrbitRadius - collapsedYellowRingOuterRadius) * expansionProgress;
-      const currentYellowInner = collapsedYellowRingInnerRadius + (expandedInnerOrbitRadius - collapsedYellowRingInnerRadius) * expansionProgress;
-
-      // Draw yellow ring as a donut shape
-      ctx.fillStyle = '#F0CE25'; // Yellow
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, currentYellowOuter, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, currentYellowInner, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
-
-      // White stroke on outer edge of yellow ring only
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = whiteStrokeWidth;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, currentYellowOuter, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.restore();
-    }
-  }
-
-  if (isExpandedState && canExpand) {
-    // EXPANDED STATE: Draw orbital rings with dots
-
-    // Draw semi-transparent green background ring for values orbit (outermost)
-    if (hasValueAspects) {
-      // Use the same progress that was used for scaling the radii (valuesAreaScaleProgress)
-      // This ensures opacity matches the scale animation
-      const combinedProgress = valuesAreaScaleProgress;
-
-      // Create blurred background effect
-      const blurAmount = blurRadius * combinedProgress;
-      if (blurAmount > 0 && img.element) {
-        // Get the area to blur (in screen coordinates)
-        const areaSize = Math.ceil(currentValuesAreaOuterRadius * 2);
-        const areaX = Math.floor(screenX - currentValuesAreaOuterRadius);
-        const areaY = Math.floor(screenY - currentValuesAreaOuterRadius);
-
-        // Calculate pin position in canvas coordinates
-        const canvasX = img.x + (pin.location.x * img.width);
-        const canvasY = img.y + (pin.location.y * img.height);
-
-        // Convert screen coordinates to canvas coordinates for the area
-        const areaCanvasTopLeft = screenToCanvas(areaX, areaY);
-        const areaCanvasBottomRight = screenToCanvas(areaX + areaSize, areaY + areaSize);
-        const areaCanvasWidth = areaCanvasBottomRight.x - areaCanvasTopLeft.x;
-        const areaCanvasHeight = areaCanvasBottomRight.y - areaCanvasTopLeft.y;
-
-        // Calculate position within the image (in image pixel coordinates)
-        const pinImageX = pin.location.x * img.element.naturalWidth;
-        const pinImageY = pin.location.y * img.element.naturalHeight;
-
-        // Calculate the area size in image coordinates (scale by image size / canvas size)
-        const imageToCanvasScaleX = img.element.naturalWidth / img.width;
-        const imageToCanvasScaleY = img.element.naturalHeight / img.height;
-        const areaImageSizeX = areaCanvasWidth * imageToCanvasScaleX;
-        const areaImageSizeY = areaCanvasHeight * imageToCanvasScaleY;
-        let areaImageX = pinImageX - areaImageSizeX / 2;
-        let areaImageY = pinImageY - areaImageSizeY / 2;
-
-        // Clamp to image bounds
-        const imageWidth = img.element.naturalWidth;
-        const imageHeight = img.element.naturalHeight;
-        areaImageX = Math.max(0, Math.min(areaImageX, imageWidth - areaImageSizeX));
-        areaImageY = Math.max(0, Math.min(areaImageY, imageHeight - areaImageSizeY));
-
-        // Create temporary canvas for blur effect
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = areaSize;
-        tempCanvas.height = areaSize;
-        const tempCtx = tempCanvas.getContext('2d');
-
-        // Fill with transparent background first
-        tempCtx.clearRect(0, 0, areaSize, areaSize);
-
-        // Draw only the image content to temp canvas (not the entire canvas)
-        tempCtx.drawImage(
-          img.element,
-          areaImageX, areaImageY, areaImageSizeX, areaImageSizeY, // Source: image coordinates
-          0, 0, areaSize, areaSize // Destination: temp canvas
-        );
-
-        // Create a second temp canvas for the blurred result
-        const blurCanvas = document.createElement('canvas');
-        blurCanvas.width = areaSize;
-        blurCanvas.height = areaSize;
-        const blurCtx = blurCanvas.getContext('2d');
-
-        // Apply blur filter and draw the captured content
-        blurCtx.filter = `blur(${blurAmount}px)`;
-        blurCtx.drawImage(tempCanvas, 0, 0);
-
-        // Create clipping path for donut shape
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, currentValuesAreaOuterRadius, 0, Math.PI * 2);
-        ctx.arc(screenX, screenY, currentValuesAreaInnerRadius, 0, Math.PI * 2, true);
-        ctx.clip();
-
-        // Draw blurred background
-        ctx.drawImage(blurCanvas, areaX, areaY);
-        ctx.restore();
-      }
-
-      // Then draw the semi-transparent colored overlay
-      const bgOpacity = 0.35 * combinedProgress; // Moderate transparency (0.3-0.4)
-      ctx.fillStyle = `rgba(76, 185, 72, ${bgOpacity})`; // Green with transparency
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, currentValuesAreaOuterRadius, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, currentValuesAreaInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
-
-      // Draw value aspect dots
-      const valueAspectCount = pin.valueAspects.length;
-      if (valueAspectCount > 0) {
-        const dotOpacity = combinedProgress; // Fade in dots as ring expands
-
-        pin.valueAspects.forEach((aspect, index) => {
-          // Calculate target angle for even distribution (excluding upper eighth for text)
-          const targetAngle = calculateDotAngle(index, valueAspectCount, 'value');
-          // Get animated angle (interpolates during repositioning)
-          const angle = getAnimatedDotAngle(pin.id, 'value', index, targetAngle);
-          // Get animated radius (new dots start from center, existing dots use full radius)
-          const animatedRadius = getAnimatedDotRadius(pin.id, 'value', index, currentValuesDotRadius);
-          // Position dots - new dots start from center, existing dots use animated radius
-          const dotX = screenX + Math.cos(angle) * animatedRadius;
-          const dotY = screenY + Math.sin(angle) * animatedRadius;
-
-          // Get animated opacity (new dots fade in)
-          const animatedOpacity = getAnimatedDotOpacity(pin.id, 'value', index, dotOpacity);
-
-          // Draw dot with white border (same size as blue pin)
-          ctx.save();
-          ctx.globalAlpha = animatedOpacity;
-          ctx.fillStyle = '#4CB948'; // Green
-          ctx.beginPath();
-          ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = dotStrokeWidth;
-          ctx.stroke();
-          ctx.restore();
-
-          // Store dot position for hover detection (only if expanded and visible)
-          if (combinedProgress > 0.5) {
-            // Check if mouse is hovering over this dot (use canvas-relative coordinates)
-            const dx = canvasRelativeX - dotX;
-            const dy = canvasRelativeY - dotY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance <= dotRadius + 5 && !hoveredAspectDot) { // 5px hover margin
-              hoveredAspectDot = {
-                pinId: pin.id,
-                type: 'value',
-                index: index,
-                text: aspect,
-                x: dotX,
-                y: dotY
-              };
-            }
-          }
-        });
-      }
-
-      // Draw "Values" label SVG (curved along the ring, upper-middle section)
-      if (valuesLabelImage && valuesLabelImage.complete && valuesLabelImage.naturalWidth > 0) {
-        ctx.save();
-        ctx.globalAlpha = combinedProgress;
-
-        // Position SVG along the curve of the values ring (upper-middle, angle = -90 degrees)
-        const valuesLabelAngle = -Math.PI / 2; // -90 degrees (top)
-        const valuesLabelRadius = currentValuesDotRadius; // Use middle radius of the ring
-        const valuesLabelX = screenX + Math.cos(valuesLabelAngle) * valuesLabelRadius;
-        const valuesLabelY = screenY + Math.sin(valuesLabelAngle) * valuesLabelRadius;
-
-        // Transform to rotate SVG along the curve
-        ctx.translate(valuesLabelX, valuesLabelY);
-        ctx.rotate(valuesLabelAngle + Math.PI / 2); // Rotate 90 degrees to align with curve
-
-        // Draw SVG image (scale to appropriate size - bigger)
-        const svgWidth = 48; // SVG viewBox width
-        const svgHeight = 15; // SVG viewBox height
-        const scale = 1.4; // Scale factor (bigger)
-        ctx.drawImage(valuesLabelImage, -svgWidth / 2 * scale, -svgHeight / 2 * scale, svgWidth * scale, svgHeight * scale);
-        ctx.restore();
-      }
-    }
-
-    // Draw semi-transparent yellow background ring for emotions orbit
-    if (hasEmotionalAspects) {
-      // Create blurred background effect
-      const blurAmount = blurRadius * expansionProgress;
-      if (blurAmount > 0 && img.element) {
-        // Get the area to blur (in screen coordinates)
-        const areaSize = Math.ceil(currentEmotionsAreaOuterRadius * 2);
-        const areaX = Math.floor(screenX - currentEmotionsAreaOuterRadius);
-        const areaY = Math.floor(screenY - currentEmotionsAreaOuterRadius);
-
-        // Calculate pin position in canvas coordinates
-        const canvasX = img.x + (pin.location.x * img.width);
-        const canvasY = img.y + (pin.location.y * img.height);
-
-        // Convert screen coordinates to canvas coordinates for the area
-        const areaCanvasTopLeft = screenToCanvas(areaX, areaY);
-        const areaCanvasBottomRight = screenToCanvas(areaX + areaSize, areaY + areaSize);
-        const areaCanvasWidth = areaCanvasBottomRight.x - areaCanvasTopLeft.x;
-        const areaCanvasHeight = areaCanvasBottomRight.y - areaCanvasTopLeft.y;
-
-        // Calculate position within the image (in image pixel coordinates)
-        const pinImageX = pin.location.x * img.element.naturalWidth;
-        const pinImageY = pin.location.y * img.element.naturalHeight;
-
-        // Calculate the area size in image coordinates (scale by image size / canvas size)
-        const imageToCanvasScaleX = img.element.naturalWidth / img.width;
-        const imageToCanvasScaleY = img.element.naturalHeight / img.height;
-        const areaImageSizeX = areaCanvasWidth * imageToCanvasScaleX;
-        const areaImageSizeY = areaCanvasHeight * imageToCanvasScaleY;
-        let areaImageX = pinImageX - areaImageSizeX / 2;
-        let areaImageY = pinImageY - areaImageSizeY / 2;
-
-        // Clamp to image bounds
-        const imageWidth = img.element.naturalWidth;
-        const imageHeight = img.element.naturalHeight;
-        areaImageX = Math.max(0, Math.min(areaImageX, imageWidth - areaImageSizeX));
-        areaImageY = Math.max(0, Math.min(areaImageY, imageHeight - areaImageSizeY));
-
-        // Create temporary canvas for blur effect
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = areaSize;
-        tempCanvas.height = areaSize;
-        const tempCtx = tempCanvas.getContext('2d');
-
-        // Fill with transparent background first
-        tempCtx.clearRect(0, 0, areaSize, areaSize);
-
-        // Draw only the image content to temp canvas (not the entire canvas)
-        tempCtx.drawImage(
-          img.element,
-          areaImageX, areaImageY, areaImageSizeX, areaImageSizeY, // Source: image coordinates
-          0, 0, areaSize, areaSize // Destination: temp canvas
-        );
-
-        // Create a second temp canvas for the blurred result
-        const blurCanvas = document.createElement('canvas');
-        blurCanvas.width = areaSize;
-        blurCanvas.height = areaSize;
-        const blurCtx = blurCanvas.getContext('2d');
-
-        // Apply blur filter and draw the captured content
-        blurCtx.filter = `blur(${blurAmount}px)`;
-        blurCtx.drawImage(tempCanvas, 0, 0);
-
-        // Create clipping path for donut shape
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, currentEmotionsAreaOuterRadius, 0, Math.PI * 2);
-        ctx.arc(screenX, screenY, currentEmotionsAreaInnerRadius, 0, Math.PI * 2, true);
-        ctx.clip();
-
-        // Draw blurred background
-        ctx.drawImage(blurCanvas, areaX, areaY);
-        ctx.restore();
-      }
-
-      // Then draw the semi-transparent colored overlay
-      const bgOpacity = 0.35 * expansionProgress; // Moderate transparency (0.3-0.4)
-      ctx.fillStyle = `rgba(240, 206, 37, ${bgOpacity})`; // Yellow with transparency
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, currentEmotionsAreaOuterRadius, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, currentEmotionsAreaInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
-
-      // Draw emotional aspect dots
-      const emotionalAspectCount = pin.emotionalAspects.length;
-      if (emotionalAspectCount > 0) {
-        const dotOpacity = expansionProgress; // Fade in dots as ring expands
-
-        pin.emotionalAspects.forEach((aspect, index) => {
-          // Calculate target angle for even distribution (excluding upper quarter for text)
-          const targetAngle = calculateDotAngle(index, emotionalAspectCount, 'emotional');
-          // Get animated angle (interpolates during repositioning)
-          const angle = getAnimatedDotAngle(pin.id, 'emotional', index, targetAngle);
-          // Get animated radius (new dots start from center, existing dots use full radius)
-          const animatedRadius = getAnimatedDotRadius(pin.id, 'emotional', index, currentEmotionsDotRadius);
-          // Position dots - new dots start from center, existing dots use animated radius
-          const dotX = screenX + Math.cos(angle) * animatedRadius;
-          const dotY = screenY + Math.sin(angle) * animatedRadius;
-
-          // Get animated opacity (new dots fade in)
-          const animatedOpacity = getAnimatedDotOpacity(pin.id, 'emotional', index, dotOpacity);
-
-          // Draw dot with white border (same size as blue pin)
-          ctx.save();
-          ctx.globalAlpha = animatedOpacity;
-          ctx.fillStyle = '#F0CE25'; // Yellow
-          ctx.beginPath();
-          ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = dotStrokeWidth;
-          ctx.stroke();
-          ctx.restore();
-
-          // Store dot position for hover detection (only if expanded and visible)
-          if (expansionProgress > 0.5) {
-            // Check if mouse is hovering over this dot (use canvas-relative coordinates)
-            const dx = canvasRelativeX - dotX;
-            const dy = canvasRelativeY - dotY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance <= dotRadius + 5 && !hoveredAspectDot) { // 5px hover margin
-              hoveredAspectDot = {
-                pinId: pin.id,
-                type: 'emotional',
-                index: index,
-                text: aspect,
-                x: dotX,
-                y: dotY
-              };
-            }
-          }
-        });
-      }
-
-      // Draw "Emotions" label SVG (curved along the ring, 12 o'clock position)
-      if (emotionsLabelImage && emotionsLabelImage.complete && emotionsLabelImage.naturalWidth > 0) {
-        ctx.save();
-        ctx.globalAlpha = expansionProgress;
-
-        // Position SVG along the curve of the emotions ring (12 o'clock, angle = -90 degrees)
-        const emotionsLabelAngle = -Math.PI / 2; // -90 degrees (12 o'clock)
-        const emotionsLabelRadius = currentEmotionsDotRadius; // Use middle radius of the ring
-        const emotionsLabelX = screenX + Math.cos(emotionsLabelAngle) * emotionsLabelRadius;
-        const emotionsLabelY = screenY + Math.sin(emotionsLabelAngle) * emotionsLabelRadius;
-
-        // Transform to rotate SVG along the curve
-        ctx.translate(emotionsLabelX, emotionsLabelY);
-        ctx.rotate(emotionsLabelAngle + Math.PI / 2); // Rotate 90 degrees to align with curve
-
-        // Draw SVG image (scale to appropriate size - bigger)
-        const svgWidth = 64; // SVG viewBox width
-        const svgHeight = 23; // SVG viewBox height
-        const scale = 1.4; // Scale factor (bigger)
-        ctx.drawImage(emotionsLabelImage, -svgWidth / 2 * scale, -svgHeight / 2 * scale, svgWidth * scale, svgHeight * scale);
-        ctx.restore();
-      }
-    }
-  } else if (expansionProgress === 0.0) {
-    // FULLY COLLAPSED STATE: Draw solid rings (existing behavior, no animation)
-
-    // Draw green ring (outermost) if value aspects exist
-    if (hasValueAspects) {
-      // Draw green ring as a donut shape
-      ctx.fillStyle = '#4CB948'; // Green
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, collapsedGreenRingOuterRadius, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, collapsedGreenRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
-
-      // White stroke on outer edge of green ring only
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = whiteStrokeWidth;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, collapsedGreenRingOuterRadius, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    // Draw yellow ring if emotional aspects exist
-    if (hasEmotionalAspects) {
-      // Draw yellow ring as a donut shape
-      ctx.fillStyle = '#F0CE25'; // Yellow
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, collapsedYellowRingOuterRadius, 0, Math.PI * 2);
-      ctx.arc(screenX, screenY, collapsedYellowRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
-      ctx.fill();
-
-      // White stroke on outer edge of yellow ring only
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = whiteStrokeWidth;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, collapsedYellowRingOuterRadius, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
-
-  // Draw blue circle (innermost) - always visible, same size in both states
-  ctx.fillStyle = '#008CFF'; // Blue
-  ctx.beginPath();
-  ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
-  ctx.fill();
-
-  // White stroke around blue circle
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = whiteStrokeWidth;
-  ctx.beginPath();
-  ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Check if mouse is hovering over this pin (for hover tooltip)
-  const dx = canvasRelativeX - screenX;
-  const dy = canvasRelativeY - screenY;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  const pinHitRadius = blueRadius + 10; // Hover radius with margin
-  if (distance <= pinHitRadius && !hoveredPinId) {
-    hoveredPinId = pin.id;
-  }
+  ctx.restore();
 }
 
 // Draw pins on an image (called after transform is restored, so we draw in screen coordinates)
@@ -5445,27 +5273,7 @@ function drawPins(img, isImageSelected) {
 
   // Draw selected pin last (on top of all other pins)
   if (selectedPin) {
-    const pin = selectedPin;
-
-    // Filter pins based on reflection mode
-    // When NOT in reflection mode: only show pins with feature, emotional aspects, and value aspects
-    // When IN reflection mode: show all pins
-    if (!isReflectionMode) {
-      const hasFeature = pin.feature && pin.feature.trim().length > 0;
-      const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
-      const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
-
-      // Skip this pin if it doesn't have all required aspects
-      if (!hasFeature || !hasEmotionalAspects || !hasValueAspects) {
-        // Skip selected pin if it doesn't meet criteria
-      } else {
-        // Draw the selected pin
-        drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
-      }
-    } else {
-      // In reflection mode, always draw
-      drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
-    }
+    drawSinglePin(selectedPin, img, canvasRelativeX, canvasRelativeY, isReflectionMode);
   }
 
   // Draw tooltip for hovered aspect dot (using unified function)
@@ -7733,6 +7541,9 @@ function drawReflectionButton(img) {
   const buttonScreenX = screenPos.x;
   const buttonScreenY = screenPos.y + buttonSpacing;
 
+  // Calculate image width in screen coordinates (to constrain button width)
+  const imageScreenWidth = img.width * canvasScale;
+
   // Measure text at fixed size (screen coordinates, context already scaled by dpr)
   ctx.save();
   ctx.font = `14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
@@ -7740,8 +7551,24 @@ function drawReflectionButton(img) {
   const textWidth = textMetrics.width;
   const textHeight = 20; // Fixed pixel text height (screen coordinates)
 
+  // Calculate original button width (before constraining)
+  const originalButtonWidth = textWidth + buttonPadding * 2;
+  
+  // Set opacity to 0 if image width is less than or equal to button width
+  // Button should only be visible when image is wider than the button
+  const buttonOpacity = imageScreenWidth > originalButtonWidth ? 1.0 : 0.0;
+  
+  // If opacity is 0, skip drawing entirely and clear button bounds
+  if (buttonOpacity === 0) {
+    reflectionButtonBounds = null; // Clear bounds to prevent click detection
+    ctx.restore();
+    return;
+  }
+
   // Calculate button dimensions (fixed pixel size)
-  const buttonWidth = textWidth + buttonPadding * 2;
+  // Constrain button width to not exceed image width in screen coordinates
+  let buttonWidth = originalButtonWidth;
+  buttonWidth = Math.min(buttonWidth, imageScreenWidth);
   const buttonHeight = textHeight + buttonPadding * 2;
 
   // Store button bounds for click detection (in screen coordinates)
@@ -10949,6 +10776,14 @@ duplicateTool.addEventListener('click', () => {
 // Initialize download button state
 updateDownloadButtonState();
 
+// Generate variant button click handler
+if (generateVariantButton) {
+  generateVariantButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleGenerateVariant();
+  });
+}
+
 // Settings modal can be opened via action button (action-settings-button)
 
 // Close modal function
@@ -11060,35 +10895,8 @@ if (aiModelSelect) {
   });
 }
 
-if (aiInstructionsGeneral) {
-  aiInstructionsGeneral.addEventListener('input', (e) => {
-    saveCustomInstructions({ general: e.target.value });
-  });
-}
-
-if (aiInstructionsTitle) {
-  aiInstructionsTitle.addEventListener('input', (e) => {
-    saveCustomInstructions({ titleGeneration: e.target.value });
-  });
-}
-
-if (aiInstructionsFeatures) {
-  aiInstructionsFeatures.addEventListener('input', (e) => {
-    saveCustomInstructions({ features: e.target.value });
-  });
-}
-
-if (aiInstructionsEmotions) {
-  aiInstructionsEmotions.addEventListener('input', (e) => {
-    saveCustomInstructions({ emotions: e.target.value });
-  });
-}
-
-if (aiInstructionsValues) {
-  aiInstructionsValues.addEventListener('input', (e) => {
-    saveCustomInstructions({ values: e.target.value });
-  });
-}
+// Custom instructions are now read-only in UI - can only be edited in JSON file
+// Removed input event listeners to prevent saving changes from UI
 
 // Save title and focus to image object
 if (productNameInput) {
@@ -11144,35 +10952,7 @@ if (aiApiKeyInput) {
   }, { passive: true });
 }
 
-if (aiInstructionsGeneral) {
-  aiInstructionsGeneral.addEventListener('paste', (e) => {
-    // Allow default paste behavior
-  }, { passive: true });
-}
-
-if (aiInstructionsTitle) {
-  aiInstructionsTitle.addEventListener('paste', (e) => {
-    // Allow default paste behavior
-  }, { passive: true });
-}
-
-if (aiInstructionsFeatures) {
-  aiInstructionsFeatures.addEventListener('paste', (e) => {
-    // Allow default paste behavior
-  }, { passive: true });
-}
-
-if (aiInstructionsEmotions) {
-  aiInstructionsEmotions.addEventListener('paste', (e) => {
-    // Allow default paste behavior
-  }, { passive: true });
-}
-
-if (aiInstructionsValues) {
-  aiInstructionsValues.addEventListener('paste', (e) => {
-    // Allow default paste behavior
-  }, { passive: true });
-}
+// Custom instructions paste event listeners removed - fields are now read-only
 
 // Paste button handlers using Clipboard API
 async function pasteToInput(inputElement) {
@@ -11208,6 +10988,7 @@ const aiInstructionsTitlePasteBtn = document.getElementById('ai-instructions-tit
 const aiInstructionsFeaturesPasteBtn = document.getElementById('ai-instructions-features-paste-btn');
 const aiInstructionsEmotionsPasteBtn = document.getElementById('ai-instructions-emotions-paste-btn');
 const aiInstructionsValuesPasteBtn = document.getElementById('ai-instructions-values-paste-btn');
+const aiInstructionsVariantPromptPasteBtn = document.getElementById('ai-instructions-variant-prompt-paste-btn');
 
 // API Key paste button handler
 if (aiApiKeyPasteButton) {
@@ -11217,10 +10998,9 @@ if (aiApiKeyPasteButton) {
     try {
       const text = await navigator.clipboard.readText();
       if (text && text.trim().length > 0) {
-        // Save the API key in memory only (session-only, not persisted)
+        // Save the API key to memory and persist to local config file
         aiSettings.apiKey = text.trim();
-        // Don't save API key to disk - it's session-only
-        // saveAISettings({ apiKey: text.trim() }); // Removed - API key is session-only
+        saveAISettings({ apiKey: text.trim() }); // Save to local config file (gitignored)
         // Update UI to show the input with the key
         if (aiApiKeyInput) {
           aiApiKeyInput.value = text.trim();
@@ -11245,10 +11025,9 @@ if (aiApiKeyClearBtn) {
   aiApiKeyClearBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // Clear the API key (session-only, not persisted)
+    // Clear the API key from memory and config file
     aiSettings.apiKey = '';
-    // Don't save to disk - API key is session-only
-    // saveAISettings({ apiKey: '' }); // Removed - API key is session-only
+    saveAISettings({ apiKey: '' }); // Remove from local config file
     // Update UI to show the paste button
     if (aiApiKeyInput) {
       aiApiKeyInput.value = '';
@@ -11263,45 +11042,8 @@ if (aiApiKeyClearBtn) {
   });
 }
 
-if (aiInstructionsGeneralPasteBtn && aiInstructionsGeneral) {
-  aiInstructionsGeneralPasteBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    await pasteToInput(aiInstructionsGeneral);
-  });
-}
-
-if (aiInstructionsTitlePasteBtn && aiInstructionsTitle) {
-  aiInstructionsTitlePasteBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    await pasteToInput(aiInstructionsTitle);
-  });
-}
-
-if (aiInstructionsFeaturesPasteBtn && aiInstructionsFeatures) {
-  aiInstructionsFeaturesPasteBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    await pasteToInput(aiInstructionsFeatures);
-  });
-}
-
-if (aiInstructionsEmotionsPasteBtn && aiInstructionsEmotions) {
-  aiInstructionsEmotionsPasteBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    await pasteToInput(aiInstructionsEmotions);
-  });
-}
-
-if (aiInstructionsValuesPasteBtn && aiInstructionsValues) {
-  aiInstructionsValuesPasteBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    await pasteToInput(aiInstructionsValues);
-  });
-}
+// Custom instructions paste buttons removed - fields are now read-only
+// Instructions can only be edited in the ai-custom-instructions.json file
 
 // Prevent clicks inside modal from closing it
 settingsModal.addEventListener('click', (e) => {
@@ -11652,24 +11394,49 @@ function clearDemoData() {
 }
 
 // Demo data toggle handler (Development section) — on by default
-if (demoDataToggle) {
+// Sync both toggles (settings modal and top right)
+function syncDemoDataToggles(isEnabled) {
+  if (demoDataToggle) {
+    demoDataToggle.checked = isEnabled;
+  }
+  if (demoDataToggleTop) {
+    demoDataToggleTop.checked = isEnabled;
+  }
+}
+
+function handleDemoDataToggleChange(isEnabled) {
+  localStorage.setItem('demoDataEnabled', isEnabled.toString());
+  if (isEnabled) {
+    loadDemoData();
+  } else {
+    clearDemoData();
+  }
+}
+
+if (demoDataToggle || demoDataToggleTop) {
   const savedDemoData = localStorage.getItem('demoDataEnabled');
   const isDemoDataEnabled = savedDemoData === null ? true : savedDemoData === 'true';
-  demoDataToggle.checked = isDemoDataEnabled;
+  syncDemoDataToggles(isDemoDataEnabled);
 
   if (isDemoDataEnabled) {
     setTimeout(() => loadDemoData(), 500);
   }
 
-  demoDataToggle.addEventListener('change', (e) => {
-    const isEnabled = e.target.checked;
-    localStorage.setItem('demoDataEnabled', isEnabled.toString());
-    if (isEnabled) {
-      loadDemoData();
-    } else {
-      clearDemoData();
-    }
-  });
+  if (demoDataToggle) {
+    demoDataToggle.addEventListener('change', (e) => {
+      const isEnabled = e.target.checked;
+      syncDemoDataToggles(isEnabled);
+      handleDemoDataToggleChange(isEnabled);
+    });
+  }
+
+  if (demoDataToggleTop) {
+    demoDataToggleTop.addEventListener('change', (e) => {
+      const isEnabled = e.target.checked;
+      syncDemoDataToggles(isEnabled);
+      handleDemoDataToggleChange(isEnabled);
+    });
+  }
 }
 
 // Demo mode toggle handler (demo data takes precedence on startup)
@@ -14008,6 +13775,458 @@ document.addEventListener('mousedown', (e) => {
     }
   }
 });
+
+// Mouse tracking for top-left corner hover (toggles and FPS counter)
+const TOP_LEFT_HOVER_AREA = 200; // Pixels from top and left edges to trigger hover
+
+function updateTopLeftHoverState(mouseX, mouseY) {
+  if (!isOverlayActive) return;
+  
+  const isInTopLeftArea = mouseX <= TOP_LEFT_HOVER_AREA && mouseY <= TOP_LEFT_HOVER_AREA;
+  
+  if (topRightToggles) {
+    if (isInTopLeftArea) {
+      topRightToggles.classList.add('show-on-hover');
+    } else {
+      topRightToggles.classList.remove('show-on-hover');
+    }
+  }
+  
+  if (fpsCounter && fpsCounter.classList.contains('visible')) {
+    if (isInTopLeftArea) {
+      fpsCounter.classList.add('show-on-hover');
+    } else {
+      fpsCounter.classList.remove('show-on-hover');
+    }
+  }
+}
+
+// Track mouse position for top-left hover
+document.addEventListener('mousemove', (e) => {
+  updateTopLeftHoverState(e.clientX, e.clientY);
+});
+
+// Card Stack Functionality
+let isCardDragging = false;
+let draggedCard = null;
+let draggedCardIndex = -1;
+let draggedCardOriginalParent = null;
+let draggedCardOriginalIndex = -1;
+let draggedCardOffsetX = 0;
+let draggedCardOffsetY = 0;
+let isCardExpanded = false;
+
+// Card stack elements (will be initialized when DOM is ready)
+let cardStackContainer = null;
+let cardStackWrapper = null;
+let cardStackBackground = null;
+let cardItems = [];
+let svgButton1 = null;
+
+// Function to toggle card expansion
+function toggleCardExpansion() {
+  if (!cardStackContainer) return;
+  
+  if (isCardExpanded) {
+    // Collapse cards
+    cardStackContainer.classList.remove('moved-up');
+    isCardExpanded = false;
+  } else {
+    // Expand cards
+    cardStackContainer.classList.add('moved-up');
+    isCardExpanded = true;
+  }
+}
+
+// Initialize card stack
+function initializeCardStack() {
+  cardStackContainer = document.getElementById('card-stack-container');
+  cardStackWrapper = cardStackContainer?.querySelector('.card-stack-wrapper');
+  cardStackBackground = cardStackContainer?.querySelector('.card-stack-background');
+  cardItems = cardStackContainer ? Array.from(cardStackContainer.querySelectorAll('.card-item')) : [];
+  svgButton1 = document.getElementById('svg-button-1');
+
+  if (cardStackContainer && cardItems.length > 0) {
+  console.log('Card stack initialized:', { container: cardStackContainer, items: cardItems.length });
+  
+  // Click on card stack container to expand/collapse
+  cardStackContainer.addEventListener('click', (e) => {
+    console.log('Card stack container clicked', { target: e.target, isExpanded: isCardExpanded });
+    
+    // Don't expand if clicking on a card item when expanded (that's for dragging)
+    if (e.target.classList.contains('card-item') && isCardExpanded) {
+      return;
+    }
+    
+    // Toggle expanded state
+    toggleCardExpansion();
+  });
+
+  // Also handle clicks on card items when NOT expanded (to expand)
+  cardItems.forEach((cardItem, index) => {
+    cardItem.addEventListener('click', (e) => {
+      console.log('Card item clicked', { index, isExpanded: isCardExpanded, target: e.target });
+      
+      // Only handle clicks when cards are NOT expanded (default state)
+      if (!isCardExpanded) {
+        e.stopPropagation(); // Prevent container click handler
+        console.log('Expanding cards from card item click');
+        toggleCardExpansion();
+      }
+    });
+  });
+
+  // Handle clicks on wrapper and background image
+  if (cardStackWrapper) {
+    cardStackWrapper.addEventListener('click', (e) => {
+      // Only if not clicking on a card item
+      if (!e.target.classList.contains('card-item')) {
+        toggleCardExpansion();
+      }
+    });
+  }
+
+  if (cardStackBackground) {
+    cardStackBackground.addEventListener('click', (e) => {
+      toggleCardExpansion();
+    });
+  }
+
+  // Global mouse move and mouse up handlers for card dragging
+  let currentCardDragHandler = null;
+  let currentCardMouseUpHandler = null;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let hasMoved = false;
+  const DRAG_THRESHOLD = 5; // pixels
+
+  // Card dragging functionality (only when expanded)
+  cardItems.forEach((cardItem, index) => {
+    cardItem.addEventListener('mousedown', (e) => {
+      // Only allow dragging when cards are expanded
+      if (!cardStackContainer.classList.contains('moved-up')) {
+        // In default state, let the click handler handle expansion
+        return;
+      }
+
+      // When expanded, prevent default and stop propagation to start dragging
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Store initial mouse position
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      hasMoved = false;
+
+      isCardDragging = true;
+      draggedCard = cardItem;
+      draggedCardIndex = index;
+      draggedCardOriginalParent = cardStackWrapper;
+      draggedCardOriginalIndex = index;
+
+      const cardRect = cardItem.getBoundingClientRect();
+      draggedCardOffsetX = e.clientX - cardRect.left;
+      draggedCardOffsetY = e.clientY - cardRect.top;
+      
+      // Store cardRect for use in mousemove handler
+      let storedCardRect = cardRect;
+
+      // Mouse move handler
+      currentCardDragHandler = (e) => {
+        if (!isCardDragging || !draggedCard) return;
+
+        // Check if card is still in DOM
+        if (!draggedCard.parentElement) {
+          console.log('WARNING: Card not in DOM during mousemove!');
+          return;
+        }
+
+        // Check if mouse has moved enough to start dragging
+        const deltaX = Math.abs(e.clientX - dragStartX);
+        const deltaY = Math.abs(e.clientY - dragStartY);
+        
+        if (!hasMoved && (deltaX > DRAG_THRESHOLD || deltaY > DRAG_THRESHOLD)) {
+          // Mouse moved enough - start dragging
+          hasMoved = true;
+          
+          // Store original parent and index before moving
+          const originalParent = draggedCardOriginalParent;
+          const originalIndex = draggedCardOriginalIndex;
+          
+          // Get current card rect BEFORE moving (while still in original position)
+          const currentRect = draggedCard.getBoundingClientRect();
+          
+          // Verify card is visible before moving
+          const computedStyle = window.getComputedStyle(draggedCard);
+          const bgImage = computedStyle.backgroundImage;
+          
+          // Create a placeholder to maintain the card's position
+          const placeholder = document.createElement('div');
+          placeholder.className = 'card-item-placeholder';
+          placeholder.style.width = '180px';
+          placeholder.style.height = '125px';
+          placeholder.style.visibility = 'hidden';
+          placeholder.style.pointerEvents = 'none';
+          
+          // Insert placeholder at card's position
+          if (originalParent && draggedCard.nextSibling) {
+            originalParent.insertBefore(placeholder, draggedCard.nextSibling);
+          } else if (originalParent) {
+            originalParent.appendChild(placeholder);
+          }
+          
+          // Add dragging class
+          draggedCard.classList.add('dragging');
+          
+          // CRITICAL: Set ALL styles BEFORE moving to body (while card is still visible in original position)
+          // This ensures the card has all visual properties set before being moved
+          // Preserve background-image from computed style
+          draggedCard.style.cssText = `
+            position: fixed !important;
+            left: ${currentRect.left}px !important;
+            top: ${currentRect.top}px !important;
+            width: ${currentRect.width}px !important;
+            height: ${currentRect.height}px !important;
+            margin-left: 0 !important;
+            z-index: 10000 !important;
+            transition: none !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            pointer-events: none !important;
+            display: block !important;
+            background-image: ${bgImage} !important;
+            background-size: cover !important;
+            background-position: center !important;
+            background-repeat: no-repeat !important;
+          `;
+          
+          // Force a reflow to ensure styles are applied
+          void draggedCard.offsetWidth;
+          
+          // NOW move to body (card already has all styles set)
+          document.body.appendChild(draggedCard);
+          
+          // Force another reflow after moving
+          void draggedCard.offsetWidth;
+
+          // Immediately update to cursor position after moving
+          const newX = e.clientX - draggedCardOffsetX;
+          const newY = e.clientY - draggedCardOffsetY;
+          draggedCard.style.left = newX + 'px';
+          draggedCard.style.top = newY + 'px';
+
+          // Lower DPR for smooth dragging
+          setInteracting(true);
+        }
+
+        // Update position if we've started dragging
+        if (hasMoved && draggedCard && draggedCard.parentElement) {
+          const newX = e.clientX - draggedCardOffsetX;
+          const newY = e.clientY - draggedCardOffsetY;
+
+          draggedCard.style.left = newX + 'px';
+          draggedCard.style.top = newY + 'px';
+        }
+      };
+
+      // Mouse up handler
+      currentCardMouseUpHandler = (e) => {
+        if (!isCardDragging || !draggedCard) {
+          // Clean up if somehow we got here without proper state
+          isCardDragging = false;
+          draggedCard = null;
+          return;
+        }
+
+        // If mouse didn't move enough, just restore the card (it was just a click, not a drag)
+        if (!hasMoved) {
+          isCardDragging = false;
+          draggedCard = null;
+          draggedCardIndex = -1;
+          draggedCardOriginalParent = null;
+          draggedCardOriginalIndex = -1;
+          
+          // Remove event listeners
+          if (currentCardDragHandler) {
+            document.removeEventListener('mousemove', currentCardDragHandler);
+            currentCardDragHandler = null;
+          }
+          if (currentCardMouseUpHandler) {
+            document.removeEventListener('mouseup', currentCardMouseUpHandler);
+            currentCardMouseUpHandler = null;
+          }
+          return;
+        }
+
+        isCardDragging = false;
+        const wasDragging = draggedCard !== null;
+
+        // Check if dropped on canvas
+        const canvasRect = canvas.getBoundingClientRect();
+        const isOverCanvas = e.clientX >= canvasRect.left && 
+                            e.clientX <= canvasRect.right &&
+                            e.clientY >= canvasRect.top && 
+                            e.clientY <= canvasRect.bottom;
+
+        if (isOverCanvas && isOverlayActive && hasMoved) {
+          // Create red rectangle on canvas
+          const canvasX = e.clientX - canvasRect.left;
+          const canvasY = e.clientY - canvasRect.top;
+          const rectWidth = 200;
+          const rectHeight = 150;
+
+          // Remove existing red rectangles
+          const existingRects = document.querySelectorAll('.canvas-red-rectangle');
+          existingRects.forEach(rect => rect.remove());
+
+          // Create new red rectangle
+          const redRect = document.createElement('div');
+          redRect.className = 'canvas-red-rectangle';
+          redRect.style.width = rectWidth + 'px';
+          redRect.style.height = rectHeight + 'px';
+          redRect.style.left = (canvasX - rectWidth / 2) + 'px';
+          redRect.style.top = (canvasY - rectHeight / 2) + 'px';
+          canvas.parentElement.appendChild(redRect);
+
+          // Fade in red rectangle
+          requestAnimationFrame(() => {
+            redRect.classList.add('fade-in');
+          });
+
+          // Store references before clearing variables (important for setTimeout callback)
+          const cardToRestore = draggedCard;
+          const originalParent = draggedCardOriginalParent;
+          const originalIndex = draggedCardOriginalIndex;
+          
+          // Find and remove placeholder if it exists
+          const placeholder = originalParent?.querySelector('.card-item-placeholder');
+          
+          // Fade out dragged card on canvas
+          cardToRestore.classList.add('dragging-fade-out');
+          cardToRestore.style.opacity = '0';
+          cardToRestore.style.transition = 'opacity 0.3s ease';
+
+          // Reset card stack to default (collapsed) - other cards will animate down
+          cardStackContainer.classList.remove('moved-up');
+          isCardExpanded = false;
+
+          // Restore card to toolbar after fade out (it will fade in)
+          setTimeout(() => {
+            if (cardToRestore && originalParent) {
+              // Reset all inline styles to let CSS take over
+              cardToRestore.style.cssText = '';
+              cardToRestore.classList.remove('dragging', 'dragging-fade-out');
+              cardToRestore.classList.add('fade-in');
+              
+              // Start invisible for fade-in
+              cardToRestore.style.opacity = '0';
+              cardToRestore.style.transition = 'opacity 0.4s ease';
+
+              // Replace placeholder with card, or insert at original position
+              if (placeholder && placeholder.parentElement === originalParent) {
+                originalParent.replaceChild(cardToRestore, placeholder);
+              } else {
+                // Insert back at original position
+                const siblings = originalParent.querySelectorAll('.card-item:not(.card-item-placeholder)');
+                if (originalIndex < siblings.length) {
+                  originalParent.insertBefore(cardToRestore, siblings[originalIndex]);
+                } else {
+                  originalParent.appendChild(cardToRestore);
+                }
+              }
+
+              // Fade in the card
+              requestAnimationFrame(() => {
+                cardToRestore.style.opacity = '1';
+              });
+
+              // Remove fade-in class and reset styles after animation
+              setTimeout(() => {
+                if (cardToRestore) {
+                  cardToRestore.classList.remove('fade-in');
+                  cardToRestore.style.opacity = '';
+                  cardToRestore.style.transition = '';
+                }
+              }, 400);
+            }
+          }, 300);
+        } else if (hasMoved) {
+          // Not dropped on canvas but was dragged - restore card immediately
+          const cardToRestore = draggedCard;
+          const originalParent = draggedCardOriginalParent;
+          const originalIndex = draggedCardOriginalIndex;
+          
+          // Find and remove placeholder if it exists
+          const placeholder = originalParent?.querySelector('.card-item-placeholder');
+          
+          if (cardToRestore && originalParent) {
+            // Reset all inline styles to let CSS take over
+            cardToRestore.style.cssText = '';
+            cardToRestore.classList.remove('dragging', 'dragging-fade-out');
+
+            // Replace placeholder with card, or insert at original position
+            if (placeholder && placeholder.parentElement === originalParent) {
+              originalParent.replaceChild(cardToRestore, placeholder);
+            } else {
+              // Insert back at original position
+              const siblings = originalParent.querySelectorAll('.card-item:not(.card-item-placeholder)');
+              if (originalIndex < siblings.length) {
+                originalParent.insertBefore(cardToRestore, siblings[originalIndex]);
+              } else {
+                originalParent.appendChild(cardToRestore);
+              }
+            }
+          }
+
+          // Reset card stack to default (collapsed)
+          cardStackContainer.classList.remove('moved-up');
+          isCardExpanded = false;
+        }
+
+        // Reset dragging state
+        draggedCard = null;
+        draggedCardIndex = -1;
+        draggedCardOriginalParent = null;
+        draggedCardOriginalIndex = -1;
+
+        // Restore DPR
+        setInteracting(false);
+
+        // Remove event listeners
+        if (currentCardDragHandler) {
+          document.removeEventListener('mousemove', currentCardDragHandler);
+          currentCardDragHandler = null;
+        }
+        if (currentCardMouseUpHandler) {
+          document.removeEventListener('mouseup', currentCardMouseUpHandler);
+          currentCardMouseUpHandler = null;
+        }
+      };
+
+      // Add event listeners
+      document.addEventListener('mousemove', currentCardDragHandler);
+      document.addEventListener('mouseup', currentCardMouseUpHandler);
+    });
+  });
+
+  // Click on spark cards button (svg-button-1) to collapse cards
+  if (svgButton1) {
+    svgButton1.addEventListener('click', (e) => {
+      if (isCardExpanded) {
+        cardStackContainer.classList.remove('moved-up');
+        isCardExpanded = false;
+      }
+    });
+  }
+  }
+}
+
+// Initialize card stack when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeCardStack);
+} else {
+  initializeCardStack();
+}
 
 // Initial draw
 draw();

@@ -23,3 +23,5 @@ Thumbs.db
 
 # User-specific config files (may contain sensitive data)
 config/ai-settings.json
+config/api-key.json
+config/
