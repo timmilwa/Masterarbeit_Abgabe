@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X, MousePointerClick, Clipboard } = require('lucide');
+const { Fullscreen, Camera, ChevronDown, Pencil, Save, Stars, Pin, Trash2, Shuffle, Star, Plus, X, MousePointerClick, Clipboard, Check } = require('lucide');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -50,8 +50,9 @@ const controlPanelInputs = document.getElementById('control-panel-inputs');
 const generalInfoInputLayer = document.getElementById('general-info-input-layer');
 const emotionsInputLayer = document.getElementById('emotions-input-layer');
 const valuesInputLayer = document.getElementById('values-input-layer');
-const emotionalAspectInput = document.getElementById('emotional-aspect-input');
-const emotionalAspectAddButton = document.getElementById('emotional-aspect-add-button');
+// Legacy elements removed - no longer needed
+// const emotionalAspectInput = document.getElementById('emotional-aspect-input');
+// const emotionalAspectAddButton = document.getElementById('emotional-aspect-add-button');
 const emotionsAnswerInput = document.getElementById('emotions-answer-input');
 const emotionsAnswerAddButton = document.getElementById('emotions-answer-add-button');
 const valueAspectInput = document.getElementById('value-aspect-input');
@@ -188,14 +189,17 @@ let cardGenerateButtonBounds = {}; // Store generate button bounds for each card
 let tokenPillBounds = {}; // Store pill bounds for each token image: { imageId: { pill: { x, y, width, height }, closeButton: { x, y, width, height }, isScreenCoords: true } }
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
 let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
-let emotionsAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for emotions tab
+let accordionLastCalculatedHeights = {}; // Track last calculated heights for smooth transitions: { accordionId: height }
+let emotionsAIText = DEMO_EMOTIONS_TEXT; // AI-generated text for emotions tab (will be generated when accordion opens if AI mode is enabled)
 let emotionsStarred = false; // Whether the current AI text is starred
 let emotionsIconBounds = {}; // Store icon bounds for click detection: { shuffle: {x, y, width, height}, star: {x, y, width, height} }
-let valuesAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for values tab
+let valuesAIText = DEMO_VALUES_TEXT; // AI-generated text for values tab (will be generated when accordion opens if AI mode is enabled)
 let valuesStarred = false; // Whether the current AI text is starred
 let valuesIconBounds = {}; // Store icon bounds for click detection: { shuffle: {x, y, width, height}, star: {x, y, width, height} }
 let currentQuestionId = 0; // Current question ID (increments when "Next question" is clicked)
 let featuresQuestionText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?"; // Current question text for features
+let featuresBotEnabled = false; // Bot on/off state (false = bot off = AI generates questions, true = bot on = free pinning)
+let featuresBotIconBounds = null; // Store bot icon bounds for click detection
 const ACCORDION_ANIMATION_DURATION = 300; // Animation duration in milliseconds (increased for smoother animation)
 let currentTabSpacing = 22; // Current animated tab spacing value
 let targetTabSpacing = 22; // Target tab spacing value
@@ -230,8 +234,31 @@ let valuesHeaderTopRadiusStartValue = 12; // Starting value when animation begin
 const VALUES_HEADER_TOP_RADIUS_DURATION = 300; // Animation duration for border radius in milliseconds
 const VALUES_HEADER_TOP_RADIUS_SELECTED = 0; // Top border radius when feature is selected
 const VALUES_HEADER_TOP_RADIUS_DEFAULT = 12; // Default top border radius
+let generalInfoHeaderBottomRadius = 12; // Current animated bottom border radius for general-info header
+let generalInfoHeaderBottomRadiusTarget = 12; // Target bottom border radius
+let generalInfoHeaderBottomRadiusStartTime = null; // Start time for border radius animation
+let generalInfoHeaderBottomRadiusStartValue = 12; // Starting value when animation begins
+const GENERAL_INFO_HEADER_BOTTOM_RADIUS_DURATION = 300; // Animation duration for border radius in milliseconds
+const GENERAL_INFO_HEADER_BOTTOM_RADIUS_EXPANDED = 0; // Bottom border radius when expanded
+const GENERAL_INFO_HEADER_BOTTOM_RADIUS_DEFAULT = 12; // Default bottom border radius
+const FEATURES_HEADER_BOTTOM_RADIUS_EXPANDED = 0; // Bottom border radius when accordion is expanded
+let featuresHeaderBottomRadiusExpanded = 12; // Current animated bottom border radius for expansion state
+let featuresHeaderBottomRadiusExpandedTarget = 12; // Target bottom border radius for expansion
+let featuresHeaderBottomRadiusExpandedStartTime = null; // Start time for expansion border radius animation
+let featuresHeaderBottomRadiusExpandedStartValue = 12; // Starting value when expansion animation begins
+const EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED = 0; // Bottom border radius when accordion is expanded
+let emotionsHeaderBottomRadiusExpanded = 12; // Current animated bottom border radius for expansion state
+let emotionsHeaderBottomRadiusExpandedTarget = 12; // Target bottom border radius for expansion
+let emotionsHeaderBottomRadiusExpandedStartTime = null; // Start time for expansion border radius animation
+let emotionsHeaderBottomRadiusExpandedStartValue = 12; // Starting value when expansion animation begins
+const VALUES_HEADER_BOTTOM_RADIUS_EXPANDED = 0; // Bottom border radius when accordion is expanded
+let valuesHeaderBottomRadiusExpanded = 12; // Current animated bottom border radius for expansion state
+let valuesHeaderBottomRadiusExpandedTarget = 12; // Target bottom border radius for expansion
+let valuesHeaderBottomRadiusExpandedStartTime = null; // Start time for expansion border radius animation
+let valuesHeaderBottomRadiusExpandedStartValue = 12; // Starting value when expansion animation begins
 let hoveredAccordionId = null; // Track which accordion is currently hovered
 let animatingAccordionId = null; // Track which accordion is currently animating (for scale-down)
+let isSkipQuestionButtonHovered = false; // Track if skip question button is hovered
 let accordionHoverScale = 1.0; // Current scale for hover effect (animated)
 let accordionHoverAnimationStartTime = null; // Start time for hover scale animation
 let accordionHoverAnimationStartScale = 1.0; // Starting scale when animation begins
@@ -1192,6 +1219,51 @@ async function generateValueQuestion(imageBase64, title, focus, selectedPin, emo
   }
 }
 
+// Update accordion height when content changes (e.g., AI text updates)
+function updateAccordionHeightIfExpanded(accordionId) {
+  if (expandedAccordionId === accordionId) {
+    const currentAnimation = accordionAnimations[accordionId];
+    const newCalculatedHeight = calculateAccordionContentHeight(accordionId);
+    const newTargetHeight = newCalculatedHeight + 20;
+    
+    // Get current animated height
+    let currentHeight;
+    if (currentAnimation) {
+      // Animation is in progress - use current animated value
+      const elapsed = Date.now() - currentAnimation.startTime;
+      const progress = Math.min(elapsed / currentAnimation.duration, 1);
+      const easedProgress = progress < 1
+        ? (1 - Math.pow(1 - progress, 3)) // Cubic ease-out
+        : 1;
+      currentHeight = currentAnimation.fromHeight + (currentAnimation.toHeight - currentAnimation.fromHeight) * easedProgress;
+    } else {
+      // No animation - use the last stored calculated height, or current if not stored
+      const lastHeight = accordionLastCalculatedHeights[accordionId];
+      if (lastHeight !== undefined) {
+        currentHeight = lastHeight + 20;
+      } else {
+        // First time - use current calculated height (no animation needed on first render)
+        currentHeight = newTargetHeight;
+      }
+    }
+    
+    // Store the new calculated height for next time
+    accordionLastCalculatedHeights[accordionId] = newCalculatedHeight;
+    
+    // Animate if height changed (even slightly) to ensure smooth updates
+    if (Math.abs(currentHeight - newTargetHeight) > 0.5) {
+      accordionAnimations[accordionId] = {
+        startTime: Date.now(),
+        duration: ACCORDION_ANIMATION_DURATION,
+        fromHeight: currentHeight,
+        toHeight: newTargetHeight
+      };
+      canvasNeedsReinit = true;
+      requestDraw();
+    }
+  }
+}
+
 // Regenerate emotions AI text
 async function regenerateEmotionsAIText() {
   if (!isReflectionMode || reflectionImageIndex < 0) return;
@@ -1200,6 +1272,8 @@ async function regenerateEmotionsAIText() {
   if (!img) return;
 
   emotionsAIText = "Generating...";
+  // Update accordion height if emotions accordion is expanded
+  updateAccordionHeightIfExpanded('emotions');
   requestDraw();
 
   try {
@@ -1215,10 +1289,14 @@ async function regenerateEmotionsAIText() {
     );
 
     emotionsAIText = question;
+    // Update accordion height if emotions accordion is expanded
+    updateAccordionHeightIfExpanded('emotions');
     requestDraw();
   } catch (error) {
     console.error('Error regenerating emotions AI text:', error);
     emotionsAIText = isAIModeEnabled() ? DEMO_EMOTIONS_TEXT : DEMO_EMOTIONS_TEXT;
+    // Update accordion height if emotions accordion is expanded
+    updateAccordionHeightIfExpanded('emotions');
     requestDraw();
   }
 }
@@ -1231,6 +1309,8 @@ async function regenerateValuesAIText() {
   if (!img) return;
 
   valuesAIText = "Generating...";
+  // Update accordion height if values accordion is expanded
+  updateAccordionHeightIfExpanded('values');
   requestDraw();
 
   try {
@@ -1247,10 +1327,14 @@ async function regenerateValuesAIText() {
     );
 
     valuesAIText = question;
+    // Update accordion height if values accordion is expanded
+    updateAccordionHeightIfExpanded('values');
     requestDraw();
   } catch (error) {
     console.error('Error regenerating values AI text:', error);
     valuesAIText = isAIModeEnabled() ? DEMO_VALUES_TEXT : DEMO_VALUES_TEXT;
+    // Update accordion height if values accordion is expanded
+    updateAccordionHeightIfExpanded('values');
     requestDraw();
   }
 }
@@ -3942,6 +4026,110 @@ function draw() {
     valuesHeaderTopRadius = valuesHeaderTopRadiusTarget;
   }
 
+  // Update general-info header bottom border radius animation
+  if (generalInfoHeaderBottomRadiusStartTime !== null) {
+    const elapsed = Date.now() - generalInfoHeaderBottomRadiusStartTime;
+    const progress = Math.min(elapsed / GENERAL_INFO_HEADER_BOTTOM_RADIUS_DURATION, 1);
+
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+      // Interpolate from start value to target
+      generalInfoHeaderBottomRadius = generalInfoHeaderBottomRadiusStartValue + (generalInfoHeaderBottomRadiusTarget - generalInfoHeaderBottomRadiusStartValue) * easedProgress;
+
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      generalInfoHeaderBottomRadius = generalInfoHeaderBottomRadiusTarget;
+      generalInfoHeaderBottomRadiusStartTime = null;
+    }
+  } else if (Math.abs(generalInfoHeaderBottomRadius - generalInfoHeaderBottomRadiusTarget) > 0.1) {
+    // If no animation but radius doesn't match target, snap to target
+    generalInfoHeaderBottomRadius = generalInfoHeaderBottomRadiusTarget;
+  }
+
+  // Update features header bottom border radius animation for expansion
+  if (featuresHeaderBottomRadiusExpandedStartTime !== null) {
+    const elapsed = Date.now() - featuresHeaderBottomRadiusExpandedStartTime;
+    const progress = Math.min(elapsed / FEATURES_HEADER_BOTTOM_RADIUS_DURATION, 1);
+
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+      // Interpolate from start value to target
+      featuresHeaderBottomRadiusExpanded = featuresHeaderBottomRadiusExpandedStartValue + (featuresHeaderBottomRadiusExpandedTarget - featuresHeaderBottomRadiusExpandedStartValue) * easedProgress;
+
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      featuresHeaderBottomRadiusExpanded = featuresHeaderBottomRadiusExpandedTarget;
+      featuresHeaderBottomRadiusExpandedStartTime = null;
+    }
+  } else if (Math.abs(featuresHeaderBottomRadiusExpanded - featuresHeaderBottomRadiusExpandedTarget) > 0.1) {
+    // If no animation but radius doesn't match target, snap to target
+    featuresHeaderBottomRadiusExpanded = featuresHeaderBottomRadiusExpandedTarget;
+  }
+
+  // Update emotions header bottom border radius animation for expansion
+  if (emotionsHeaderBottomRadiusExpandedStartTime !== null) {
+    const elapsed = Date.now() - emotionsHeaderBottomRadiusExpandedStartTime;
+    const progress = Math.min(elapsed / EMOTIONS_HEADER_RADIUS_DURATION, 1);
+
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+      // Interpolate from start value to target
+      emotionsHeaderBottomRadiusExpanded = emotionsHeaderBottomRadiusExpandedStartValue + (emotionsHeaderBottomRadiusExpandedTarget - emotionsHeaderBottomRadiusExpandedStartValue) * easedProgress;
+
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      emotionsHeaderBottomRadiusExpanded = emotionsHeaderBottomRadiusExpandedTarget;
+      emotionsHeaderBottomRadiusExpandedStartTime = null;
+    }
+  } else if (Math.abs(emotionsHeaderBottomRadiusExpanded - emotionsHeaderBottomRadiusExpandedTarget) > 0.1) {
+    // If no animation but radius doesn't match target, snap to target
+    emotionsHeaderBottomRadiusExpanded = emotionsHeaderBottomRadiusExpandedTarget;
+  }
+
+  // Update values header bottom border radius animation for expansion
+  if (valuesHeaderBottomRadiusExpandedStartTime !== null) {
+    const elapsed = Date.now() - valuesHeaderBottomRadiusExpandedStartTime;
+    const progress = Math.min(elapsed / VALUES_HEADER_TOP_RADIUS_DURATION, 1);
+
+    if (progress < 1.0) {
+      // Calculate eased progress (ease in-out)
+      const easedProgress = progress < 0.5
+        ? 2 * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+      // Interpolate from start value to target
+      valuesHeaderBottomRadiusExpanded = valuesHeaderBottomRadiusExpandedStartValue + (valuesHeaderBottomRadiusExpandedTarget - valuesHeaderBottomRadiusExpandedStartValue) * easedProgress;
+
+      // Continue animation
+      requestDraw();
+    } else {
+      // Animation complete
+      valuesHeaderBottomRadiusExpanded = valuesHeaderBottomRadiusExpandedTarget;
+      valuesHeaderBottomRadiusExpandedStartTime = null;
+    }
+  } else if (Math.abs(valuesHeaderBottomRadiusExpanded - valuesHeaderBottomRadiusExpandedTarget) > 0.1) {
+    // If no animation but radius doesn't match target, snap to target
+    valuesHeaderBottomRadiusExpanded = valuesHeaderBottomRadiusExpandedTarget;
+  }
+
   // Animate accordion hover scale (only in reflection mode)
   if (isReflectionMode) {
     if (accordionHoverAnimationStartTime !== null) {
@@ -4972,7 +5160,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       const currentGreenInner = collapsedGreenRingInnerRadius + (expandedOuterOrbitRadius - collapsedGreenRingInnerRadius) * expansionProgress;
 
       // Draw green ring as a donut shape
-      ctx.fillStyle = '#4CB948'; // Green
+      ctx.fillStyle = '#479A44'; // Green
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentGreenOuter, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, currentGreenInner, 0, Math.PI * 2, true); // Counter-clockwise to create hole
@@ -5144,7 +5332,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
           // Draw dot with white border (same size as blue pin)
           ctx.save();
           ctx.globalAlpha = isTokenDragging ? animatedOpacity * 0.5 : animatedOpacity;
-          ctx.fillStyle = '#4CB948'; // Green
+          ctx.fillStyle = '#479A44'; // Green
           ctx.beginPath();
           ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
           ctx.fill();
@@ -5382,7 +5570,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       ctx.globalAlpha = pinOpacity;
 
       // Draw green ring as a donut shape
-      ctx.fillStyle = '#4CB948'; // Green
+      ctx.fillStyle = '#479A44'; // Green
       ctx.beginPath();
       ctx.arc(screenX, screenY, collapsedGreenRingOuterRadius, 0, Math.PI * 2);
       ctx.arc(screenX, screenY, collapsedGreenRingInnerRadius, 0, Math.PI * 2, true); // Counter-clockwise to create hole
@@ -6079,6 +6267,13 @@ function closeEmotionsAndValuesAccordions() {
       toHeight: 0
     };
 
+    // Start bottom border radius animations for collapse (animate back to 12)
+    if (expandedAccordionId === 'emotions') {
+      startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+    } else if (expandedAccordionId === 'values') {
+      startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+    }
+
     expandedAccordionId = null;
     canvasNeedsReinit = true;
     updateControlPanelInputs();
@@ -6120,6 +6315,13 @@ function autoOpenEmptyAspectPanel(pin) {
         toHeight: 0
       };
 
+      // Start bottom border radius animations for collapse (animate back to 12)
+      if (expandedAccordionId === 'emotions') {
+        startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'values') {
+        startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+      }
+
       expandedAccordionId = null;
       canvasNeedsReinit = true;
       updateControlPanelInputs();
@@ -6143,6 +6345,17 @@ function autoOpenEmptyAspectPanel(pin) {
         fromHeight: previousCurrentHeight,
         toHeight: 0
       };
+
+      // Start bottom border radius animations for collapse of previous accordion (animate back to 12)
+      if (expandedAccordionId === 'general-info') {
+        startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'features-pinned') {
+        startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'emotions') {
+        startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'values') {
+        startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+      }
     }
 
     // Start animation for the accordion to open
@@ -6160,6 +6373,26 @@ function autoOpenEmptyAspectPanel(pin) {
     };
 
     expandedAccordionId = accordionToOpen;
+    
+    // Start bottom border radius animations for expansion (animate to 0)
+    if (accordionToOpen === 'general-info') {
+      startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_EXPANDED);
+    } else if (accordionToOpen === 'features-pinned') {
+      startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_EXPANDED);
+    } else if (accordionToOpen === 'emotions') {
+      startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED);
+      // Trigger AI generation when emotions accordion is opened (if AI mode is enabled and text is still demo)
+      if (isAIModeEnabled() && emotionsAIText === DEMO_EMOTIONS_TEXT) {
+        regenerateEmotionsAIText();
+      }
+    } else if (accordionToOpen === 'values') {
+      startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_BOTTOM_RADIUS_EXPANDED);
+      // Trigger AI generation when values accordion is opened (if AI mode is enabled and text is still demo)
+      if (isAIModeEnabled() && valuesAIText === DEMO_VALUES_TEXT) {
+        regenerateValuesAIText();
+      }
+    }
+    
     canvasNeedsReinit = true;
     updateControlPanelInputs();
   }
@@ -6172,6 +6405,17 @@ function openAccordionById(accordionId) {
   // Prevent opening features-pinned accordion when a feature is selected
   if (accordionId === 'features-pinned' && selectedPinId !== null) {
     return;
+  }
+
+  // Prevent opening values accordion when no emotions are externalized
+  if (accordionId === 'values') {
+    if (isReflectionMode && reflectionImageIndex >= 0) {
+      const img = images[reflectionImageIndex];
+      const emotionsCount = countEmotionsExternalized(img, selectedPinId);
+      if (emotionsCount === 0) {
+        return; // Prevent opening
+      }
+    }
   }
 
   // Only open if it's not already open
@@ -6190,6 +6434,17 @@ function openAccordionById(accordionId) {
         fromHeight: previousCurrentHeight,
         toHeight: 0
       };
+
+      // Start bottom border radius animations for collapse of previous accordion (animate back to 12)
+      if (expandedAccordionId === 'general-info') {
+        startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'features-pinned') {
+        startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'emotions') {
+        startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'values') {
+        startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+      }
     }
 
     // Start animation for the accordion to open
@@ -6207,6 +6462,26 @@ function openAccordionById(accordionId) {
     };
 
     expandedAccordionId = accordionId;
+    
+    // Start bottom border radius animations for expansion (animate to 0)
+    if (accordionId === 'general-info') {
+      startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_EXPANDED);
+    } else if (accordionId === 'features-pinned') {
+      startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_EXPANDED);
+    } else if (accordionId === 'emotions') {
+      startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED);
+      // Trigger AI generation when emotions accordion is opened (if AI mode is enabled and text is still demo)
+      if (isAIModeEnabled() && emotionsAIText === DEMO_EMOTIONS_TEXT) {
+        regenerateEmotionsAIText();
+      }
+    } else if (accordionId === 'values') {
+      startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_BOTTOM_RADIUS_EXPANDED);
+      // Trigger AI generation when values accordion is opened (if AI mode is enabled and text is still demo)
+      if (isAIModeEnabled() && valuesAIText === DEMO_VALUES_TEXT) {
+        regenerateValuesAIText();
+      }
+    }
+    
     canvasNeedsReinit = true;
     updateControlPanelInputs();
   }
@@ -6237,6 +6512,17 @@ function openFeaturesAccordion() {
         fromHeight: previousCurrentHeight,
         toHeight: 0
       };
+
+      // Start bottom border radius animations for collapse of previous accordion (animate back to 12)
+      if (expandedAccordionId === 'general-info') {
+        startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'features-pinned') {
+        startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'emotions') {
+        startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+      } else if (expandedAccordionId === 'values') {
+        startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+      }
     }
 
     // Start animation for the features accordion
@@ -6254,6 +6540,18 @@ function openFeaturesAccordion() {
     };
 
     expandedAccordionId = accordionToOpen;
+    
+    // Start bottom border radius animations for expansion (animate to 0)
+    if (accordionToOpen === 'general-info') {
+      startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_EXPANDED);
+    } else if (accordionToOpen === 'features-pinned') {
+      startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_EXPANDED);
+    } else if (accordionToOpen === 'emotions') {
+      startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED);
+    } else if (accordionToOpen === 'values') {
+      startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_BOTTOM_RADIUS_EXPANDED);
+    }
+    
     canvasNeedsReinit = true;
 
     // Rotate features icon to X when features-pinned accordion is opened (only when no feature is selected)
@@ -6407,6 +6705,29 @@ function drawRoundedRectWithTopRadius(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+// Helper function to draw rounded rectangle with custom radius for each corner
+// topLeft, topRight, bottomRight, bottomLeft
+function drawRoundedRectCustom(ctx, x, y, width, height, topLeftRadius, topRightRadius, bottomRightRadius, bottomLeftRadius) {
+  ctx.beginPath();
+  // Top-left corner
+  ctx.moveTo(x + topLeftRadius, y);
+  ctx.lineTo(x + width - topRightRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + topRightRadius);
+  // Right side
+  ctx.lineTo(x + width, y + height - bottomRightRadius);
+  // Bottom-right corner
+  ctx.quadraticCurveTo(x + width, y + height, x + width - bottomRightRadius, y + height);
+  // Bottom edge
+  ctx.lineTo(x + bottomLeftRadius, y + height);
+  // Bottom-left corner
+  ctx.quadraticCurveTo(x, y + height, x, y + height - bottomLeftRadius);
+  // Left side
+  ctx.lineTo(x, y + topLeftRadius);
+  // Top-left corner
+  ctx.quadraticCurveTo(x, y, x + topLeftRadius, y);
+  ctx.closePath();
+}
+
 // Helper function to draw Lucide ChevronDown icon on canvas
 function drawChevronIcon(ctx, x, y, size, color, rotated = false) {
   if (!ChevronDown || !Array.isArray(ChevronDown)) return;
@@ -6482,11 +6803,56 @@ function drawLucideIcon(ctx, icon, x, y, size, color) {
       if (!attrs.fill || attrs.fill === 'none' || attrs.stroke !== 'none') {
         ctx.stroke(path);
       }
+    } else if (type === 'rect') {
+      // Handle rect elements (for bot icon) - support rounded corners
+      const x = attrs.x || 0;
+      const y = attrs.y || 0;
+      const width = attrs.width || 0;
+      const height = attrs.height || 0;
+      const rx = attrs.rx || 0;
+      
+      if (rx > 0) {
+        // Draw rounded rectangle path
+        drawRoundedRect(ctx, x, y, width, height, rx);
+      } else {
+        // Draw regular rectangle path
+        ctx.beginPath();
+        ctx.rect(x, y, width, height);
+        ctx.closePath();
+      }
+      
+      if (attrs.fill && attrs.fill !== 'none' && attrs.fill !== 'transparent') {
+        ctx.fill();
+      }
+      if (!attrs.fill || attrs.fill === 'none' || attrs.stroke !== 'none') {
+        ctx.stroke();
+      }
     }
   });
 
   ctx.restore();
 }
+
+// Bot-off icon (parsed from SVG)
+const BotOffIcon = [
+  ['path', { d: 'M13.67 8H18a2 2 0 0 1 2 2v4.33', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M2 14h2', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M20 14h2', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M22 22 2 2', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M8 8H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 1.414-.586', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M9 13v2', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M9.67 4H12v2.33', stroke: 'currentColor', fill: 'none' }]
+];
+
+// Bot icon (parsed from SVG)
+const BotIcon = [
+  ['path', { d: 'M12 8V4H8', stroke: 'currentColor', fill: 'none' }],
+  ['rect', { x: 4, y: 8, width: 16, height: 12, rx: 2, stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M2 14h2', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M20 14h2', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M15 13v2', stroke: 'currentColor', fill: 'none' }],
+  ['path', { d: 'M9 13v2', stroke: 'currentColor', fill: 'none' }]
+];
 
 // Helper function to wrap text to fit within a maximum width
 function wrapText(ctx, text, maxWidth) {
@@ -6548,6 +6914,14 @@ function initializeGeneralInfoIcons() {
   }
 }
 
+// Update focus save button opacity based on input content
+function updateFocusSaveButtonOpacity() {
+  if (focusSaveButton && focusInput) {
+    const hasContent = focusInput.value.trim().length > 0;
+    focusSaveButton.style.opacity = hasContent ? '1' : '0.5';
+  }
+}
+
 // Start tab spacing animation when pin selection changes
 function startTabSpacingAnimation(newTargetSpacing) {
   if (Math.abs(targetTabSpacing - newTargetSpacing) > 0.1) {
@@ -6603,6 +6977,47 @@ function startValuesHeaderTopRadiusAnimation(targetRadius) {
   }
 }
 
+// Start general-info header bottom border radius animation when accordion expands/collapses
+function startGeneralInfoHeaderBottomRadiusAnimation(targetRadius) {
+  if (Math.abs(generalInfoHeaderBottomRadiusTarget - targetRadius) > 0.1) {
+    // Store current value as starting point for animation
+    generalInfoHeaderBottomRadiusStartValue = generalInfoHeaderBottomRadius;
+    generalInfoHeaderBottomRadiusTarget = targetRadius;
+    generalInfoHeaderBottomRadiusStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Start features header bottom border radius animation for expansion
+function startFeaturesHeaderBottomRadiusExpandedAnimation(targetRadius) {
+  if (Math.abs(featuresHeaderBottomRadiusExpandedTarget - targetRadius) > 0.1) {
+    featuresHeaderBottomRadiusExpandedStartValue = featuresHeaderBottomRadiusExpanded;
+    featuresHeaderBottomRadiusExpandedTarget = targetRadius;
+    featuresHeaderBottomRadiusExpandedStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Start emotions header bottom border radius animation for expansion
+function startEmotionsHeaderBottomRadiusExpandedAnimation(targetRadius) {
+  if (Math.abs(emotionsHeaderBottomRadiusExpandedTarget - targetRadius) > 0.1) {
+    emotionsHeaderBottomRadiusExpandedStartValue = emotionsHeaderBottomRadiusExpanded;
+    emotionsHeaderBottomRadiusExpandedTarget = targetRadius;
+    emotionsHeaderBottomRadiusExpandedStartTime = Date.now();
+    requestDraw();
+  }
+}
+
+// Start values header bottom border radius animation for expansion
+function startValuesHeaderBottomRadiusExpandedAnimation(targetRadius) {
+  if (Math.abs(valuesHeaderBottomRadiusExpandedTarget - targetRadius) > 0.1) {
+    valuesHeaderBottomRadiusExpandedStartValue = valuesHeaderBottomRadiusExpanded;
+    valuesHeaderBottomRadiusExpandedTarget = targetRadius;
+    valuesHeaderBottomRadiusExpandedStartTime = Date.now();
+    requestDraw();
+  }
+}
+
 // Calculate content height for accordion based on its content
 function calculateAccordionContentHeight(accordionId) {
   const MIN_HEIGHT = 100; // Minimum height in pixels
@@ -6633,75 +7048,94 @@ function calculateAccordionContentHeight(accordionId) {
     const lineHeight = 18;
     const panelWidth = 400;
     const contentPadding = 20;
-    const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons
+    const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for shuffle icon
     const maxTextWidth = messageBubbleWidth - messagePadding * 2;
 
-    // Use a temporary canvas context to measure text
-    let tempCtx = ctx;
-    if (!tempCtx) {
-      const tempCanvas = document.createElement('canvas');
-      tempCtx = tempCanvas.getContext('2d');
+    // Use fixed height of 100px when "Generating..." to prevent jumping
+    if (emotionsAIText === "Generating...") {
+      const bubbleToInputSpacing = 16;
+      const fieldHeight = 32;
+      contentHeight += 100 + bubbleToInputSpacing + fieldHeight;
+    } else {
+      // Use a temporary canvas context to measure text
+      let tempCtx = ctx;
+      if (!tempCtx) {
+        const tempCanvas = document.createElement('canvas');
+        tempCtx = tempCanvas.getContext('2d');
+      }
+
+      // Use actual AI-generated text for height calculation
+      tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      const lines = wrapText(tempCtx, emotionsAIText, maxTextWidth);
+      const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+
+      const bubbleToInputSpacing = 16; // Spacing between bubble/icons and input
+      const fieldHeight = 32;
+      contentHeight += messageBubbleHeight + bubbleToInputSpacing + fieldHeight;
     }
-
-    // Default AI-generated text for height calculation
-    tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    const defaultAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
-    const lines = wrapText(tempCtx, defaultAIText, maxTextWidth);
-    const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
-
-    const bubbleToInputSpacing = 16; // Spacing between bubble/icons and input
-    const fieldHeight = 32;
-    contentHeight += messageBubbleHeight + bubbleToInputSpacing + fieldHeight;
   } else if (accordionId === 'values') {
     // Values: chat bubble + icons + answer input field (similar to emotions)
     const messagePadding = 12;
     const lineHeight = 18;
     const panelWidth = 400;
     const contentPadding = 20;
-    const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons
+    const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for shuffle icon
     const maxTextWidth = messageBubbleWidth - messagePadding * 2;
 
-    // Use a temporary canvas context to measure text
-    let tempCtx = ctx;
-    if (!tempCtx) {
-      const tempCanvas = document.createElement('canvas');
-      tempCtx = tempCanvas.getContext('2d');
+    // Use fixed height of 100px when "Generating..." to prevent jumping
+    if (valuesAIText === "Generating...") {
+      const bubbleToInputSpacing = 16;
+      const fieldHeight = 32;
+      contentHeight += 100 + bubbleToInputSpacing + fieldHeight;
+    } else {
+      // Use a temporary canvas context to measure text
+      let tempCtx = ctx;
+      if (!tempCtx) {
+        const tempCanvas = document.createElement('canvas');
+        tempCtx = tempCanvas.getContext('2d');
+      }
+
+      // Use actual AI-generated text for height calculation
+      tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      const lines = wrapText(tempCtx, valuesAIText, maxTextWidth);
+      const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+
+      const bubbleToInputSpacing = 16; // Spacing between bubble/icons and input
+      const fieldHeight = 32;
+      contentHeight += messageBubbleHeight + bubbleToInputSpacing + fieldHeight;
     }
-
-    // Default AI-generated text for height calculation
-    tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    const defaultAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
-    const lines = wrapText(tempCtx, defaultAIText, maxTextWidth);
-    const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
-
-    const bubbleToInputSpacing = 16; // Spacing between bubble/icons and input
-    const fieldHeight = 32;
-    contentHeight += messageBubbleHeight + bubbleToInputSpacing + fieldHeight;
   } else if (accordionId === 'features-pinned') {
     // Features pinned: message with stars icon + bottom row with pin icon, count, and button
-    // Calculate actual message height based on wrapped text
-    const messagePadding = 12;
-    const lineHeight = 18;
-    const panelWidth = 400; // Same as in drawReflectionControlPanel
-    const contentPadding = 20;
-    const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for stars icon
-    const maxTextWidth = messageBubbleWidth - messagePadding * 2;
+    // Use fixed height of 100px when "Generating..." to prevent jumping
+    if (featuresQuestionText === "Generating...") {
+      const messageToBottomSpacing = 16;
+      const bottomRowHeight = 32;
+      contentHeight += 100 + messageToBottomSpacing + bottomRowHeight;
+    } else {
+      // Calculate actual message height based on wrapped text
+      const messagePadding = 12;
+      const lineHeight = 18;
+      const panelWidth = 400; // Same as in drawReflectionControlPanel
+      const contentPadding = 20;
+      const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for stars icon
+      const maxTextWidth = messageBubbleWidth - messagePadding * 2;
 
-    // Use a temporary canvas context to measure text (if ctx is not available, use a temporary one)
-    let tempCtx = ctx;
-    if (!tempCtx) {
-      const tempCanvas = document.createElement('canvas');
-      tempCtx = tempCanvas.getContext('2d');
+      // Use a temporary canvas context to measure text (if ctx is not available, use a temporary one)
+      let tempCtx = ctx;
+      if (!tempCtx) {
+        const tempCanvas = document.createElement('canvas');
+        tempCtx = tempCanvas.getContext('2d');
+      }
+
+      // Use actual features question text for height calculation
+      tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      const lines = wrapText(tempCtx, featuresQuestionText, maxTextWidth);
+      const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+
+      const messageToBottomSpacing = 16; // Spacing between message and bottom row
+      const bottomRowHeight = 32; // Pin icon + text + button row
+      contentHeight += messageBubbleHeight + messageToBottomSpacing + bottomRowHeight;
     }
-
-    tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    const demoMessage = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim eu laboris occaecat anim dolore aliqua excepteur laboris. In minim id sint exercitation?";
-    const lines = wrapText(tempCtx, demoMessage, maxTextWidth);
-    const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
-
-    const messageToBottomSpacing = 16; // Spacing between message and bottom row
-    const bottomRowHeight = 32; // Pin icon + text + button row
-    contentHeight += messageBubbleHeight + messageToBottomSpacing + bottomRowHeight;
   }
 
   contentHeight += bottomPadding;
@@ -6773,7 +7207,7 @@ function drawReflectionControlPanel(img) {
     {
       id: 'values',
       label: `${valuesCount} Values inferred`,
-      color: '#10b981', // Green
+      color: '#479A44', // Green (matching value dots)
       textColor: '#ffffff'
     }
   ];
@@ -6875,6 +7309,8 @@ function drawReflectionControlPanel(img) {
         if (animationProgress >= 1) {
           delete accordionAnimations[accordion.id];
           const calculatedHeight = calculateAccordionContentHeight(accordion.id);
+          // Store the calculated height for smooth transitions when content changes
+          accordionLastCalculatedHeights[accordion.id] = calculatedHeight;
           animatedHeight = isExpanded ? calculatedHeight + 20 : 0; // +20 for overlap
           animationProgress = 1.0;
           // Restore normal DPR when animation ends (will be handled in main draw loop, but set flag here too)
@@ -6882,6 +7318,8 @@ function drawReflectionControlPanel(img) {
         }
       } else if (isExpanded) {
         const calculatedHeight = calculateAccordionContentHeight(accordion.id);
+        // Store the calculated height for smooth transitions when content changes
+        accordionLastCalculatedHeights[accordion.id] = calculatedHeight;
         animatedHeight = calculatedHeight + 20; // +20 for overlap with header
       }
 
@@ -7030,17 +7468,18 @@ function drawReflectionControlPanel(img) {
               // Wrap text to fit in bubble (use current question text)
               const lines = wrapText(ctx, featuresQuestionText, maxTextWidth);
               const lineHeight = 18; // Line height for text
-              const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
-              const messageBubbleRadius = 8;
-
+              // Use fixed height of 100px when "Generating..." to prevent jumping
+              const messageBubbleHeight = featuresQuestionText === "Generating..." ? 100 : (messagePadding * 2 + (lines.length * lineHeight));
               // Draw message text bubble (white background with rounded corners)
+              // Increased radius for top-left, top-right, and bottom-right corners
               ctx.globalAlpha = effectiveOpacity;
               ctx.fillStyle = '#ffffff';
-              drawRoundedRect(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, messageBubbleRadius);
+              drawRoundedRectCustom(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, 16, 16, 16, 8);
               ctx.fill();
 
-              // Draw message text
-              ctx.fillStyle = '#3b82f6'; // Blue text
+              // Draw message text - gray when "Generating..." or bot is enabled, blue when actual message and bot is off
+              const messageColor = (featuresQuestionText === "Generating..." || featuresBotEnabled) ? '#9ca3af' : '#3b82f6';
+              ctx.fillStyle = messageColor; // Gray for generating or bot enabled, blue for actual message when bot is off
               ctx.textBaseline = 'top';
               ctx.textAlign = 'left';
               lines.forEach((line, index) => {
@@ -7048,17 +7487,29 @@ function drawReflectionControlPanel(img) {
               });
               ctx.restore();
 
-              // Draw stars icon next to message bubble (aligned with chevron)
+              // Draw bot icon next to message bubble (aligned with chevron)
               // Chevron is at: panelX + panelWidth - chevronPadding - chevronSize / 2
               // chevronPadding = 16, chevronSize = 24, so chevron center is at panelX + panelWidth - 28
               const chevronPadding = 16;
               const chevronSize = 24;
-              const starsIconX = panelX + panelWidth - chevronPadding - chevronSize / 2;
-              const starsIconY = contentY + messageBubbleHeight / 2;
+              const botIconX = panelX + panelWidth - chevronPadding - chevronSize / 2;
+              const botIconY = contentY + messageBubbleHeight / 2;
+              const botIconSize = 24;
               ctx.save();
               ctx.globalAlpha = effectiveOpacity;
-              drawLucideIcon(ctx, Stars, starsIconX, starsIconY, 24, '#3b82f6');
+              // Draw bot-off icon (default) or bot icon (when enabled)
+              const botIcon = featuresBotEnabled ? BotIcon : BotOffIcon;
+              const botIconColor = '#3b82f6';
+              drawLucideIcon(ctx, botIcon, botIconX, botIconY, botIconSize, botIconColor);
               ctx.restore();
+              
+              // Store bot icon bounds for click detection
+              featuresBotIconBounds = {
+                x: botIconX - botIconSize / 2,
+                y: botIconY - botIconSize / 2,
+                width: botIconSize,
+                height: botIconSize
+              };
 
               // Draw bottom row: pin icon + count text + next question button
               const bottomRowY = contentY + messageBubbleHeight + messageToBottomSpacing;
@@ -7112,23 +7563,35 @@ function drawReflectionControlPanel(img) {
 
               ctx.globalAlpha = effectiveOpacity;
 
+              // Gray out button when bot is enabled
+              const isButtonGrayedOut = featuresBotEnabled;
+              const buttonBaseColor = isButtonGrayedOut ? '#9ca3af' : '#3b82f6'; // Light gray when bot enabled, blue otherwise
+
               if (hasAnswers) {
-                // Draw button background (filled blue button)
-                ctx.fillStyle = '#3b82f6';
+                // Draw button background (filled button)
+                ctx.fillStyle = buttonBaseColor;
                 drawRoundedRect(ctx, buttonX, buttonY, buttonWidth, buttonHeight, buttonRadius);
                 ctx.fill();
 
                 // Draw button text (white)
                 ctx.fillStyle = '#ffffff';
               } else {
-                // Draw button outline only (no fill, blue stroke matching feature header)
-                ctx.strokeStyle = '#3b82f6'; // Same blue as feature header
-                ctx.lineWidth = 2; // 2px stroke
+                // Draw button with background (0% opacity normally, 30% on hover)
+                const buttonOpacity = isSkipQuestionButtonHovered ? 0.3 : 0;
+                ctx.globalAlpha = effectiveOpacity * buttonOpacity;
+                ctx.fillStyle = buttonBaseColor; // Background color
+                drawRoundedRect(ctx, buttonX, buttonY, buttonWidth, buttonHeight, buttonRadius);
+                ctx.fill();
+                
+                // Draw stroke around button
+                ctx.globalAlpha = effectiveOpacity; // Reset opacity for stroke
+                ctx.strokeStyle = buttonBaseColor; // Stroke color
+                ctx.lineWidth = 1; // 1px stroke (thinner)
                 drawRoundedRect(ctx, buttonX, buttonY, buttonWidth, buttonHeight, buttonRadius);
                 ctx.stroke();
 
-                // Draw button text (same blue as feature header)
-                ctx.fillStyle = '#3b82f6'; // Same blue as feature header
+                // Draw button text (same color as stroke)
+                ctx.fillStyle = buttonBaseColor;
               }
 
               ctx.textBaseline = 'middle';
@@ -7191,23 +7654,23 @@ function drawReflectionControlPanel(img) {
               // Calculate message bubble dimensions based on text
               const messageBubbleX = panelX + contentPadding;
               const messageBubbleY = contentY;
-              const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons (40px for icons + 20px spacing)
+              const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for shuffle icon
               const maxTextWidth = messageBubbleWidth - messagePadding * 2;
 
               // Wrap text to fit in bubble
               const lines = wrapText(ctx, emotionsAIText, maxTextWidth);
               const lineHeight = 18; // Line height for text
-              const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
-              const messageBubbleRadius = 8;
-
+              // Use fixed height of 100px when "Generating..." to prevent jumping
+              const messageBubbleHeight = emotionsAIText === "Generating..." ? 100 : (messagePadding * 2 + (lines.length * lineHeight));
               // Draw message text bubble (white background with rounded corners)
+              // Increased radius for top-left, top-right, and bottom-right corners
               ctx.globalAlpha = effectiveOpacity;
               ctx.fillStyle = '#ffffff';
-              drawRoundedRect(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, messageBubbleRadius);
+              drawRoundedRectCustom(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, 16, 16, 16, 8);
               ctx.fill();
 
-              // Draw message text (muted olive green color as per image description)
-              ctx.fillStyle = '#6b7280'; // Muted olive green equivalent
+              // Draw message text - gray when "Generating...", black when actual message
+              ctx.fillStyle = emotionsAIText === "Generating..." ? '#9ca3af' : '#000000'; // Gray for generating, black for actual message
               ctx.textBaseline = 'top';
               ctx.textAlign = 'left';
               lines.forEach((line, index) => {
@@ -7215,76 +7678,27 @@ function drawReflectionControlPanel(img) {
               });
               ctx.restore();
 
-              // Draw shuffle and star icons to the right of message bubble (vertically aligned)
+              // Draw shuffle icon to the right of message bubble (vertically aligned)
               const iconSize = 20;
-              const iconSpacing = 8; // Spacing between icons
               const iconsX = panelX + panelWidth - contentPadding - iconSize / 2;
-              const shuffleIconY = contentY + messageBubbleHeight / 2 - iconSize / 2 - iconSpacing / 2;
-              const starIconY = contentY + messageBubbleHeight / 2 + iconSize / 2 + iconSpacing / 2;
+              const shuffleIconY = contentY + messageBubbleHeight / 2;
 
               // Draw shuffle icon
               ctx.save();
               ctx.globalAlpha = effectiveOpacity;
-              drawLucideIcon(ctx, Shuffle, iconsX, shuffleIconY + iconSize / 2, iconSize, '#6b7280'); // Muted olive green
+              drawLucideIcon(ctx, Shuffle, iconsX, shuffleIconY, iconSize, '#6b7280'); // Muted olive green
               ctx.restore();
 
               // Store shuffle icon bounds for click detection
               emotionsIconBounds.shuffle = {
                 x: iconsX - iconSize / 2,
-                y: shuffleIconY,
+                y: shuffleIconY - iconSize / 2,
                 width: iconSize,
                 height: iconSize
               };
 
-              // Draw star icon (filled if starred)
-              ctx.save();
-              ctx.globalAlpha = effectiveOpacity;
-              const starColor = emotionsStarred ? '#fbbf24' : '#6b7280'; // Yellow if starred, muted olive green otherwise
-              drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
-              if (emotionsStarred) {
-                // Fill the star if starred
-                ctx.fillStyle = starColor;
-                ctx.globalAlpha = effectiveOpacity * 0.3; // Semi-transparent fill
-                // Re-draw with fill
-                drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
-              }
-              ctx.restore();
-
-              // Store star icon bounds for click detection
-              emotionsIconBounds.star = {
-                x: iconsX - iconSize / 2,
-                y: starIconY,
-                width: iconSize,
-                height: iconSize
-              };
-
-              // Draw input field area (visual representation, actual input is HTML)
-              const inputY = contentY + messageBubbleHeight + bubbleToInputSpacing;
-              const inputX = panelX + contentPadding;
-              const inputWidth = panelWidth - contentPadding * 2 - 40; // Leave space for plus button
-
-              ctx.save();
-              ctx.globalAlpha = effectiveOpacity;
-              ctx.fillStyle = '#fef3c7'; // Light yellow background
-              ctx.strokeStyle = '#6b7280'; // Muted olive green border
-              ctx.lineWidth = 1;
-              drawRoundedRect(ctx, inputX, inputY, inputWidth, fieldHeight, 6);
-              ctx.fill();
-              ctx.stroke();
-
-              // Draw plus button (visual representation)
-              const plusButtonX = panelX + panelWidth - contentPadding - 30;
-              ctx.fillStyle = '#78716c'; // Dark olive green/brown
-              drawRoundedRect(ctx, plusButtonX, inputY, 30, fieldHeight, 6);
-              ctx.fill();
-
-              // Draw plus icon
-              ctx.fillStyle = '#ffffff';
-              ctx.font = `16px ui-sans-serif`;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText('+', plusButtonX + 15, inputY + fieldHeight / 2);
-              ctx.restore(); // Close input drawing save
+              // Input field and button are now HTML elements, not drawn on canvas
+              // Removed canvas drawing code - using actual HTML input/button elements instead
 
               ctx.restore(); // Close scale transform save
             }
@@ -7330,23 +7744,24 @@ function drawReflectionControlPanel(img) {
               // Calculate message bubble dimensions based on text
               const messageBubbleX = panelX + contentPadding;
               const messageBubbleY = contentY;
-              const messageBubbleWidth = panelWidth - contentPadding * 2 - 60; // Leave space for icons (40px for icons + 20px spacing)
+              const messageBubbleWidth = panelWidth - contentPadding * 2 - 40; // Leave space for shuffle icon
               const maxTextWidth = messageBubbleWidth - messagePadding * 2;
 
               // Wrap text to fit in bubble
               const lines = wrapText(ctx, valuesAIText, maxTextWidth);
               const lineHeight = 18; // Line height for text
-              const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
-              const messageBubbleRadius = 8;
+              // Use fixed height of 100px when "Generating..." to prevent jumping
+              const messageBubbleHeight = valuesAIText === "Generating..." ? 100 : (messagePadding * 2 + (lines.length * lineHeight));
 
-              // Draw message text bubble (light green background with rounded corners)
+              // Draw message text bubble (white background with rounded corners)
+              // Increased radius for top-left, top-right, and bottom-right corners
               ctx.globalAlpha = effectiveOpacity;
-              ctx.fillStyle = '#d1fae5'; // Light green background
-              drawRoundedRect(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, messageBubbleRadius);
+              ctx.fillStyle = '#ffffff'; // White background
+              drawRoundedRectCustom(ctx, messageBubbleX, messageBubbleY, messageBubbleWidth, messageBubbleHeight, 16, 16, 16, 8);
               ctx.fill();
 
-              // Draw message text (darker green color for values)
-              ctx.fillStyle = '#059669'; // Darker green color for text (better contrast on light green background)
+              // Draw message text - gray when "Generating...", green when actual message (matching value dots)
+              ctx.fillStyle = valuesAIText === "Generating..." ? '#9ca3af' : '#479A44'; // Gray for generating, green for actual message
               ctx.textBaseline = 'top';
               ctx.textAlign = 'left';
               lines.forEach((line, index) => {
@@ -7354,45 +7769,21 @@ function drawReflectionControlPanel(img) {
               });
               ctx.restore();
 
-              // Draw shuffle and star icons to the right of message bubble (vertically aligned)
+              // Draw shuffle icon to the right of message bubble (vertically aligned)
               const iconSize = 20;
-              const iconSpacing = 8; // Spacing between icons
               const iconsX = panelX + panelWidth - contentPadding - iconSize / 2;
-              const shuffleIconY = contentY + messageBubbleHeight / 2 - iconSize / 2 - iconSpacing / 2;
-              const starIconY = contentY + messageBubbleHeight / 2 + iconSize / 2 + iconSpacing / 2;
+              const shuffleIconY = contentY + messageBubbleHeight / 2;
 
               // Draw shuffle icon
               ctx.save();
               ctx.globalAlpha = effectiveOpacity;
-              drawLucideIcon(ctx, Shuffle, iconsX, shuffleIconY + iconSize / 2, iconSize, '#059669'); // Darker green
+              drawLucideIcon(ctx, Shuffle, iconsX, shuffleIconY, iconSize, '#479A44'); // Green (matching value dots)
               ctx.restore();
 
               // Store shuffle icon bounds for click detection
               valuesIconBounds.shuffle = {
                 x: iconsX - iconSize / 2,
-                y: shuffleIconY,
-                width: iconSize,
-                height: iconSize
-              };
-
-              // Draw star icon (filled if starred)
-              ctx.save();
-              ctx.globalAlpha = effectiveOpacity;
-              const starColor = valuesStarred ? '#fbbf24' : '#059669'; // Yellow if starred, darker green otherwise
-              drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
-              if (valuesStarred) {
-                // Fill the star if starred
-                ctx.fillStyle = starColor;
-                ctx.globalAlpha = effectiveOpacity * 0.3; // Semi-transparent fill
-                // Re-draw with fill
-                drawLucideIcon(ctx, Star, iconsX, starIconY + iconSize / 2, iconSize, starColor);
-              }
-              ctx.restore();
-
-              // Store star icon bounds for click detection
-              valuesIconBounds.star = {
-                x: iconsX - iconSize / 2,
-                y: starIconY,
+                y: shuffleIconY - iconSize / 2,
                 width: iconSize,
                 height: iconSize
               };
@@ -7426,10 +7817,11 @@ function drawReflectionControlPanel(img) {
 
     // Apply hover scale transform if this accordion is hovered or animating
     // Disable hover animation for emotions and values when no pin is selected
-    const shouldAllowHover = !((accordion.id === 'emotions' || accordion.id === 'values') && selectedPinId === null);
+    // Also disable hover animation when accordion is expanded
+    const shouldAllowHover = !((accordion.id === 'emotions' || accordion.id === 'values') && selectedPinId === null) && !isExpanded;
     const isHovered = shouldAllowHover && hoveredAccordionId === accordion.id;
     const isAnimating = shouldAllowHover && animatingAccordionId === accordion.id && accordionHoverAnimationStartTime !== null;
-    // Use animated scale if hovering or animating
+    // Use animated scale if hovering or animating (but not if expanded)
     const currentScale = (isHovered || isAnimating) ? accordionHoverScale : 1.0;
     const barCenterX = panelX + panelWidth / 2;
     const barCenterY = barY + barHeight / 2;
@@ -7515,8 +7907,8 @@ function drawReflectionControlPanel(img) {
     if (accordion.id === 'features-pinned') {
       // Features-pinned: animated bottom border radius, full height when expanded
       if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
-        // When expanded, use full rounded rectangle for the entire header area
-        drawRoundedRect(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, borderRadius);
+        // When expanded, use animated bottom border radius (animate from 12 to 0)
+        drawRoundedRectWithBottomRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, borderRadius, featuresHeaderBottomRadiusExpanded);
       } else {
         // When collapsed, use animated bottom border radius
         drawRoundedRectWithBottomRadius(ctx, panelX, barY, panelWidth, barHeight, borderRadius, featuresHeaderBottomRadius);
@@ -7524,24 +7916,24 @@ function drawReflectionControlPanel(img) {
     } else if (accordion.id === 'emotions') {
       // Emotions: animated border radius for all corners, full height when expanded
       if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
-        // When expanded, use 0 border radius for bottom to match content
-        drawRoundedRectWithTopRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, emotionsHeaderRadius);
+        // When expanded, use animated bottom border radius (animate from 12 to 0)
+        drawRoundedRectWithBottomRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, emotionsHeaderRadius, emotionsHeaderBottomRadiusExpanded);
       } else {
         drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, emotionsHeaderRadius);
       }
     } else if (accordion.id === 'values') {
       // Values: animated top border radius, default bottom radius, full height when expanded
       if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
-        // When expanded, use 0 border radius for bottom to match content
-        drawRoundedRectWithTopRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, valuesHeaderTopRadius);
+        // When expanded, use animated bottom border radius (animate from 12 to 0)
+        drawRoundedRectWithBottomRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, valuesHeaderTopRadius, valuesHeaderBottomRadiusExpanded);
       } else {
         drawRoundedRectWithTopBottomRadius(ctx, panelX, barY, panelWidth, barHeight, valuesHeaderTopRadius, borderRadius);
       }
     } else {
-      // Other accordions: default border radius, full height when expanded
+      // Other accordions (general-info): default border radius, full height when expanded
       if (shouldDrawContent && animatedPos && animatedPos.contentHeight > 0) {
-        // When expanded, use rounded top only to match content
-        drawRoundedRectWithTopRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, borderRadius);
+        // When expanded, use animated bottom border radius (animate from 12 to 0)
+        drawRoundedRectWithBottomRadius(ctx, panelX, headerDrawY, panelWidth, headerDrawHeight, borderRadius, generalInfoHeaderBottomRadius);
       } else {
         drawRoundedRect(ctx, panelX, barY, panelWidth, barHeight, borderRadius);
       }
@@ -8421,7 +8813,12 @@ function enterReflectionMode(fromScreenshot = false) {
   }
   // Reset question ID when entering reflection mode
   currentQuestionId = 0;
-  featuresQuestionText = isAIModeEnabled() ? "Generating..." : DEMO_FEATURES_QUESTION;
+  // Only generate questions if bot is off (bot off = AI generates questions)
+  featuresQuestionText = (isAIModeEnabled() && !featuresBotEnabled) ? "Generating..." : DEMO_FEATURES_QUESTION;
+  // Update accordion height if features-pinned accordion is expanded
+  updateAccordionHeightIfExpanded('features-pinned');
+  // Update accordion height if features-pinned accordion is expanded
+  updateAccordionHeightIfExpanded('features-pinned');
 
   // Get image reference (will be reused later in function)
   const img = images[selectedImageIndex];
@@ -8429,9 +8826,9 @@ function enterReflectionMode(fromScreenshot = false) {
 
   // Generate title if not already generated
   if (!img.titleGenerated && img.title === null) {
-    // Show "Generating..." placeholder while generating
+    // Show "Examining..." placeholder in product name field (upper field) while AI is loading
     if (productNameInput) {
-      productNameInput.value = 'Generating...';
+      productNameInput.value = 'Examining...';
     }
     // Generate title asynchronously
     (async () => {
@@ -8464,8 +8861,8 @@ function enterReflectionMode(fromScreenshot = false) {
     productNameInput.value = DEMO_TITLE;
   }
 
-  // Generate initial features question if AI mode is enabled
-  if (isAIModeEnabled()) {
+  // Generate initial features question if AI mode is enabled and bot is off
+  if (isAIModeEnabled() && !featuresBotEnabled) {
     (async () => {
       try {
         // Wait a bit for title to be generated if it's being generated
@@ -8498,10 +8895,14 @@ function enterReflectionMode(fromScreenshot = false) {
         );
 
         featuresQuestionText = question;
+        // Update accordion height if features-pinned accordion is expanded
+        updateAccordionHeightIfExpanded('features-pinned');
         requestDraw();
       } catch (error) {
         console.error('Error generating initial feature question:', error);
         featuresQuestionText = DEMO_FEATURES_QUESTION;
+        // Update accordion height if features-pinned accordion is expanded
+        updateAccordionHeightIfExpanded('features-pinned');
         requestDraw();
       }
     })();
@@ -9303,7 +9704,7 @@ window.addEventListener('keydown', (e) => {
 
     // Check if an input field is currently focused
     const activeElement = document.activeElement;
-    if (activeElement && (activeElement === pinFeatureInput || activeElement === emotionalAspectInput || activeElement === valueAspectInput)) {
+    if (activeElement && (activeElement === pinFeatureInput || activeElement === valueAspectInput)) {
       // Blur the input field and cancel pin/canvas comment placement
       activeElement.blur();
       if (isPlacingCanvasComment && tempCanvasCommentLocation) {
@@ -9821,45 +10222,41 @@ canvas.addEventListener('mousedown', (e) => {
     const reflectionImg = images[reflectionImageIndex];
     if (!reflectionImg) return;
 
-    // Check if clicking on emotions icons (shuffle or star)
+    // Check if clicking on emotions icons (shuffle)
     if (emotionsIconBounds && emotionsIconBounds.shuffle) {
       const shuffleBounds = emotionsIconBounds.shuffle;
       if (e.clientX >= shuffleBounds.x && e.clientX <= shuffleBounds.x + shuffleBounds.width &&
         e.clientY >= shuffleBounds.y && e.clientY <= shuffleBounds.y + shuffleBounds.height) {
         // Clicked on shuffle icon - regenerate AI text
+        e.preventDefault();
+        e.stopPropagation();
         regenerateEmotionsAIText();
         requestDraw();
         return;
       }
     }
 
-    // Check if clicking on values icons (shuffle or star)
+    // Check if clicking on features bot icon
+    if (featuresBotIconBounds) {
+      const botBounds = featuresBotIconBounds;
+      if (e.clientX >= botBounds.x && e.clientX <= botBounds.x + botBounds.width &&
+        e.clientY >= botBounds.y && e.clientY <= botBounds.y + botBounds.height) {
+        // Toggle bot on/off state
+        featuresBotEnabled = !featuresBotEnabled;
+        requestDraw();
+        return;
+      }
+    }
+
+    // Check if clicking on values icons (shuffle only)
     if (valuesIconBounds && valuesIconBounds.shuffle) {
       const shuffleBounds = valuesIconBounds.shuffle;
       if (e.clientX >= shuffleBounds.x && e.clientX <= shuffleBounds.x + shuffleBounds.width &&
         e.clientY >= shuffleBounds.y && e.clientY <= shuffleBounds.y + shuffleBounds.height) {
         // Clicked on shuffle icon - regenerate AI text
+        e.preventDefault();
+        e.stopPropagation();
         regenerateValuesAIText();
-        requestDraw();
-        return;
-      }
-    }
-    if (valuesIconBounds && valuesIconBounds.star) {
-      const starBounds = valuesIconBounds.star;
-      if (e.clientX >= starBounds.x && e.clientX <= starBounds.x + starBounds.width &&
-        e.clientY >= starBounds.y && e.clientY <= starBounds.y + starBounds.height) {
-        // Clicked on star icon - toggle star
-        valuesStarred = !valuesStarred;
-        requestDraw();
-        return;
-      }
-    }
-    if (emotionsIconBounds && emotionsIconBounds.star) {
-      const starBounds = emotionsIconBounds.star;
-      if (e.clientX >= starBounds.x && e.clientX <= starBounds.x + starBounds.width &&
-        e.clientY >= starBounds.y && e.clientY <= starBounds.y + starBounds.height) {
-        // Clicked on star icon - toggle star
-        emotionsStarred = !emotionsStarred;
         requestDraw();
         return;
       }
@@ -10236,6 +10633,9 @@ canvas.addEventListener('mousemove', (e) => {
       }
     }
 
+    // Store the accordion ID for cursor purposes (even if expanded)
+    const accordionForCursor = newHoveredAccordionId;
+
     // Prevent hover animation for emotions and values tabs when no pin is selected
     if (newHoveredAccordionId === 'emotions' || newHoveredAccordionId === 'values') {
       if (selectedPinId === null) {
@@ -10243,14 +10643,30 @@ canvas.addEventListener('mousemove', (e) => {
       }
     }
 
-    // Update cursor based on hover state
-    if (newHoveredAccordionId !== null) {
+    // Prevent hover scale animation when accordion is expanded (but keep cursor as pointer)
+    const shouldPreventHoverScale = newHoveredAccordionId !== null && expandedAccordionId === newHoveredAccordionId;
+    if (shouldPreventHoverScale) {
+      newHoveredAccordionId = null; // Don't allow hover scale animation when accordion is expanded
+    }
+
+    // Update cursor based on hover state (show pointer even if accordion is expanded)
+    // Also check if hovering over skip question button
+    let newIsSkipQuestionButtonHoveredForCursor = false;
+    if (window.featuresPinnedButtonBounds && window.featuresPinnedButtonBounds['next-question']) {
+      const button = window.featuresPinnedButtonBounds['next-question'];
+      if (e.clientX >= button.x && e.clientX <= button.x + button.width &&
+          e.clientY >= button.y && e.clientY <= button.y + button.height) {
+        newIsSkipQuestionButtonHoveredForCursor = true;
+      }
+    }
+    
+    if (accordionForCursor !== null || newIsSkipQuestionButtonHoveredForCursor) {
       canvas.style.cursor = 'pointer';
     } else {
       canvas.style.cursor = createCustomCursor();
     }
 
-    // Update hover state if changed
+    // Update hover state if changed (only for scale animation, not cursor)
     if (newHoveredAccordionId !== hoveredAccordionId) {
       // Always start animation from current scale, even if animation is in progress
       accordionHoverAnimationStartScale = accordionHoverScale; // Start from current scale
@@ -10266,6 +10682,21 @@ canvas.addEventListener('mousemove', (e) => {
       }
 
       hoveredAccordionId = newHoveredAccordionId;
+      requestDraw();
+    }
+
+    // Check if mouse is over skip question button
+    let newIsSkipQuestionButtonHovered = false;
+    if (window.featuresPinnedButtonBounds && window.featuresPinnedButtonBounds['next-question']) {
+      const button = window.featuresPinnedButtonBounds['next-question'];
+      if (e.clientX >= button.x && e.clientX <= button.x + button.width &&
+          e.clientY >= button.y && e.clientY <= button.y + button.height) {
+        newIsSkipQuestionButtonHovered = true;
+      }
+    }
+    
+    if (newIsSkipQuestionButtonHovered !== isSkipQuestionButtonHovered) {
+      isSkipQuestionButtonHovered = newIsSkipQuestionButtonHovered;
       requestDraw();
     }
 
@@ -11856,7 +12287,36 @@ if (productNameInput) {
   });
 }
 
+// Make product name edit icon clickable to focus the input field
+if (productNameEditIcon && productNameInput) {
+  productNameEditIcon.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (productNameInput) {
+      productNameInput.focus();
+      // Select all text if there's content
+      if (productNameInput.value && productNameInput.value !== 'Examining...') {
+        productNameInput.select();
+      }
+    }
+  });
+}
+
 if (focusInput && focusSaveButton) {
+  // Function to show checkmark briefly then return to save icon
+  function showCheckmarkBriefly() {
+    if (focusSaveIcon && Check) {
+      // Show checkmark
+      renderLucideIconAsSVG(Check, focusSaveIcon, 16, 'white');
+      // After 800ms, return to save icon
+      setTimeout(() => {
+        if (focusSaveIcon && Save) {
+          renderLucideIconAsSVG(Save, focusSaveIcon, 16, 'white');
+        }
+      }, 800);
+    }
+  }
+
   focusSaveButton.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -11865,20 +12325,36 @@ if (focusInput && focusSaveButton) {
       if (img && focusInput) {
         img.focus = focusInput.value.trim() || null;
         focusInput.blur();
+        // Show checkmark briefly
+        showCheckmarkBriefly();
         requestDraw();
       }
     }
   });
+  
+  // Update opacity when input changes
+  focusInput.addEventListener('input', () => {
+    updateFocusSaveButtonOpacity();
+  });
+  
   focusInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       focusSaveButton.click();
     }
   });
-  // Explicitly allow paste on focus input
+  
+  // Explicitly allow paste on focus input and update opacity
   focusInput.addEventListener('paste', (e) => {
     // Allow default paste behavior
+    // Update opacity after paste
+    setTimeout(() => {
+      updateFocusSaveButtonOpacity();
+    }, 0);
   });
+  
+  // Initial opacity update
+  updateFocusSaveButtonOpacity();
 }
 
 // Add paste event listeners directly to AI settings inputs
@@ -13928,7 +14404,7 @@ function deleteCanvasComment(commentId) {
 }
 
 function updateControlPanelInputs() {
-  if (!controlPanelInputs || !emotionalAspectInput || !valueAspectInput) return;
+  if (!controlPanelInputs || !valueAspectInput) return;
 
   const reflectionImg = images[reflectionImageIndex];
   if (!reflectionImg || !isReflectionMode) {
@@ -13959,8 +14435,12 @@ function updateControlPanelInputs() {
       }
 
       // Set product name input value from image object
+      // Don't overwrite "Examining..." if it's currently showing (AI is loading)
       if (productNameInput && reflectionImg && reflectionImg.title !== undefined) {
-        productNameInput.value = reflectionImg.title || '';
+        // Preserve "Examining..." if it's currently showing
+        if (productNameInput.value !== 'Examining...') {
+          productNameInput.value = reflectionImg.title || '';
+        }
       }
 
       // Position within the layer (stable; no animatedOffsetY/scale/opacity animation)
@@ -13978,6 +14458,9 @@ function updateControlPanelInputs() {
       if (focusInput && reflectionImg && reflectionImg.focus !== undefined && document.activeElement !== focusInput) {
         focusInput.value = reflectionImg.focus || '';
       }
+      
+      // Update save button opacity after setting value
+      updateFocusSaveButtonOpacity();
 
       const focusTop = 20 + 12 + 4 + fieldHeight + 24 + 12 + 4;
       focusInputContainer.style.position = 'absolute';
@@ -13996,19 +14479,29 @@ function updateControlPanelInputs() {
     }
   }
 
-  // Position emotional aspect input in yellow accordion (emotions) - OLD, now replaced by emotions answer input
+  // Position emotions answer input in yellow accordion (emotions)
   const emotionsContentBounds = window.accordionContentBounds && window.accordionContentBounds['emotions'];
   const isEmotionsExpanded = expandedAccordionId === 'emotions' && emotionsContentBounds;
   const isEmotionsAnimating = emotionsContentBounds && emotionsContentBounds.isAnimating;
 
-  // Hide old emotional aspect input (replaced by new emotions answer input)
-  if (emotionalAspectInput && emotionalAspectAddButton) {
-    emotionalAspectInput.style.display = 'none';
-    emotionalAspectAddButton.style.display = 'none';
-  }
-
   // Position emotions answer input in yellow accordion (emotions)
   if (emotionsAnswerInput && emotionsAnswerAddButton) {
+    // Ensure no duplicate elements exist - remove any clones
+    const allEmotionsInputs = document.querySelectorAll('#emotions-answer-input');
+    const allEmotionsButtons = document.querySelectorAll('#emotions-answer-add-button');
+    if (allEmotionsInputs.length > 1) {
+      // Remove duplicates, keep only the first one
+      for (let i = 1; i < allEmotionsInputs.length; i++) {
+        allEmotionsInputs[i].remove();
+      }
+    }
+    if (allEmotionsButtons.length > 1) {
+      // Remove duplicates, keep only the first one
+      for (let i = 1; i < allEmotionsButtons.length; i++) {
+        allEmotionsButtons[i].remove();
+      }
+    }
+    
     if (isEmotionsExpanded || isEmotionsAnimating) {
       controlPanelInputs.style.display = 'block';
       if (emotionsInputLayer && emotionsContentBounds) {
@@ -14033,7 +14526,7 @@ function updateControlPanelInputs() {
         tempCtx = tempCanvas.getContext('2d');
       }
       tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      const messageBubbleWidth = emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 60;
+      const messageBubbleWidth = emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 40;
       const maxTextWidth = messageBubbleWidth - messagePadding * 2;
       const lines = wrapText(tempCtx, emotionsAIText, maxTextWidth);
       const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
@@ -14044,23 +14537,29 @@ function updateControlPanelInputs() {
       emotionsAnswerInput.style.position = 'absolute';
       emotionsAnswerInput.style.left = padding + 'px';
       emotionsAnswerInput.style.top = inputY + 'px';
-      emotionsAnswerInput.style.width = (emotionsContentBounds.width - padding * 2 - 40) + 'px';
+      emotionsAnswerInput.style.width = (emotionsContentBounds.width - padding * 2 - 42) + 'px';
       emotionsAnswerInput.style.display = 'block';
       emotionsAnswerInput.style.opacity = '1';
-      emotionsAnswerInput.style.background = '#fef3c7'; // Light yellow background
-      emotionsAnswerInput.style.borderColor = '#6b7280'; // Muted olive green border
+      emotionsAnswerInput.style.background = '#ffffff'; // White background
+      emotionsAnswerInput.style.borderColor = '#d1d5db'; // Light gray border
+      emotionsAnswerInput.style.color = '#000000'; // Black text
+      // Set placeholder color via CSS
+      if (!emotionsAnswerInput.style.getPropertyValue('--placeholder-color')) {
+        emotionsAnswerInput.style.setProperty('--placeholder-color', '#9ca3af');
+      }
       emotionsAnswerInput.style.transform = 'none';
       emotionsAnswerInput.classList.remove('animating');
 
       emotionsAnswerAddButton.style.position = 'absolute';
-      emotionsAnswerAddButton.style.left = (emotionsContentBounds.width - padding - 30) + 'px';
+      emotionsAnswerAddButton.style.left = (emotionsContentBounds.width - padding - 32) + 'px';
       emotionsAnswerAddButton.style.top = inputY + 'px';
-      emotionsAnswerAddButton.style.width = '30px';
-      emotionsAnswerAddButton.style.height = fieldHeight + 'px';
+      emotionsAnswerAddButton.style.width = '32px';
+      emotionsAnswerAddButton.style.height = '32px';
       emotionsAnswerAddButton.style.display = 'block';
       emotionsAnswerAddButton.style.opacity = '1';
-      emotionsAnswerAddButton.style.background = '#78716c'; // Dark olive green/brown
-      emotionsAnswerAddButton.style.color = '#ffffff';
+      emotionsAnswerAddButton.style.background = '#fbbf24'; // Yellow (matching emotions header)
+      emotionsAnswerAddButton.style.color = '#000000'; // Black text for contrast on yellow background
+      emotionsAnswerAddButton.style.fontSize = '24px'; // Bigger plus icon
       emotionsAnswerAddButton.style.transform = 'none';
       emotionsAnswerAddButton.classList.remove('animating');
     } else {
@@ -14091,7 +14590,7 @@ function updateControlPanelInputs() {
         tempCtx = tempCanvas.getContext('2d');
       }
       tempCtx.font = `400 14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      const messageBubbleWidth = valuesContentBounds.width - valuesContentBounds.padding * 2 - 60;
+      const messageBubbleWidth = valuesContentBounds.width - valuesContentBounds.padding * 2 - 40;
       const maxTextWidth = messageBubbleWidth - messagePadding * 2;
       const lines = wrapText(tempCtx, valuesAIText, maxTextWidth);
       const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
@@ -14110,23 +14609,29 @@ function updateControlPanelInputs() {
       valueAspectInput.style.position = 'absolute';
       valueAspectInput.style.left = padding + 'px';
       valueAspectInput.style.top = inputY + 'px';
-      valueAspectInput.style.width = (valuesContentBounds.width - padding * 2 - 40) + 'px';
+      valueAspectInput.style.width = (valuesContentBounds.width - padding * 2 - 42) + 'px';
       valueAspectInput.style.display = 'block';
       valueAspectInput.style.opacity = '1';
-      valueAspectInput.style.background = '#d1fae5'; // Light green background
-      valueAspectInput.style.borderColor = '#10b981'; // Green border
+      valueAspectInput.style.background = '#ffffff'; // White background
+      valueAspectInput.style.borderColor = '#d1d5db'; // Light gray border
+      valueAspectInput.style.color = '#000000'; // Black text
+      // Set placeholder color via CSS
+      if (!valueAspectInput.style.getPropertyValue('--placeholder-color')) {
+        valueAspectInput.style.setProperty('--placeholder-color', '#9ca3af');
+      }
       valueAspectInput.style.transform = 'none';
       valueAspectInput.classList.remove('animating');
 
       valueAspectAddButton.style.position = 'absolute';
-      valueAspectAddButton.style.left = (valuesContentBounds.width - padding - 30) + 'px';
+      valueAspectAddButton.style.left = (valuesContentBounds.width - padding - 32) + 'px';
       valueAspectAddButton.style.top = inputY + 'px';
-      valueAspectAddButton.style.width = '30px';
-      valueAspectAddButton.style.height = fieldHeight + 'px';
+      valueAspectAddButton.style.width = '32px';
+      valueAspectAddButton.style.height = '32px';
       valueAspectAddButton.style.display = 'block';
       valueAspectAddButton.style.opacity = '1';
-      valueAspectAddButton.style.background = '#10b981'; // Green background
+      valueAspectAddButton.style.background = '#479A44'; // Green background (matching value dots)
       valueAspectAddButton.style.color = '#ffffff';
+      valueAspectAddButton.style.fontSize = '24px'; // Bigger plus icon
       valueAspectAddButton.style.transform = 'none';
       valueAspectAddButton.classList.remove('animating');
     } else {
@@ -14158,21 +14663,7 @@ function updateControlPanelInputs() {
   const pinChanged = window.previousSelectedPinId !== selectedPinId;
   window.previousSelectedPinId = selectedPinId;
 
-  if (emotionalAspectInput) {
-    emotionalAspectInput.disabled = !hasSelectedPin;
-    // Only clear when pin is deselected or changed
-    if (!hasSelectedPin || pinChanged) {
-      emotionalAspectInput.value = '';
-    }
-    emotionalAspectInput.style.opacity = hasSelectedPin ? '1' : '0.5';
-    emotionalAspectInput.style.pointerEvents = hasSelectedPin ? 'auto' : 'none';
-  }
-  if (emotionalAspectAddButton) {
-    emotionalAspectAddButton.disabled = !hasSelectedPin;
-    emotionalAspectAddButton.style.opacity = hasSelectedPin ? '1' : '0.5';
-    emotionalAspectAddButton.style.cursor = hasSelectedPin ? 'pointer' : 'not-allowed';
-    emotionalAspectAddButton.style.pointerEvents = hasSelectedPin ? 'auto' : 'none';
-  }
+  // Legacy emotional aspect input/button removed - no longer needed
   if (valueAspectInput) {
     const wasEnabled = !valueAspectInput.disabled;
     valueAspectInput.disabled = !hasEmotionalAspects;
@@ -14191,47 +14682,8 @@ function updateControlPanelInputs() {
   }
 }
 
-function addEmotionalAspect() {
-  if (!selectedPinId || !emotionalAspectInput) return;
-
-  const reflectionImg = images[reflectionImageIndex];
-  if (!reflectionImg) return;
-
-  const selectedPin = reflectionImg.pins.find(p => p.id === selectedPinId);
-  if (!selectedPin) return;
-
-  const aspectText = emotionalAspectInput.value.trim();
-  if (!aspectText) return;
-
-  if (!selectedPin.emotionalAspects) {
-    selectedPin.emotionalAspects = [];
-  }
-
-  // Store old count before adding
-  const oldCount = selectedPin.emotionalAspects.length;
-  selectedPin.emotionalAspects.push(aspectText);
-  const newCount = selectedPin.emotionalAspects.length;
-
-  // Automatically expand pin if it's not already expanded and now has aspects
-  const hasValueAspects = selectedPin.valueAspects && selectedPin.valueAspects.length > 0;
-  const canExpand = newCount > 0 || hasValueAspects;
-  if (canExpand && expandedPinId !== selectedPinId) {
-    // Pin can now expand and isn't expanded yet - expand it
-    expandedPinId = selectedPinId;
-    startPinExpansionAnimation(selectedPinId, 'collapsed', 'expanded');
-  }
-
-  // Start dot repositioning animation if pin is expanded
-  if (expandedPinId === selectedPinId) {
-    startDotRepositionAnimation(selectedPinId, 'emotional', oldCount, newCount);
-  }
-
-  emotionalAspectInput.value = '';
-
-  // Enable value aspects field if it wasn't already enabled
-  updateControlPanelInputs();
-  draw();
-}
+// Legacy function removed - emotions are now added via emotionsAnswerInput
+// function addEmotionalAspect() { ... }
 
 function addEmotionsAnswer() {
   if (!selectedPinId || !emotionsAnswerInput) return;
@@ -14401,22 +14853,7 @@ if (pinFeatureInput) {
   });
 }
 
-// Event listeners for aspect inputs
-if (emotionalAspectAddButton) {
-  emotionalAspectAddButton.addEventListener('click', (e) => {
-    e.stopPropagation();
-    addEmotionalAspect();
-  });
-}
-
-if (emotionalAspectInput) {
-  emotionalAspectInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addEmotionalAspect();
-    }
-  });
-}
+// Legacy event listeners removed - emotions are now handled via emotionsAnswerInput and emotionsAnswerAddButton
 
 if (emotionsAnswerAddButton) {
   emotionsAnswerAddButton.addEventListener('click', (e) => {
@@ -14488,10 +14925,12 @@ canvas.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      // Generate new feature question
-      if (isReflectionMode && reflectionImageIndex >= 0) {
+      // Generate new feature question (only if bot is off)
+      if (isReflectionMode && reflectionImageIndex >= 0 && !featuresBotEnabled) {
         const img = images[reflectionImageIndex];
         featuresQuestionText = "Generating...";
+        // Update accordion height if features-pinned accordion is expanded
+        updateAccordionHeightIfExpanded('features-pinned');
         requestDraw();
 
         (async () => {
@@ -14526,10 +14965,14 @@ canvas.addEventListener('click', (e) => {
             );
 
             featuresQuestionText = question;
+            // Update accordion height if features-pinned accordion is expanded
+            updateAccordionHeightIfExpanded('features-pinned');
             requestDraw();
           } catch (error) {
             console.error('Error generating feature question:', error);
             featuresQuestionText = isAIModeEnabled() ? DEMO_FEATURES_QUESTION : DEMO_FEATURES_QUESTION;
+            // Update accordion height if features-pinned accordion is expanded
+            updateAccordionHeightIfExpanded('features-pinned');
             requestDraw();
           }
         })();
@@ -14553,6 +14996,18 @@ canvas.addEventListener('click', (e) => {
           } else {
             // Prevent opening - just return without doing anything
             return;
+          }
+        }
+
+        // Prevent opening values accordion when no emotions are externalized
+        if (bar.id === 'values' && expandedAccordionId !== 'values') {
+          if (isReflectionMode && reflectionImageIndex >= 0) {
+            const img = images[reflectionImageIndex];
+            const emotionsCount = countEmotionsExternalized(img, selectedPinId);
+            if (emotionsCount === 0) {
+              // Prevent opening - just return without doing anything
+              return;
+            }
           }
         }
 
@@ -14615,6 +15070,17 @@ canvas.addEventListener('click', (e) => {
             fromHeight: previousCurrentHeight,
             toHeight: 0
           };
+
+          // Start bottom border radius animations for collapse of previous accordion (animate back to 12)
+          if (previousExpandedId === 'general-info') {
+            startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_DEFAULT);
+          } else if (previousExpandedId === 'features-pinned') {
+            startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+          } else if (previousExpandedId === 'emotions') {
+            startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+          } else if (previousExpandedId === 'values') {
+            startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+          }
         }
 
         // Start animation for clicked accordion
@@ -14638,12 +15104,34 @@ canvas.addEventListener('click', (e) => {
         if (targetExpanded) {
           expandedAccordionId = bar.id; // Open the clicked one (closes any other open one)
 
+          // Start bottom border radius animations for expansion (animate to 0)
+          if (bar.id === 'general-info') {
+            startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_EXPANDED);
+          } else if (bar.id === 'features-pinned') {
+            startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_EXPANDED);
+          } else if (bar.id === 'emotions') {
+            startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED);
+          } else if (bar.id === 'values') {
+            startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_BOTTOM_RADIUS_EXPANDED);
+          }
+
           // Rotate features icon to X when features-pinned accordion is opened (only when no feature is selected)
           if (bar.id === 'features-pinned' && selectedPinId === null) {
             startFeaturesIconRotation(45); // Rotate Plus to X
           }
         } else {
           expandedAccordionId = null; // Close it
+
+          // Start bottom border radius animations for collapse (animate back to 12)
+          if (bar.id === 'general-info') {
+            startGeneralInfoHeaderBottomRadiusAnimation(GENERAL_INFO_HEADER_BOTTOM_RADIUS_DEFAULT);
+          } else if (bar.id === 'features-pinned') {
+            startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_DEFAULT);
+          } else if (bar.id === 'emotions') {
+            startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_RADIUS_DEFAULT);
+          } else if (bar.id === 'values') {
+            startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_TOP_RADIUS_DEFAULT);
+          }
 
           // Rotate features icon back to Plus when features-pinned accordion is closed (only when no feature is selected)
           if (bar.id === 'features-pinned' && selectedPinId === null) {

@@ -262,10 +262,9 @@
 
         /* Make the pluses inside toolbar inputs a bit larger */
         #pin-confirm-button,
-        #emotional-aspect-add-button,
         #emotions-answer-add-button,
         #value-aspect-add-button {
-            font-size: 20px;
+            font-size: 24px;
             line-height: 1;
         }
 
@@ -278,9 +277,9 @@
         }
 
         #pin-feature-input:focus {
-            border-color: #008CFF;
+            border-color: #9ca3af;
             outline: none;
-            box-shadow: 0 0 0 2px rgba(0, 140, 255, 0.2);
+            box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2);
         }
 
         #pin-confirm-button {
@@ -946,7 +945,7 @@
 
         .aspect-edit-input:focus {
             outline: none;
-            border-color: #3B82F6;
+            border-color: #9ca3af;
         }
 
         /* Top Left Toggles Container */
@@ -1313,7 +1312,7 @@
 
         .settings-input:focus {
             outline: none;
-            border-color: #030213;
+            border-color: #9ca3af;
             background-color: #ffffff;
         }
 
@@ -1775,15 +1774,53 @@
             pointer-events: auto;
         }
 
+        /* Input field styling for emotions and values accordions */
+        #emotions-answer-input,
+        #value-aspect-input {
+            color: #000000 !important;
+            background: #ffffff !important;
+            border-color: #d1d5db !important;
+        }
+
+        #emotions-answer-input::placeholder,
+        #value-aspect-input::placeholder {
+            color: #9ca3af !important;
+            opacity: 1;
+        }
+
+        #emotions-answer-input:focus,
+        #value-aspect-input:focus {
+            border-color: #9ca3af !important;
+            outline: none;
+        }
+
+        /* Ensure emotions answer button is properly styled */
+        #emotions-answer-add-button {
+            background: #fbbf24 !important;
+            color: #000000 !important;
+            font-size: 24px !important;
+            width: 32px !important;
+            height: 32px !important;
+        }
+
+        /* General input focus styling - gray border for all inputs */
+        input[type="text"]:focus,
+        input[type="text"]:focus-visible,
+        textarea:focus,
+        textarea:focus-visible {
+            border-color: #9ca3af !important;
+            outline: none;
+        }
+
         /* Canvas comment mode - orange styling for postit tool */
         #pin-placement-ui.canvas-comment-mode #pin-feature-input {
             border-color: #FF9000;
         }
 
         #pin-placement-ui.canvas-comment-mode #pin-feature-input:focus {
-            border-color: #FF9000;
+            border-color: #9ca3af;
             outline: none;
-            box-shadow: 0 0 0 2px rgba(255, 144, 0, 0.2);
+            box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2);
         }
 
         #pin-placement-ui.canvas-comment-mode #pin-confirm-button {
@@ -1977,15 +2014,12 @@
             </div>
         </div>
 
-        <!-- Emotional and Value Aspect Inputs (legacy; currently hidden by JS) -->
-        <input type="text" id="emotional-aspect-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto;">
-        <button id="emotional-aspect-add-button" style="position: absolute; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 18px; width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto;">+</button>
-
         <!-- Emotions (yellow accordion) -->
         <div id="emotions-input-layer" class="accordion-input-layer">
-            <input type="text" id="emotions-answer-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: rgba(255, 255, 255, 0.9); pointer-events: auto; display: none;">
-        <button id="emotions-answer-add-button" style="position: absolute; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 18px; width: 32px; height: 32px; padding: 0; display: none; align-items: center; justify-content: center; pointer-events: auto;">+</button>
+            <input type="text" id="emotions-answer-input" placeholder="You can add multiple answers" style="position: absolute; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: #ffffff; color: #000000; pointer-events: auto; display: none;">
+        <button id="emotions-answer-add-button" style="position: absolute; background: #fbbf24; color: #000000; border: none; border-radius: 6px; cursor: pointer; font-size: 24px; width: 32px; height: 32px; padding: 0; display: none; align-items: center; justify-content: center; pointer-events: auto;">+</button>
         </div>
+    
 
         <!-- Values (green accordion) -->
         <div id="values-input-layer" class="accordion-input-layer">
