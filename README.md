@@ -29,7 +29,7 @@ Setup Variante 3 (für Proto 8)
 3. Text aus der 'InputPrompt.txt'-Datei mit eigenen Inhalten ausfüllen und in den gleichen Texte, wie zuvor schicken. 
 
 Setup Variante 4 (für Proto 11)
-1. Download über https://www.timmilwa.com/kaleido und entpacken.
+1. Download über https://github.com/timmilwa/Masterarbeit_Abgabe/releases/download/v0.1.5/Kaleido.zip und entpacken.
 2. Auf 'Kaleido.app'-Datei doppelklicken. 
 3. App installieren und aufpoppende Aufforderungen auf Systemzugriffe erlauben. 
 
