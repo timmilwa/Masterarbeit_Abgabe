@@ -7,6 +7,10 @@ In den meisten Fällen ist zur Nutzung lediglich die lokale Hinterlegung eines e
 ### Setup 
 Das Setup der einzelnen Prototypen unterscheidet sich zum Teil, da sie unterschiedlich Technologien und Strukturen nutzen. 
 
+Allgemeine Anforderungen (außer für Proto 11 - Kaleido App)
+- Node js
+- Installierung und Download: https://nodejs.org/en
+
 Variante 1 (für alle Protos AUßER 3, 8 und 11)
 1. ZIP-Datei des Repos herunterladen (grüner Button oben rechts) und entpacken.
 2. Terminal für gewünschten Prototypenordner öffnen (Mac: Rechtsklick auf den Ordner → "Neues Terminal beim Ordner").
