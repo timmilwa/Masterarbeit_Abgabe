@@ -1,3 +1,6 @@
+
+![01_ws2526_SG3_Kaleido](https://github.com/user-attachments/assets/705897e2-da77-48d0-887e-a82eee28f0c4)
+
 # Masterarbeit
 In diesem Repo finden sich alle Prototypen, die als Teil meiner Masterarbeit beschrieben werden. Sie untersuchen, wie KI-basierte Werkzeuge Bedeutungsarbeit in Gestaltungsprozesse unterstützen können.
 
