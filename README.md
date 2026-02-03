@@ -11,24 +11,24 @@ Allgemeine Anforderungen (außer für Proto 11 - Kaleido App)
 - Node js
 - Installierung und Download: https://nodejs.org/en
 
-Variante 1 (für alle Protos AUßER 3, 8 und 11)
+Setup Variante 1 (für alle Protos AUßER 3, 8 und 11)
 1. ZIP-Datei des Repos herunterladen (grüner Button oben rechts) und entpacken.
 2. Terminal für gewünschten Prototypenordner öffnen (Mac: Rechtsklick auf den Ordner → "Neues Terminal beim Ordner").
 3. Befehl "npm i" im Terminal eingeben, um die Abhängigkeiten zu installieren.
 4. Befehl "npm run dev" eingeben, um den Entwicklungsserver zu starten.
 5. Ein Browser-Fenster öffnet sich automatisch, oder die Anwendung kann über den im Terminal angezeigten Link geöffnet werden (z.B. http://localhost:55180).
 
-Variante 2 (für Proto 3)
+Setup Variante 2 (für Proto 3)
 1. ZIP-Datei des Repos herunterladen (grüner Button oben rechts) und entpacken.
 2. Ordner für Prototyp 3_Poetic_Rediscription öffnen. 
 3. Doppelklick auf die 'index.html'-Datei
 
-Variante 3 (für Proto 8)
+Setup Variante 3 (für Proto 8)
 1. ZIP-Datei des Repos herunterladen (grüner Button oben rechts) und entpacken.
 2. Ordner zu 8_Reflective_Analogies öffnen und den Text aus der 'CustomInstructions.txt'-Datei in einen KI-Chatbot nach Wahl kopieren. 
 3. Text aus der 'InputPrompt.txt'-Datei mit eigenen Inhalten ausfüllen und in den gleichen Texte, wie zuvor schicken. 
 
-Variante 4 (für Proto 11)
+Setup Variante 4 (für Proto 11)
 1. ZIP-Datei des Repos herunterladen (grüner Button oben rechts) und entpacken.
 2. Ordner zu 11_Kaleido_App öffnen und auf 'Kaleido.app'-Datei doppelklicken. 
 3. App installieren und aufpoppende Aufforderungen auf Systemzugriffe erlauben. 
