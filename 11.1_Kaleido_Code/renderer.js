@@ -268,10 +268,15 @@ let hoveredPinId = null; // Currently hovered pin ID (for hover tooltip)
 let isPlacingPin = false; // Whether currently placing a pin
 let tempPinLocation = null; // Temporary pin location during placement {x, y} in normalized coordinates
 let pinFeatureText = ''; // Text for feature during pin placement
+let pinThumbnailSvg = null; // SVG image for pin thumbnail overlay on card images
 
 // Pin expansion animation state
 let pinExpansionAnimation = null; // { pinId, startTime, duration, fromState: 'collapsed'|'expanded', toState: 'collapsed'|'expanded' }
 const PIN_EXPANSION_DURATION = 350; // Animation duration in milliseconds
+let scaledPinId = null; // Pin ID that is scaled up when a card is selected (3% scale) - single selection
+let scaledPinIds = []; // Array of pin IDs that are scaled up when perspective card is selected (up to 2 pins)
+let isAnyCardSelected = false; // Global flag: true when any card image is selected
+let selectedCardIndex = null; // Index of the selected card (0=Analogy, 1=Perspective, 2=Lucky)
 
 // Canvas comment system state
 let canvasComments = [];              // Array of canvas comment objects
@@ -369,6 +374,17 @@ function loadLabelImages() {
     console.error('Failed to load Emotions.svg from:', emotionsPath);
   };
   emotionsLabelImage.src = 'file://' + emotionsPath;
+
+  // Load pin thumbnail SVG
+  const pinThumbnailPath = path.join(os.homedir(), 'Desktop', 'Cards', 'pinthumg.svg');
+  pinThumbnailSvg = new Image();
+  pinThumbnailSvg.onload = () => {
+    requestDraw();
+  };
+  pinThumbnailSvg.onerror = () => {
+    console.error('Failed to load pin thumbnail SVG from:', pinThumbnailPath);
+  };
+  pinThumbnailSvg.src = 'file://' + pinThumbnailPath;
 
   // Load Values SVG
   valuesLabelImage = new Image();
@@ -3425,12 +3441,22 @@ function draw() {
     // ONLY draw the selected image(s) - absolutely never draw other images
     // This ensures other images stay invisible until first exit
     // EXCEPTION: Always draw card images (they're not part of reflection mode workflow)
+    const currentTime = Date.now();
+    
+    // Check if a card is selected
+    const isCardSelected = selectedImageIndices.some(index => {
+      const img = images[index];
+      return img && img.isCard && !img.hidden;
+    });
+    
     images.forEach((img, index) => {
       // Draw if: (selected AND not hidden) OR (is a card image AND not hidden)
       if ((selectedImageIndices.includes(index) || img.isCard) && !img.hidden) {
-        const currentTime = Date.now();
+        const isSelected = selectedImageIndices.includes(index);
+        const isFading = img.fadeStartTime !== undefined;
+        
         // Update opacity if fading in
-        if (img.fadeStartTime !== undefined) {
+        if (isFading) {
           const fadeElapsed = currentTime - img.fadeStartTime;
           const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
           img.opacity = fadeProgress; // Fade from 0.0 to 1.0
@@ -3438,8 +3464,18 @@ function draw() {
             img.opacity = 1.0;
             img.fadeStartTime = undefined; // Clear fade animation
           }
+        } else {
+          // Not fading - set opacity based on card selection
+          if (isCardSelected) {
+            // Card is selected: selected images at full opacity, others at 50%
+            img.opacity = isSelected ? 1.0 : 0.5;
+          } else {
+            // No card selected: all images at full opacity
+            img.opacity = 1.0;
+          }
         }
-        drawImage(img, selectedImageIndices.includes(index));
+        
+        drawImage(img, isSelected);
       }
       // Explicitly skip all other images - don't draw them at all
     });
@@ -3447,11 +3483,21 @@ function draw() {
     // Normal mode - after first exit from reflection mode
     // Draw all images that are not hidden
     const currentTime = Date.now();
+    
+    // Check if a card is selected
+    const isCardSelected = selectedImageIndices.some(index => {
+      const img = images[index];
+      return img && img.isCard && !img.hidden;
+    });
+    
     images.forEach((img, index) => {
       // Still respect the hidden flag - never draw hidden images
       if (!img.hidden) {
+        const isSelected = selectedImageIndices.includes(index);
+        const isFading = img.fadeStartTime !== undefined;
+        
         // Update opacity if fading in
-        if (img.fadeStartTime !== undefined) {
+        if (isFading) {
           const fadeElapsed = currentTime - img.fadeStartTime;
           const fadeProgress = Math.min(fadeElapsed / img.fadeDuration, 1);
           img.opacity = fadeProgress; // Fade from 0.0 to 1.0
@@ -3459,8 +3505,18 @@ function draw() {
             img.opacity = 1.0;
             img.fadeStartTime = undefined; // Clear fade animation
           }
+        } else {
+          // Not fading - set opacity based on card selection
+          if (isCardSelected) {
+            // Card is selected: selected images at full opacity, others at 50%
+            img.opacity = isSelected ? 1.0 : 0.5;
+          } else {
+            // No card selected: all images at full opacity
+            img.opacity = 1.0;
+          }
         }
-        drawImage(img, selectedImageIndices.includes(index));
+        
+        drawImage(img, isSelected);
       }
     });
   }
@@ -3496,6 +3552,39 @@ function draw() {
       }
     });
   }
+
+  // Draw pin thumbnail SVG overlay on card images when pins are selected
+  // For perspective cards, show overlay for all selected pins (up to 2)
+  // For other cards, show overlay for single selected pin
+  const pinsToShow = [];
+  if (isAnyCardSelected && selectedCardIndex === 1) {
+    // Perspective card: show all pins in scaledPinIds
+    images.forEach((img) => {
+      if (!img.hidden && img.isCard && img.pins && img.pins.length > 0) {
+        scaledPinIds.forEach(pinId => {
+          const pin = img.pins.find(p => p.id === pinId);
+          if (pin) {
+            pinsToShow.push({ img, pin });
+          }
+        });
+      }
+    });
+  } else if (selectedPinId !== null) {
+    // Other cards: show single selected pin
+    images.forEach((img) => {
+      if (!img.hidden && img.isCard && img.pins && img.pins.length > 0) {
+        const selectedPin = img.pins.find(p => p.id === selectedPinId);
+        if (selectedPin) {
+          pinsToShow.push({ img, pin: selectedPin });
+        }
+      }
+    });
+  }
+  
+  // Draw overlay for each pin
+  pinsToShow.forEach(({ img, pin }) => {
+    drawPinThumbnailOverlay(img, pin);
+  });
 
   // Draw red control panel in reflection mode (after transform is restored for screen coordinates)
   if (isReflectionMode && reflectionImageIndex >= 0) {
@@ -4619,11 +4708,35 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   const isExpanded = expandedPinId === pin.id;
   const hasEmotionalAspects = pin.emotionalAspects && pin.emotionalAspects.length > 0;
   const hasValueAspects = pin.valueAspects && pin.valueAspects.length > 0;
-  const canExpand = hasEmotionalAspects || hasValueAspects; // Only expandable if aspects exist
+  
+  // Use global flag to prevent expansion when any card is selected
+  // This is simpler and more reliable
+  const shouldPreventExpansion = isAnyCardSelected;
+  
+  // Only allow expansion if aspects exist AND expansion is not prevented
+  const canExpand = (hasEmotionalAspects || hasValueAspects) && !shouldPreventExpansion;
 
+  // Check if this pin should be scaled up (when card is selected)
+  // Support both single selection (scaledPinId) and multi-select (scaledPinIds for perspective card)
+  const isScaled = scaledPinId === pin.id || scaledPinIds.includes(pin.id);
+  const scaleFactor = isScaled ? 1.03 : 1.0; // 3% scale up
+  
   // Get animation progress (0.0 = collapsed, 1.0 = expanded)
-  const expansionProgress = canExpand ? getPinExpansionProgress(pin.id) : 0.0;
-  const isExpandedState = expansionProgress > 0.5 || (isExpanded && expansionProgress === 0.0);
+  // CRITICAL: Never allow expansion if shouldPreventExpansion is true
+  let expansionProgress = 0.0;
+  if (canExpand && !shouldPreventExpansion) {
+    expansionProgress = getPinExpansionProgress(pin.id);
+  }
+  // Force expansion progress to 0.0 if expansion should be prevented
+  // This handles the case where pin was expanded before card was selected
+  if (shouldPreventExpansion) {
+    expansionProgress = 0.0;
+    // Also cancel any ongoing animation
+    if (pinExpansionAnimation && pinExpansionAnimation.pinId === pin.id) {
+      pinExpansionAnimation = null;
+    }
+  }
+  const isExpandedState = expansionProgress > 0.5 && !shouldPreventExpansion;
 
   // Define radii for concentric rings (in CSS pixels - context is already scaled by dpr)
   const baseBlueRadius = isSelected ? 14 : 12; // Base blue circle size - bigger when selected
@@ -4631,18 +4744,20 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   const blueRadiusCollapsed = baseBlueRadius * 0.75; // 75% of base size when collapsed with rings
   const blueRadiusExpanded = baseBlueRadius; // Full size when expanded
   // Interpolate blue radius during transition (smaller when collapsed, full size when expanded)
-  const blueRadius = canExpand
+  let blueRadius = canExpand
     ? blueRadiusCollapsed + (blueRadiusExpanded - blueRadiusCollapsed) * expansionProgress
     : baseBlueRadius; // No rings, use base size
+  // Apply scale factor if pin is scaled
+  blueRadius = blueRadius * scaleFactor;
   const whiteStrokeWidth = 3; // White stroke width
 
   // Collapsed state radii
   const collapsedRingThickness = 10; // Thickness of yellow rings in collapsed state (increased by 2px)
   const collapsedGreenRingThickness = 10; // Thickness of green ring in collapsed state
-  let collapsedYellowRingInnerRadius = blueRadius;
-  let collapsedYellowRingOuterRadius = collapsedYellowRingInnerRadius + collapsedRingThickness;
+  let collapsedYellowRingInnerRadius = blueRadius; // Already scaled via blueRadius
+  let collapsedYellowRingOuterRadius = collapsedYellowRingInnerRadius + (collapsedRingThickness * scaleFactor);
   let collapsedGreenRingInnerRadius = hasEmotionalAspects ? collapsedYellowRingOuterRadius : blueRadius;
-  let collapsedGreenRingOuterRadius = collapsedGreenRingInnerRadius + collapsedGreenRingThickness;
+  let collapsedGreenRingOuterRadius = collapsedGreenRingInnerRadius + (collapsedGreenRingThickness * scaleFactor);
 
   // Limit collapsed pin size to max 1/4 of image width (in screen coordinates)
   // Calculate image width in screen coordinates
@@ -4663,8 +4778,13 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
   // Expanded state radii with gaps
   const gapSize = 5; // Small gap between areas (reduced from 8 to 5)
-  const expandedInnerOrbitRadius = 70; // Inner orbit for emotions (outer edge) - reduced thickness
-  const expandedOuterOrbitRadius = 130; // Outer orbit for values (outer edge)
+  let expandedInnerOrbitRadius = 70; // Inner orbit for emotions (outer edge) - reduced thickness
+  let expandedOuterOrbitRadius = 130; // Outer orbit for values (outer edge)
+  // Apply scale factor if pin is scaled
+  if (isScaled) {
+    expandedInnerOrbitRadius *= scaleFactor;
+    expandedOuterOrbitRadius *= scaleFactor;
+  }
   const dotRadius = blueRadius; // Same size as blue pin
   const dotStrokeWidth = 3; // White border on dots (same as blue pin)
   const blurRadius = 4; // Blur radius for background blur effect (lighter blur)
@@ -5208,6 +5328,29 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   if (distance <= pinHitRadius && !hoveredPinId) {
     hoveredPinId = pin.id;
   }
+}
+
+// Draw pin thumbnail SVG overlay on card images when a pin is selected
+function drawPinThumbnailOverlay(img, pin) {
+  if (!img || !img.isCard || !pin || !pinThumbnailSvg || !pinThumbnailSvg.complete) {
+    return;
+  }
+
+  // Calculate card image corners in screen coordinates
+  const topLeft = canvasToScreen(img.x, img.y);
+  const topRight = canvasToScreen(img.x + img.width, img.y);
+  const bottomRight = canvasToScreen(img.x + img.width, img.y + img.height);
+
+  // Position SVG in top-right corner of the card image
+  // SVG is 50x50, scale it appropriately (e.g., 60x60 pixels for visibility)
+  const overlaySize = 60;
+  const padding = 10; // Padding from edge
+  const overlayX = topRight.x - overlaySize - padding;
+  const overlayY = topLeft.y + padding;
+
+  ctx.save();
+  ctx.drawImage(pinThumbnailSvg, overlayX, overlayY, overlaySize, overlaySize);
+  ctx.restore();
 }
 
 // Draw pins on an image (called after transform is restored, so we draw in screen coordinates)
@@ -8469,6 +8612,39 @@ function handleSelectionChange(newIndex) {
     exitReflectionMode();
   }
 
+  // Update global flag: check if any card is selected
+  isAnyCardSelected = false;
+  selectedCardIndex = null;
+  
+  for (let index of selectedImageIndices) {
+    const img = images[index];
+    if (img && img.isCard && !img.hidden) {
+      isAnyCardSelected = true;
+      selectedCardIndex = img.cardIndex !== undefined ? img.cardIndex : null;
+      break; // Use first selected card
+    }
+  }
+  
+  console.log('Selection changed - isAnyCardSelected:', isAnyCardSelected, 'selectedCardIndex:', selectedCardIndex, 'selectedImageIndices:', selectedImageIndices);
+  
+  if (isAnyCardSelected) {
+    // When a card is selected, collapse any expanded pins immediately
+    if (expandedPinId !== null) {
+      // Cancel any ongoing expansion animation
+      if (pinExpansionAnimation) {
+        pinExpansionAnimation = null;
+      }
+      startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+      expandedPinId = null;
+    }
+  } else {
+    // No card selected - clear scaled pins
+    scaledPinId = null;
+    scaledPinIds = [];
+    selectedPinId = null;
+    tooltipPinId = null;
+  }
+
   // Update download button state
   updateDownloadButtonState();
 
@@ -9103,7 +9279,54 @@ canvas.addEventListener('mousedown', (e) => {
       if (clickedPin) {
         e.preventDefault();
         e.stopPropagation();
+        
+        // CRITICAL CHECK FIRST: Use global flag to prevent expansion when any card is selected
+        console.log('Pin clicked - isAnyCardSelected:', isAnyCardSelected, 'pinId:', clickedPin.id);
+        
+        if (isAnyCardSelected) {
+          console.log('Card selected (isAnyCardSelected=true) - preventing expansion, using scaling instead');
+          // Card image is selected - pins should only scale, never expand
+          
+          // Cancel any ongoing expansion animation for this pin immediately
+          if (pinExpansionAnimation && pinExpansionAnimation.pinId === clickedPin.id) {
+            console.log('Cancelling expansion animation for pin:', clickedPin.id);
+            pinExpansionAnimation = null;
+          }
+          
+          // Clear expandedPinId for this pin immediately
+          if (expandedPinId === clickedPin.id) {
+            console.log('Clearing expandedPinId for pin:', clickedPin.id);
+            expandedPinId = null;
+          }
+          
+          // Handle scaling instead of expansion
+          if (scaledPinId === clickedPin.id) {
+            console.log('Pin already scaled - deselecting');
+            // Already scaled - deselect it
+            scaledPinId = null;
+            selectedPinId = null;
+            tooltipPinId = null;
+          } else {
+            console.log('Scaling pin:', clickedPin.id);
+            // Scale this pin
+            scaledPinId = clickedPin.id;
+            selectedPinId = clickedPin.id;
+            tooltipPinId = clickedPin.id;
+            // Collapse any other expanded pin
+            if (expandedPinId !== null) {
+              console.log('Collapsing other expanded pin:', expandedPinId);
+              startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
+              expandedPinId = null;
+            }
+          }
+          requestDraw();
+          console.log('Returning early - expansion should be prevented');
+          return; // CRITICAL: Must return here to prevent ANY expansion logic
+        }
+        
+        console.log('Card image NOT selected (isAnyCardSelected=false) - allowing normal expansion behavior');
 
+        // Normal pin behavior (when card image is NOT selected)
         const hasEmotionalAspects = clickedPin.emotionalAspects && clickedPin.emotionalAspects.length > 0;
         const hasValueAspects = clickedPin.valueAspects && clickedPin.valueAspects.length > 0;
         const canExpand = hasEmotionalAspects || hasValueAspects;
@@ -9111,9 +9334,24 @@ canvas.addEventListener('mousedown', (e) => {
 
         // Show tooltip (without delete button since not in reflection mode)
         tooltipPinId = clickedPin.id;
+        
+        // Clear scaled pins if clicking on a different pin (only for single-select cards)
+        if (isAnyCardSelected && selectedCardIndex !== 1) {
+          // For non-perspective cards, clear single selection if clicking different pin
+          if (scaledPinId !== null && scaledPinId !== clickedPin.id) {
+            scaledPinId = null;
+          }
+        }
 
-        // Handle pin expansion
+        // Handle pin expansion (only if allowed)
+        console.log('Normal pin behavior:', {
+          canExpand: canExpand,
+          isCurrentlyExpanded: isCurrentlyExpanded,
+          pinId: clickedPin.id
+        });
+        
         if (canExpand) {
+          console.log('Expanding pin:', clickedPin.id);
           if (isCurrentlyExpanded) {
             // Pin is already expanded - collapse it
             if (expandedPinId !== null) {
@@ -9129,6 +9367,7 @@ canvas.addEventListener('mousedown', (e) => {
             // Expand this pin
             expandedPinId = clickedPin.id;
             startPinExpansionAnimation(clickedPin.id, 'collapsed', 'expanded');
+            console.log('Set expandedPinId to:', expandedPinId);
           }
         } else {
           // Pin cannot be expanded - just show tooltip
@@ -9145,11 +9384,14 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     // If clicking on empty space (not on a pin), collapse any expanded pin and close tooltip
-    if (expandedPinId !== null || tooltipPinId !== null) {
+    if (expandedPinId !== null || tooltipPinId !== null || scaledPinId !== null || scaledPinIds.length > 0) {
       if (expandedPinId !== null) {
         startPinExpansionAnimation(expandedPinId, 'expanded', 'collapsed');
         expandedPinId = null;
       }
+      scaledPinId = null;
+      scaledPinIds = [];
+      selectedPinId = null;
       tooltipPinId = null;
       hoveredPinId = null;
       // Clear all tooltip bounds
@@ -9498,10 +9740,19 @@ canvas.addEventListener('mousedown', (e) => {
 
   const imgIndex = getImageAt(e.clientX, e.clientY);
   if (imgIndex >= 0) {
+    const clickedImg = images[imgIndex];
+    console.log('Image clicked:', {
+      imgIndex: imgIndex,
+      imgIsCard: clickedImg?.isCard,
+      currentSelection: selectedImageIndices,
+      clickedImageId: clickedImg?.id
+    });
+    
     // Clicked on an image - check if it's already selected
     const isAlreadySelected = selectedImageIndices.includes(imgIndex);
 
     if (isAlreadySelected) {
+      console.log('Image already selected, starting drag');
       // Clicked on already selected image (single or multi-select) - start dragging immediately
       // Keep all selected images selected
       isDragging = true;
@@ -9509,6 +9760,7 @@ canvas.addEventListener('mousedown', (e) => {
       dragStartY = e.clientY;
       setInteracting(true); // Track interaction for dynamic DPR
     } else {
+      console.log('Selecting new image:', imgIndex, 'isCard:', clickedImg?.isCard);
       // Clicked on different image - select it (single select)
       selectedImageIndices = [imgIndex];
 
@@ -9521,6 +9773,7 @@ canvas.addEventListener('mousedown', (e) => {
         }
       }
       handleSelectionChange(imgIndex);
+      console.log('After handleSelectionChange, selectedImageIndices:', selectedImageIndices);
       isDragging = true;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
