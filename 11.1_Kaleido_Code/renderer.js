@@ -2800,6 +2800,9 @@ function toggleOverlay() {
     if (bottomToolbar) {
       bottomToolbar.classList.remove('visible');
     }
+    // Remove red rectangle when overlay closes
+    removeRedRectangle();
+
     // Reset fresh screenshot flag when overlay closes
     isFreshScreenshot = false;
 
@@ -3533,6 +3536,11 @@ function draw() {
   // Draw selection box if currently selecting
   if (isSelecting) {
     drawSelectionBox();
+  }
+
+  // Update red rectangle position if it exists
+  if (redRectangleElement && redRectangleCanvasX !== null && redRectangleCanvasY !== null) {
+    updateRedRectanglePosition();
   }
 
   // Update FPS counter
@@ -13816,6 +13824,39 @@ let draggedCardOffsetX = 0;
 let draggedCardOffsetY = 0;
 let isCardExpanded = false;
 
+// Red rectangle on canvas (stored in canvas coordinates)
+let redRectangleCanvasX = null;
+let redRectangleCanvasY = null;
+let redRectangleWidth = 200;
+let redRectangleHeight = 150;
+let redRectangleElement = null;
+
+// Update red rectangle position based on canvas transforms
+function updateRedRectanglePosition() {
+  if (!redRectangleElement || redRectangleCanvasX === null || redRectangleCanvasY === null) {
+    return;
+  }
+
+  // Convert canvas coordinates to screen coordinates
+  // canvasToScreen returns coordinates relative to the canvas (which is at 0,0)
+  const screenPos = canvasToScreen(redRectangleCanvasX, redRectangleCanvasY);
+  
+  // Position rectangle centered on the canvas coordinates
+  // Since canvas is fullscreen at (0,0), screenPos is already in viewport coordinates
+  redRectangleElement.style.left = (screenPos.x - redRectangleWidth / 2) + 'px';
+  redRectangleElement.style.top = (screenPos.y - redRectangleHeight / 2) + 'px';
+}
+
+// Remove red rectangle
+function removeRedRectangle() {
+  if (redRectangleElement) {
+    redRectangleElement.remove();
+    redRectangleElement = null;
+  }
+  redRectangleCanvasX = null;
+  redRectangleCanvasY = null;
+}
+
 // Card stack elements (will be initialized when DOM is ready)
 let cardStackContainer = null;
 let cardStackWrapper = null;
@@ -14069,28 +14110,36 @@ function initializeCardStack() {
                             e.clientY <= canvasRect.bottom;
 
         if (isOverCanvas && isOverlayActive && hasMoved) {
-          // Create red rectangle on canvas
-          const canvasX = e.clientX - canvasRect.left;
-          const canvasY = e.clientY - canvasRect.top;
-          const rectWidth = 200;
-          const rectHeight = 150;
+          // Convert drop position to canvas coordinates
+          // screenToCanvas expects viewport coordinates (e.clientX/Y)
+          const canvasPos = screenToCanvas(e.clientX, e.clientY);
+          
+          // Store rectangle position in canvas coordinates
+          redRectangleCanvasX = canvasPos.x;
+          redRectangleCanvasY = canvasPos.y;
+          redRectangleWidth = 200;
+          redRectangleHeight = 150;
 
-          // Remove existing red rectangles
-          const existingRects = document.querySelectorAll('.canvas-red-rectangle');
-          existingRects.forEach(rect => rect.remove());
+          // Remove existing red rectangle
+          if (redRectangleElement) {
+            redRectangleElement.remove();
+          }
 
-          // Create new red rectangle
-          const redRect = document.createElement('div');
-          redRect.className = 'canvas-red-rectangle';
-          redRect.style.width = rectWidth + 'px';
-          redRect.style.height = rectHeight + 'px';
-          redRect.style.left = (canvasX - rectWidth / 2) + 'px';
-          redRect.style.top = (canvasY - rectHeight / 2) + 'px';
-          canvas.parentElement.appendChild(redRect);
+          // Create new red rectangle element
+          redRectangleElement = document.createElement('div');
+          redRectangleElement.className = 'canvas-red-rectangle';
+          redRectangleElement.style.width = redRectangleWidth + 'px';
+          redRectangleElement.style.height = redRectangleHeight + 'px';
+          redRectangleElement.style.position = 'absolute';
+          redRectangleElement.style.pointerEvents = 'none';
+          canvas.parentElement.appendChild(redRectangleElement);
+
+          // Update rectangle position based on canvas transforms
+          updateRedRectanglePosition();
 
           // Fade in red rectangle
           requestAnimationFrame(() => {
-            redRect.classList.add('fade-in');
+            redRectangleElement.classList.add('fade-in');
           });
 
           // Store references before clearing variables (important for setTimeout callback)
