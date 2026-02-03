@@ -522,7 +522,10 @@ let customInstructions = {
   features: "",
   emotions: "",
   values: "",
-  variantGenerationPrompt: ""
+  variantGenerationPrompt: "",
+  tokenPrompt0: "",
+  tokenPrompt1: "",
+  tokenPrompt2: ""
 };
 
 // Get config file path (user-specific settings)
@@ -578,7 +581,10 @@ function loadCustomInstructions() {
         features: loaded.features || "",
         emotions: loaded.emotions || "",
         values: loaded.values || "",
-        variantGenerationPrompt: loaded.variantGenerationPrompt || ""
+        variantGenerationPrompt: loaded.variantGenerationPrompt || "",
+        tokenPrompt0: loaded.tokenPrompt0 || "",
+        tokenPrompt1: loaded.tokenPrompt1 || "",
+        tokenPrompt2: loaded.tokenPrompt2 || ""
       };
     }
   } catch (error) {
@@ -2255,6 +2261,179 @@ async function handleGenerateVariant() {
   }
 }
 
+// Handle token generation (automatically triggered when token is dropped)
+async function handleTokenGenerate(tokenImg, tokenIndex) {
+  console.log('handleTokenGenerate called:', { tokenId: tokenImg?.id, tokenIndex, parentImageId: tokenImg?.parentImageId });
+  
+  // Validate prerequisites
+  if (!tokenImg || !tokenImg.parentImageId) {
+    console.error('Token validation failed:', { tokenExists: !!tokenImg, parentImageId: tokenImg?.parentImageId });
+    showToast('Token must be placed on an image', true);
+    // Delete token if invalid
+    deleteTokenImage(tokenImg);
+    return;
+  }
+  
+  const parentImage = images.find(img => img.id === tokenImg.parentImageId);
+  if (!parentImage) {
+    console.error('Parent image not found:', { tokenId: tokenImg.id, parentImageId: tokenImg.parentImageId, availableImages: images.map(img => ({ id: img.id, isToken: img.isToken })) });
+    showToast('Parent image not found', true);
+    // Delete token if parent not found
+    deleteTokenImage(tokenImg);
+    return;
+  }
+  
+  console.log('Token generation starting:', { tokenId: tokenImg.id, parentImageId: parentImage.id, tokenIndex });
+  
+  // Get token prompt from custom instructions
+  const tokenPromptKey = `tokenPrompt${tokenIndex}`;
+  const tokenPrompt = customInstructions[tokenPromptKey] || `Generate a new version of this image.`;
+  console.log('Token prompt:', { tokenPromptKey, tokenPrompt });
+  
+  // Build prompt combining token prompt with pinned emotions and values
+  const prompt = buildTokenGenerationPrompt(tokenPrompt, parentImage);
+  console.log('Built generation prompt:', prompt.substring(0, 200) + '...');
+  
+  // Show loading state on token pill (should already be set, but ensure it's set)
+  tokenImg.isGenerating = true;
+  requestDraw();
+  
+  try {
+    // Compress parent image
+    const imageBase64 = await compressImageToBase64(parentImage.element, 500);
+    
+    // Call API to generate new image
+    const generatedImageDataURL = await callNanoBananaProAPI(prompt, imageBase64);
+    
+    // Create image element from data URL
+    const img = new Image();
+    img.onload = () => {
+      // Add image to canvas
+      addImageToCanvas(generatedImageDataURL, null, null, null, null, () => {
+        showToast('Token variant generated successfully!');
+      });
+      
+      // Delete the token after generation completes
+      deleteTokenImage(tokenImg);
+    };
+    
+    img.onerror = () => {
+      throw new Error('Failed to load generated image');
+    };
+    
+    img.src = generatedImageDataURL;
+    
+  } catch (error) {
+    console.error('Error generating token variant:', error);
+    showToast(error.message || 'Failed to generate token variant', true);
+    
+    // Delete token even on error
+    deleteTokenImage(tokenImg);
+  }
+}
+
+// Delete token image from canvas
+function deleteTokenImage(tokenImg) {
+  if (!tokenImg) return;
+  
+  const tokenIndex = images.findIndex(img => img.id === tokenImg.id);
+  if (tokenIndex >= 0) {
+    // Remove from images array
+    images.splice(tokenIndex, 1);
+    // Remove from selected indices if it was selected
+    selectedImageIndices = selectedImageIndices.filter(idx => idx !== tokenIndex).map(idx => idx > tokenIndex ? idx - 1 : idx);
+    // Remove pill bounds
+    delete tokenPillBounds[tokenImg.id];
+    // Remove generate button bounds if exists
+    delete cardGenerateButtonBounds[tokenImg.id];
+    // Update selection
+    if (selectedImageIndices.length > 0) {
+      handleSelectionChange(selectedImageIndices[0]);
+    } else {
+      handleSelectionChange(-1);
+    }
+    requestDraw();
+  }
+}
+
+// Build token generation prompt combining token prompt with pinned emotions and values
+function buildTokenGenerationPrompt(tokenPrompt, parentImage) {
+  const generalInstructions = customInstructions.general || '';
+  const emotionsInstructions = customInstructions.emotions || '';
+  const valuesInstructions = customInstructions.values || '';
+  
+  // Collect all emotions and values from pins on the parent image
+  const emotions = [];
+  const values = [];
+  
+  if (parentImage.pins && parentImage.pins.length > 0) {
+    for (const pin of parentImage.pins) {
+      // Find aspect cards associated with this pin
+      const pinAspectCards = aspectCards.filter(card => card.pinId === pin.id);
+      
+      for (const card of pinAspectCards) {
+        if (card.type === 'emotional') {
+          // Use transformed aspect if available, otherwise original
+          const aspectText = card.transformedAspect || card.originalAspect;
+          if (aspectText && !emotions.includes(aspectText)) {
+            emotions.push(aspectText);
+          }
+        } else if (card.type === 'value') {
+          // Use transformed aspect if available, otherwise original
+          const aspectText = card.transformedAspect || card.originalAspect;
+          if (aspectText && !values.includes(aspectText)) {
+            values.push(aspectText);
+          }
+        }
+      }
+    }
+  }
+  
+  // Build the prompt
+  let prompt = '';
+  
+  // Add general instructions if available
+  if (generalInstructions) {
+    prompt += `${generalInstructions}\n\n`;
+  }
+  
+  // Add token personality prompt
+  prompt += `${tokenPrompt}\n\n`;
+  
+  // Add pinned emotions if any
+  if (emotions.length > 0) {
+    prompt += `The following emotions have been identified and pinned on this image:\n`;
+    emotions.forEach((emotion, index) => {
+      prompt += `${index + 1}. ${emotion}`;
+      if (emotionsInstructions) {
+        prompt += ` (${emotionsInstructions})`;
+      }
+      prompt += `\n`;
+    });
+    prompt += `\nIncorporate these emotional aspects into the new version.\n\n`;
+  }
+  
+  // Add pinned values if any
+  if (values.length > 0) {
+    prompt += `The following values have been identified and pinned on this image:\n`;
+    values.forEach((value, index) => {
+      prompt += `${index + 1}. ${value}`;
+      if (valuesInstructions) {
+        prompt += ` (${valuesInstructions})`;
+      }
+      prompt += `\n`;
+    });
+    prompt += `\nReflect these values in the new version.\n\n`;
+  }
+  
+  // Add instruction to maintain other aspects
+  if (emotions.length > 0 || values.length > 0) {
+    prompt += `Maintain all other aspects of the image unchanged while incorporating the above emotions and values.`;
+  }
+  
+  return prompt.trim();
+}
+
 // Helper function to get device pixel ratio
 // Get the base device pixel ratio from the browser
 function getBaseDevicePixelRatio() {
@@ -3786,7 +3965,7 @@ function draw() {
     reflectionButtonBounds = null;
   }
 
-  // Draw generate buttons for selected card images only
+  // Draw generate buttons for selected card images only (tokens don't have generate buttons - they auto-generate)
   // Clear button bounds first, then redraw for selected cards
   const currentCardIds = new Set();
   selectedImageIndices.forEach(index => {
@@ -8265,22 +8444,14 @@ function drawAspectTag(text, x, y, type, index) {
   ctx.restore();
 }
 
-// Draw generate button below card images
+// Draw generate button below card images (tokens don't have generate buttons - they auto-generate)
 function drawCardGenerateButton(img) {
   if (!img || !img.isCard) return;
 
-  // Check if this is a token or card
-  const isToken = img.isToken === true;
   const cardIndex = img.cardIndex !== undefined ? img.cardIndex : 0;
   
-  // Use token config for tokens, card config for cards
-  let buttonConfig;
-  if (isToken) {
-    buttonConfig = tokenButtonConfig;
-  } else {
-    buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
-  }
-  
+  // Use card config
+  const buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
   const buttonText = buttonConfig.text;
   const buttonBgColor = buttonConfig.bgColor;
   const buttonPadding = 10; // Fixed pixel padding (screen coordinates)
@@ -8306,21 +8477,6 @@ function drawCardGenerateButton(img) {
   const buttonWidth = textWidth + buttonPadding * 2;
   const buttonHeight = textHeight + buttonPadding * 2;
 
-  // For tokens: hide button if it's wider than the image width (in screen coordinates)
-  if (isToken) {
-    const imageScreenTopLeft = canvasToScreen(img.x, img.y);
-    const imageScreenTopRight = canvasToScreen(img.x + img.width, img.y);
-    const imageScreenWidth = Math.abs(imageScreenTopRight.x - imageScreenTopLeft.x);
-    
-    if (buttonWidth > imageScreenWidth) {
-      // Don't draw the button - it's too wide
-      // Also remove any existing bounds for this image
-      delete cardGenerateButtonBounds[img.id];
-      ctx.restore();
-      return;
-    }
-  }
-
   // Store button bounds for click detection (in screen coordinates)
   cardGenerateButtonBounds[img.id] = {
     x: buttonScreenX - buttonWidth / 2,
@@ -8328,8 +8484,7 @@ function drawCardGenerateButton(img) {
     width: buttonWidth,
     height: buttonHeight,
     isScreenCoords: true,
-    cardIndex: cardIndex,
-    isToken: isToken
+    cardIndex: cardIndex
   };
 
   // Draw button background with rounded corners (fixed pixel size, screen coordinates)
@@ -8385,6 +8540,7 @@ function isPointOnCardGenerateButton(x, y) {
 function drawTokenPill(img) {
   if (!img || !img.isToken) return;
 
+  // Always show "Generating..." pill for tokens (they're temporary and always generating)
   const pillText = 'Generating...';
   const pillPaddingHorizontal = 10; // Fixed pixel padding for left and right (canvas coordinates)
   const pillPaddingVertical = 8; // Fixed pixel padding for top and bottom (canvas coordinates)
@@ -9958,7 +10114,7 @@ canvas.addEventListener('mousedown', (e) => {
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
 
-  // Check if clicking on card generate button
+  // Check if clicking on card generate button (tokens don't have generate buttons)
   const cardButtonClick = isPointOnCardGenerateButton(e.clientX, e.clientY);
   if (cardButtonClick) {
     e.stopPropagation();
@@ -9966,6 +10122,7 @@ canvas.addEventListener('mousedown', (e) => {
     // Handle card generate button click
     const img = images.find(img => img.id === cardButtonClick.imageId);
     if (img) {
+      // Handle card generate button click
       console.log('Card generate button clicked:', { cardIndex: cardButtonClick.cardIndex, imageId: cardButtonClick.imageId });
       // TODO: Implement generate functionality for each card type
       // For now, just log the click
@@ -11945,6 +12102,7 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
 function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0, fixedWidth = 400, useExactPosition = false, parentImageId = null) {
   console.log('addCardImageToCanvas called with:', { screenX, screenY, dataURLLength: dataURL.length, cardIndex, fixedWidth, useExactPosition });
   const img = new Image();
+  let imageObjRef = null; // Store reference to return
   img.onload = () => {
     console.log('Card image loaded:', { width: img.width, height: img.height });
     
@@ -11980,21 +12138,54 @@ function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0, fixedWid
       isCard: fixedWidth === 400, // Mark as card image only if full size (400px)
       isToken: fixedWidth === 100, // Mark as token image if small size (100px)
       cardIndex: cardIndex, // Store which card/token type this is
-      parentImageId: parentImageId // Store parent image ID for tokens (null for cards)
+      parentImageId: parentImageId, // Store parent image ID for tokens (null for cards)
+      isGenerating: false // Track if token is generating
     };
+    
+    imageObjRef = imageObj; // Store reference
 
-    console.log('Adding card image to canvas:', { x: imageObj.x, y: imageObj.y, width: imageObj.width, height: imageObj.height });
+    console.log('Adding card image to canvas:', { x: imageObj.x, y: imageObj.y, width: imageObj.width, height: imageObj.height, isToken: imageObj.isToken });
     images.push(imageObj);
     selectedImageIndices = [images.length - 1];
 
     handleSelectionChange(selectedImageIndices[0]);
     requestDraw();
     console.log('Card image added, total images:', images.length);
+    
+    // If this is a token, trigger generation after image is loaded
+    if (imageObj.isToken && parentImageId) {
+      console.log('Token added, starting generation:', { tokenId: imageObj.id, parentImageId, cardIndex });
+      // Set generating state immediately so pill shows up
+      imageObj.isGenerating = true;
+      requestDraw();
+      
+      // Start generation after a short delay to ensure everything is set up
+      setTimeout(() => {
+        const parentImage = images.find(img => img.id === parentImageId);
+        console.log('Attempting to start token generation:', { tokenId: imageObj.id, parentImageFound: !!parentImage, parentImageId });
+        if (imageObj && parentImage) {
+          handleTokenGenerate(imageObj, cardIndex);
+        } else {
+          console.error('Failed to start token generation:', { tokenExists: !!imageObj, parentImageExists: !!parentImage });
+          // Clean up token if parent not found
+          if (imageObj) {
+            deleteTokenImage(imageObj);
+          }
+        }
+      }, 100);
+    }
   };
   img.onerror = (error) => {
     console.error('Failed to load card image:', error);
   };
   img.src = dataURL;
+  
+  // Return a promise-like object that resolves when image is loaded
+  // For tokens, we'll use a callback approach
+  return {
+    id: null, // Will be set when image loads
+    getImageObj: () => imageObjRef
+  };
 }
 
 // Toolbar sliding background functionality
@@ -16202,7 +16393,7 @@ function initializeTokenStack() {
             removeCardPreview();
 
             if (droppedImageIndex >= 0) {
-              // Dropped on an image - add token to canvas
+              // Dropped on an image - add token to canvas and automatically start generation
               try {
                 const imagePath = getTokenImagePath(draggedTokenIndex);
                 
@@ -16218,6 +16409,7 @@ function initializeTokenStack() {
                   // Add image to canvas at the exact drop position (using same function as cards, but half size)
                   // Use exact position since we're dropping on an image
                   // Store parentImageId so token moves with parent image
+                  // Generation will be triggered automatically in addCardImageToCanvas when image loads
                   addCardImageToCanvas(imageDataURL, e.clientX, e.clientY, draggedTokenIndex, 100, true, parentImageId);
                 } else {
                   console.warn('Token image file not found for token index:', draggedTokenIndex);
