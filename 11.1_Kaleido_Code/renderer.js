@@ -190,10 +190,10 @@ let tokenPillBounds = {}; // Store pill bounds for each token image: { imageId: 
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
 let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
 let accordionLastCalculatedHeights = {}; // Track last calculated heights for smooth transitions: { accordionId: height }
-let emotionsAIText = DEMO_EMOTIONS_TEXT; // AI-generated text for emotions tab (will be generated when accordion opens if AI mode is enabled)
+let emotionsAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for emotions tab (will be generated when accordion opens if AI mode is enabled)
 let emotionsStarred = false; // Whether the current AI text is starred
 let emotionsIconBounds = {}; // Store icon bounds for click detection: { shuffle: {x, y, width, height}, star: {x, y, width, height} }
-let valuesAIText = DEMO_VALUES_TEXT; // AI-generated text for values tab (will be generated when accordion opens if AI mode is enabled)
+let valuesAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for values tab (will be generated when accordion opens if AI mode is enabled)
 let valuesStarred = false; // Whether the current AI text is starred
 let valuesIconBounds = {}; // Store icon bounds for click detection: { shuffle: {x, y, width, height}, star: {x, y, width, height} }
 let currentQuestionId = 0; // Current question ID (increments when "Next question" is clicked)
@@ -2226,7 +2226,7 @@ async function handleGenerateVariant() {
       if (generateVariantButton) {
         generateVariantButton.disabled = false;
         generateVariantButton.textContent = 'Generate New Variant';
-        generateVariantButton.style.opacity = '1';
+        generateVariantButton.style.opacity = ''; // Remove inline style to let CSS classes control visibility
       }
       
       // Refresh button visibility state
@@ -2247,7 +2247,7 @@ async function handleGenerateVariant() {
     if (generateVariantButton) {
       generateVariantButton.disabled = false;
       generateVariantButton.textContent = 'Generate New Variant';
-      generateVariantButton.style.opacity = '1';
+      generateVariantButton.style.opacity = ''; // Remove inline style to let CSS classes control visibility
     }
     
     // Refresh button visibility state
@@ -6382,13 +6382,15 @@ function autoOpenEmptyAspectPanel(pin) {
     } else if (accordionToOpen === 'emotions') {
       startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED);
       // Trigger AI generation when emotions accordion is opened (if AI mode is enabled and text is still demo)
-      if (isAIModeEnabled() && emotionsAIText === DEMO_EMOTIONS_TEXT) {
+      const isDemoText = emotionsAIText === DEMO_EMOTIONS_TEXT || emotionsAIText === "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+      if (isAIModeEnabled() && isDemoText) {
         regenerateEmotionsAIText();
       }
     } else if (accordionToOpen === 'values') {
       startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_BOTTOM_RADIUS_EXPANDED);
       // Trigger AI generation when values accordion is opened (if AI mode is enabled and text is still demo)
-      if (isAIModeEnabled() && valuesAIText === DEMO_VALUES_TEXT) {
+      const isDemoText = valuesAIText === DEMO_VALUES_TEXT || valuesAIText === "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+      if (isAIModeEnabled() && isDemoText) {
         regenerateValuesAIText();
       }
     }
@@ -6471,13 +6473,15 @@ function openAccordionById(accordionId) {
     } else if (accordionId === 'emotions') {
       startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED);
       // Trigger AI generation when emotions accordion is opened (if AI mode is enabled and text is still demo)
-      if (isAIModeEnabled() && emotionsAIText === DEMO_EMOTIONS_TEXT) {
+      const isDemoText = emotionsAIText === DEMO_EMOTIONS_TEXT || emotionsAIText === "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+      if (isAIModeEnabled() && isDemoText) {
         regenerateEmotionsAIText();
       }
     } else if (accordionId === 'values') {
       startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_BOTTOM_RADIUS_EXPANDED);
       // Trigger AI generation when values accordion is opened (if AI mode is enabled and text is still demo)
-      if (isAIModeEnabled() && valuesAIText === DEMO_VALUES_TEXT) {
+      const isDemoText = valuesAIText === DEMO_VALUES_TEXT || valuesAIText === "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+      if (isAIModeEnabled() && isDemoText) {
         regenerateValuesAIText();
       }
     }
@@ -14529,7 +14533,8 @@ function updateControlPanelInputs() {
       const messageBubbleWidth = emotionsContentBounds.width - emotionsContentBounds.padding * 2 - 40;
       const maxTextWidth = messageBubbleWidth - messagePadding * 2;
       const lines = wrapText(tempCtx, emotionsAIText, maxTextWidth);
-      const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+      // Use fixed height of 100px when "Generating..." to match canvas drawing
+      const messageBubbleHeight = emotionsAIText === "Generating..." ? 100 : (messagePadding * 2 + (lines.length * lineHeight));
 
       // Input position: contentY (20px below bar) + bubble height + spacing
       const inputY = 20 + messageBubbleHeight + bubbleToInputSpacing;
@@ -14593,7 +14598,8 @@ function updateControlPanelInputs() {
       const messageBubbleWidth = valuesContentBounds.width - valuesContentBounds.padding * 2 - 40;
       const maxTextWidth = messageBubbleWidth - messagePadding * 2;
       const lines = wrapText(tempCtx, valuesAIText, maxTextWidth);
-      const messageBubbleHeight = messagePadding * 2 + (lines.length * lineHeight);
+      // Use fixed height of 100px when "Generating..." to match canvas drawing
+      const messageBubbleHeight = valuesAIText === "Generating..." ? 100 : (messagePadding * 2 + (lines.length * lineHeight));
 
       // Input position: contentY (20px below bar) + bubble height + spacing
       const inputY = 20 + messageBubbleHeight + bubbleToInputSpacing;
@@ -15111,8 +15117,18 @@ canvas.addEventListener('click', (e) => {
             startFeaturesHeaderBottomRadiusExpandedAnimation(FEATURES_HEADER_BOTTOM_RADIUS_EXPANDED);
           } else if (bar.id === 'emotions') {
             startEmotionsHeaderBottomRadiusExpandedAnimation(EMOTIONS_HEADER_BOTTOM_RADIUS_EXPANDED);
+            // Trigger AI generation when emotions accordion is opened (if AI mode is enabled and text is still demo)
+            const isDemoText = emotionsAIText === DEMO_EMOTIONS_TEXT || emotionsAIText === "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+            if (isAIModeEnabled() && isDemoText) {
+              regenerateEmotionsAIText();
+            }
           } else if (bar.id === 'values') {
             startValuesHeaderBottomRadiusExpandedAnimation(VALUES_HEADER_BOTTOM_RADIUS_EXPANDED);
+            // Trigger AI generation when values accordion is opened (if AI mode is enabled and text is still demo)
+            const isDemoText = valuesAIText === DEMO_VALUES_TEXT || valuesAIText === "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim.";
+            if (isAIModeEnabled() && isDemoText) {
+              regenerateValuesAIText();
+            }
           }
 
           // Rotate features icon to X when features-pinned accordion is opened (only when no feature is selected)
