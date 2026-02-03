@@ -154,6 +154,7 @@ let previousCanvasScale = 1.0;
 let previousCanvasTranslateX = 0;
 let previousCanvasTranslateY = 0;
 let reflectionButtonBounds = null; // Store button bounds for click detection
+let cardGenerateButtonBounds = {}; // Store generate button bounds for each card image: { imageId: { x, y, width, height, isScreenCoords } }
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
 let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
 let emotionsAIText = "Deserunt adipisicing aute anim. Culpa consectetur ad eiusmod. Excepteur ullamco ad minim enim enim."; // AI-generated text for emotions tab
@@ -1227,6 +1228,11 @@ function getBaseImageData() {
 // Set base image (only if none exists)
 function setBaseImage(imageId) {
   if (baseImageId === null && imageId !== null) {
+    // Don't allow card images to be set as base image
+    const img = images.find(img => img.id === imageId);
+    if (img && img.isCard) {
+      return;
+    }
     baseImageId = imageId;
     updateBaseImageCard();
   }
@@ -2801,7 +2807,7 @@ function toggleOverlay() {
       bottomToolbar.classList.remove('visible');
     }
     // Remove red rectangle when overlay closes
-    removeRedRectangle();
+    removeCardPreview();
 
     // Reset fresh screenshot flag when overlay closes
     isFreshScreenshot = false;
@@ -3418,9 +3424,10 @@ function draw() {
     // During transition to reflection mode OR before first exit from reflection mode
     // ONLY draw the selected image(s) - absolutely never draw other images
     // This ensures other images stay invisible until first exit
+    // EXCEPTION: Always draw card images (they're not part of reflection mode workflow)
     images.forEach((img, index) => {
-      // Only draw if it's selected AND not hidden
-      if (selectedImageIndices.includes(index) && !img.hidden) {
+      // Draw if: (selected AND not hidden) OR (is a card image AND not hidden)
+      if ((selectedImageIndices.includes(index) || img.isCard) && !img.hidden) {
         const currentTime = Date.now();
         // Update opacity if fading in
         if (img.fadeStartTime !== undefined) {
@@ -3432,7 +3439,7 @@ function draw() {
             img.fadeStartTime = undefined; // Clear fade animation
           }
         }
-        drawImage(img, true);
+        drawImage(img, selectedImageIndices.includes(index));
       }
       // Explicitly skip all other images - don't draw them at all
     });
@@ -3527,10 +3534,35 @@ function draw() {
   });
 
   // Draw reflection button if exactly one image is selected (after transform is restored for fixed size)
+  // Skip card images (they don't have reflection mode)
   if (selectedImageIndices.length === 1 && selectedImageIndices[0] >= 0 && selectedImageIndices[0] < images.length) {
-    drawReflectionButton(images[selectedImageIndices[0]]);
+    const selectedImg = images[selectedImageIndices[0]];
+    if (!selectedImg.isCard) {
+      drawReflectionButton(selectedImg);
+    } else {
+      reflectionButtonBounds = null;
+    }
   } else {
     reflectionButtonBounds = null;
+  }
+
+  // Draw generate buttons for selected card images only
+  // Clear button bounds first, then redraw for selected cards
+  const currentCardIds = new Set();
+  selectedImageIndices.forEach(index => {
+    if (index >= 0 && index < images.length) {
+      const img = images[index];
+      if (img.isCard && !img.hidden) {
+        currentCardIds.add(img.id);
+        drawCardGenerateButton(img);
+      }
+    }
+  });
+  // Remove button bounds for cards that are no longer selected or don't exist
+  for (let imageId in cardGenerateButtonBounds) {
+    if (!currentCardIds.has(imageId)) {
+      delete cardGenerateButtonBounds[imageId];
+    }
   }
 
   // Draw selection box if currently selecting
@@ -3538,9 +3570,9 @@ function draw() {
     drawSelectionBox();
   }
 
-  // Update red rectangle position if it exists
-  if (redRectangleElement && redRectangleCanvasX !== null && redRectangleCanvasY !== null) {
-    updateRedRectanglePosition();
+  // Update card preview position if it exists
+  if (cardPreviewElement && cardPreviewCanvasX !== null && cardPreviewCanvasY !== null) {
+    updateCardPreviewPosition();
   }
 
   // Update FPS counter
@@ -4194,6 +4226,11 @@ function drawSelectionBorderAndHandles(img) {
   ctx.strokeStyle = '#3b82f6';
   ctx.lineWidth = 2; // Fixed 2 CSS pixels (context is already in screen coordinates, no DPR scaling)
   ctx.strokeRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
+
+  // Skip resize handles for card images (they can't be resized)
+  if (img.isCard) {
+    return;
+  }
 
   // Draw resize handles (fixed size in CSS pixels, independent of DPR)
   const handleSize = 12; // Fixed 12 CSS pixels (context is already in screen coordinates, no DPR scaling)
@@ -7510,6 +7547,97 @@ function drawAspectTag(text, x, y, type, index) {
   ctx.restore();
 }
 
+// Draw generate button below card images
+function drawCardGenerateButton(img) {
+  if (!img || !img.isCard) return;
+
+  // Get card index from image object (stored when card was created)
+  const cardIndex = img.cardIndex !== undefined ? img.cardIndex : 0;
+  const buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
+  const buttonText = buttonConfig.text;
+  const buttonBgColor = buttonConfig.bgColor;
+  const buttonPadding = 10; // Fixed pixel padding (screen coordinates)
+  const buttonSpacing = 10; // Fixed pixel spacing between image and button (screen coordinates)
+
+  // Calculate button position in canvas coordinates (below image, centered)
+  const buttonCanvasX = img.x + img.width / 2;
+  const buttonCanvasY = img.y + img.height;
+
+  // Convert to screen coordinates
+  const screenPos = canvasToScreen(buttonCanvasX, buttonCanvasY);
+  const buttonScreenX = screenPos.x;
+  const buttonScreenY = screenPos.y + buttonSpacing;
+
+  // Measure text at fixed size (screen coordinates, context already scaled by dpr)
+  ctx.save();
+  ctx.font = `14px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  const textMetrics = ctx.measureText(buttonText);
+  const textWidth = textMetrics.width;
+  const textHeight = 20; // Fixed pixel text height (screen coordinates)
+
+  // Calculate button dimensions
+  const buttonWidth = textWidth + buttonPadding * 2;
+  const buttonHeight = textHeight + buttonPadding * 2;
+
+  // Store button bounds for click detection (in screen coordinates)
+  cardGenerateButtonBounds[img.id] = {
+    x: buttonScreenX - buttonWidth / 2,
+    y: buttonScreenY,
+    width: buttonWidth,
+    height: buttonHeight,
+    isScreenCoords: true,
+    cardIndex: cardIndex
+  };
+
+  // Draw button background with rounded corners (fixed pixel size, screen coordinates)
+  const cornerRadius = 8; // Fixed pixel corner radius (screen coordinates)
+  const buttonLeft = buttonScreenX - buttonWidth / 2;
+
+  // Draw rounded rectangle background
+  ctx.fillStyle = buttonBgColor;
+  ctx.beginPath();
+  ctx.moveTo(buttonLeft + cornerRadius, buttonScreenY);
+  ctx.lineTo(buttonLeft + buttonWidth - cornerRadius, buttonScreenY);
+  ctx.quadraticCurveTo(buttonLeft + buttonWidth, buttonScreenY, buttonLeft + buttonWidth, buttonScreenY + cornerRadius);
+  ctx.lineTo(buttonLeft + buttonWidth, buttonScreenY + buttonHeight - cornerRadius);
+  ctx.quadraticCurveTo(buttonLeft + buttonWidth, buttonScreenY + buttonHeight, buttonLeft + buttonWidth - cornerRadius, buttonScreenY + buttonHeight);
+  ctx.lineTo(buttonLeft + cornerRadius, buttonScreenY + buttonHeight);
+  ctx.quadraticCurveTo(buttonLeft, buttonScreenY + buttonHeight, buttonLeft, buttonScreenY + buttonHeight - cornerRadius);
+  ctx.lineTo(buttonLeft, buttonScreenY + cornerRadius);
+  ctx.quadraticCurveTo(buttonLeft, buttonScreenY, buttonLeft + cornerRadius, buttonScreenY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Draw button border
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Draw button text (white, centered)
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(buttonText, buttonScreenX, buttonScreenY + buttonHeight / 2);
+
+  ctx.restore();
+}
+
+// Check if a point is on a card generate button
+function isPointOnCardGenerateButton(x, y) {
+  for (let imageId in cardGenerateButtonBounds) {
+    const bounds = cardGenerateButtonBounds[imageId];
+    if (bounds && bounds.isScreenCoords) {
+      if (x >= bounds.x &&
+          x <= bounds.x + bounds.width &&
+          y >= bounds.y &&
+          y <= bounds.y + bounds.height) {
+        return { imageId: imageId, cardIndex: bounds.cardIndex };
+      }
+    }
+  }
+  return null;
+}
+
 // Calculate reflection button width in canvas coordinates (for minimum image width)
 function getReflectionButtonMinWidth() {
   const buttonText = isReflectionMode ? 'Exit reflection' : 'Enter reflection';
@@ -8895,6 +9023,21 @@ canvas.addEventListener('mousedown', (e) => {
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
 
+  // Check if clicking on card generate button
+  const cardButtonClick = isPointOnCardGenerateButton(e.clientX, e.clientY);
+  if (cardButtonClick) {
+    e.stopPropagation();
+    e.preventDefault();
+    // Handle card generate button click
+    const img = images.find(img => img.id === cardButtonClick.imageId);
+    if (img) {
+      console.log('Card generate button clicked:', { cardIndex: cardButtonClick.cardIndex, imageId: cardButtonClick.imageId });
+      // TODO: Implement generate functionality for each card type
+      // For now, just log the click
+    }
+    return;
+  }
+
   // Check if clicking on reflection button
   if (isPointOnReflectionButton(e.clientX, e.clientY)) {
     e.stopPropagation();
@@ -9372,7 +9515,8 @@ canvas.addEventListener('mousedown', (e) => {
       // Set base image if sidebar is empty
       if (baseImageId === null && imgIndex >= 0 && imgIndex < images.length) {
         const selectedImg = images[imgIndex];
-        if (selectedImg && selectedImg.id) {
+        // Don't allow card images to be set as base image
+        if (selectedImg && selectedImg.id && !selectedImg.isCard) {
           setBaseImage(selectedImg.id);
         }
       }
@@ -10531,7 +10675,8 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
       pins: [], // Array of pin objects
       title: null, // Generated or user-entered title
       focus: null, // Optional focus point text
-      titleGenerated: false // Track if title has been generated (to prevent regeneration)
+      titleGenerated: false, // Track if title has been generated (to prevent regeneration)
+      isCard: false // Flag to mark card images (no reflection mode, no resize handles, not selectable as base image)
     };
 
     // Calculate final position (for after reflection mode) if this is a screenshot
@@ -10629,6 +10774,59 @@ function addImageToCanvas(dataURL, screenX = null, screenY = null, screenWidth =
         draw();
       }
     }
+  };
+  img.src = dataURL;
+}
+
+// Add card image to canvas (special version for cards from toolbar)
+function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0) {
+  console.log('addCardImageToCanvas called with:', { screenX, screenY, dataURLLength: dataURL.length, cardIndex });
+  const img = new Image();
+  img.onload = () => {
+    console.log('Card image loaded:', { width: img.width, height: img.height });
+    
+    // Use fixed width of 400 pixels, maintain aspect ratio
+    const fixedWidth = 400;
+    const aspectRatio = img.width / img.height;
+    const scaledWidth = fixedWidth;
+    const scaledHeight = fixedWidth / aspectRatio;
+
+    // Convert screen coordinates to canvas coordinates
+    const canvasPos = screenToCanvas(screenX, screenY);
+    const intendedX = canvasPos.x - scaledWidth / 2;
+    const intendedY = canvasPos.y - scaledHeight / 2;
+
+    // Use overlap avoidance for positioning
+    const position = findNonOverlappingPosition(intendedX, intendedY, scaledWidth, scaledHeight);
+
+    const imageObj = {
+      element: img,
+      x: position.x,
+      y: position.y,
+      width: scaledWidth,
+      height: scaledHeight,
+      aspectRatio: img.width / img.height,
+      finalPosition: null,
+      id: generateId(),
+      version: 1,
+      pins: [],
+      title: null,
+      focus: null,
+      titleGenerated: false,
+      isCard: true, // Mark as card image
+      cardIndex: cardIndex // Store which card type this is (0=Analogy, 1=Perspective, 2=Lucky)
+    };
+
+    console.log('Adding card image to canvas:', { x: imageObj.x, y: imageObj.y, width: imageObj.width, height: imageObj.height });
+    images.push(imageObj);
+    selectedImageIndices = [images.length - 1];
+
+    handleSelectionChange(selectedImageIndices[0]);
+    requestDraw();
+    console.log('Card image added, total images:', images.length);
+  };
+  img.onerror = (error) => {
+    console.error('Failed to load card image:', error);
   };
   img.src = dataURL;
 }
@@ -13824,45 +14022,82 @@ let draggedCardOffsetX = 0;
 let draggedCardOffsetY = 0;
 let isCardExpanded = false;
 
-// Red rectangle on canvas (stored in canvas coordinates)
-let redRectangleCanvasX = null;
-let redRectangleCanvasY = null;
-let redRectangleWidth = 200;
-let redRectangleHeight = 150;
-let redRectangleElement = null;
+// Map card indices to their corresponding image files
+const cardImageMap = {
+  0: 'Analogycardbig.png',      // First card - Analogy card
+  1: 'Perspectivecardbig.png',  // Second card - Perspective card
+  2: 'Luckycardbig.png'         // Third card - Lucky card
+};
 
-// Update red rectangle position and size based on canvas transforms
-function updateRedRectanglePosition() {
-  if (!redRectangleElement || redRectangleCanvasX === null || redRectangleCanvasY === null) {
+// Map card indices to their button text and colors
+const cardButtonConfig = {
+  0: { text: 'Generate Analogy', bgColor: 'rgba(139, 69, 19, 0.95)' },      // Brown for Analogy card
+  1: { text: 'Generate Perspective', bgColor: 'rgba(59, 130, 246, 0.95)' }, // Blue for Perspective card
+  2: { text: 'Generate Impulse', bgColor: 'rgba(147, 51, 234, 0.95)' }      // Purple for Lucky card
+};
+
+// Helper function to get card image path
+function getCardImagePath(cardIndex) {
+  const imageFileName = cardImageMap[cardIndex];
+  if (!imageFileName) {
+    return null;
+  }
+  
+  const possiblePaths = [
+    path.join(__dirname, 'assets', imageFileName),
+    path.join(process.cwd(), 'assets', imageFileName)
+  ];
+  
+  for (const testPath of possiblePaths) {
+    if (fs.existsSync(testPath)) {
+      return testPath;
+    }
+  }
+  
+  return null;
+}
+
+// Card preview image on canvas (stored in canvas coordinates)
+let cardPreviewCanvasX = null;
+let cardPreviewCanvasY = null;
+let cardPreviewElement = null;
+let cardPreviewImage = null;
+
+// Update card preview position and size based on canvas transforms
+function updateCardPreviewPosition() {
+  if (!cardPreviewElement || !cardPreviewImage || cardPreviewCanvasX === null || cardPreviewCanvasY === null) {
     return;
   }
 
   // Convert canvas coordinates to screen coordinates
   // canvasToScreen returns coordinates relative to the canvas (which is at 0,0)
-  const screenPos = canvasToScreen(redRectangleCanvasX, redRectangleCanvasY);
+  const screenPos = canvasToScreen(cardPreviewCanvasX, cardPreviewCanvasY);
   
-  // Scale rectangle size with canvas zoom
-  const scaledWidth = redRectangleWidth * canvasScale;
-  const scaledHeight = redRectangleHeight * canvasScale;
+  // Use fixed width of 400 pixels, maintain aspect ratio
+  const fixedWidth = 400;
+  const aspectRatio = cardPreviewImage.width / cardPreviewImage.height;
+  const scaledWidth = fixedWidth;
+  const scaledHeight = fixedWidth / aspectRatio;
   
-  // Update rectangle size
-  redRectangleElement.style.width = scaledWidth + 'px';
-  redRectangleElement.style.height = scaledHeight + 'px';
+  // Update image size
+  cardPreviewElement.style.width = scaledWidth + 'px';
+  cardPreviewElement.style.height = scaledHeight + 'px';
   
-  // Position rectangle centered on the canvas coordinates
+  // Position image centered on the canvas coordinates
   // Since canvas is fullscreen at (0,0), screenPos is already in viewport coordinates
-  redRectangleElement.style.left = (screenPos.x - scaledWidth / 2) + 'px';
-  redRectangleElement.style.top = (screenPos.y - scaledHeight / 2) + 'px';
+  cardPreviewElement.style.left = (screenPos.x - scaledWidth / 2) + 'px';
+  cardPreviewElement.style.top = (screenPos.y - scaledHeight / 2) + 'px';
 }
 
-// Remove red rectangle
-function removeRedRectangle() {
-  if (redRectangleElement) {
-    redRectangleElement.remove();
-    redRectangleElement = null;
+// Remove card preview
+function removeCardPreview() {
+  if (cardPreviewElement) {
+    cardPreviewElement.remove();
+    cardPreviewElement = null;
   }
-  redRectangleCanvasX = null;
-  redRectangleCanvasY = null;
+  cardPreviewImage = null;
+  cardPreviewCanvasX = null;
+  cardPreviewCanvasY = null;
 }
 
 // Card stack elements (will be initialized when DOM is ready)
@@ -14075,6 +14310,57 @@ function initializeCardStack() {
 
           draggedCard.style.left = newX + 'px';
           draggedCard.style.top = newY + 'px';
+
+          // Check if over canvas and show card preview
+          const canvasRect = canvas.getBoundingClientRect();
+          const isOverCanvas = e.clientX >= canvasRect.left && 
+                              e.clientX <= canvasRect.right &&
+                              e.clientY >= canvasRect.top && 
+                              e.clientY <= canvasRect.bottom;
+
+          if (isOverCanvas && isOverlayActive) {
+            // Convert mouse position to canvas coordinates
+            const canvasPos = screenToCanvas(e.clientX, e.clientY);
+            
+            // Create card preview if it doesn't exist
+            if (!cardPreviewElement) {
+              // Create image element for preview
+              cardPreviewImage = new Image();
+              cardPreviewImage.onload = () => {
+                if (!cardPreviewElement) {
+                  cardPreviewElement = document.createElement('img');
+                  cardPreviewElement.style.position = 'fixed';
+                  cardPreviewElement.style.pointerEvents = 'none';
+                  cardPreviewElement.style.zIndex = '100';
+                  cardPreviewElement.style.opacity = '0.8';
+                  cardPreviewElement.style.objectFit = 'contain';
+                  document.body.appendChild(cardPreviewElement);
+                }
+                cardPreviewElement.src = cardPreviewImage.src;
+                cardPreviewCanvasX = canvasPos.x;
+                cardPreviewCanvasY = canvasPos.y;
+                updateCardPreviewPosition();
+              };
+              // Load the card image based on which card is being dragged
+              const imagePath = getCardImagePath(draggedCardIndex);
+              
+              if (imagePath) {
+                const imageBuffer = fs.readFileSync(imagePath);
+                const imageBase64 = imageBuffer.toString('base64');
+                cardPreviewImage.src = `data:image/png;base64,${imageBase64}`;
+              }
+            }
+            
+            // Update preview position
+            if (cardPreviewElement && cardPreviewImage && cardPreviewImage.complete) {
+              cardPreviewCanvasX = canvasPos.x;
+              cardPreviewCanvasY = canvasPos.y;
+              updateCardPreviewPosition();
+            }
+          } else {
+            // Remove preview if not over canvas
+            removeCardPreview();
+          }
         }
       };
 
@@ -14122,33 +14408,26 @@ function initializeCardStack() {
           // screenToCanvas expects viewport coordinates (e.clientX/Y)
           const canvasPos = screenToCanvas(e.clientX, e.clientY);
           
-          // Store rectangle position in canvas coordinates
-          redRectangleCanvasX = canvasPos.x;
-          redRectangleCanvasY = canvasPos.y;
-          redRectangleWidth = 200;
-          redRectangleHeight = 150;
+          // Remove card preview
+          removeCardPreview();
 
-          // Remove existing red rectangle
-          if (redRectangleElement) {
-            redRectangleElement.remove();
+          // Load and add card image to canvas based on which card was dragged
+          try {
+            const imagePath = getCardImagePath(draggedCardIndex);
+            
+            if (imagePath) {
+              const imageBuffer = fs.readFileSync(imagePath);
+              const imageBase64 = imageBuffer.toString('base64');
+              const imageDataURL = `data:image/png;base64,${imageBase64}`;
+              
+              // Add image to canvas at the drop position with isCard flag
+              addCardImageToCanvas(imageDataURL, e.clientX, e.clientY, draggedCardIndex);
+            } else {
+              console.warn('Card image file not found for card index:', draggedCardIndex);
+            }
+          } catch (error) {
+            console.error('Error loading card image:', error);
           }
-
-          // Create new red rectangle element
-          redRectangleElement = document.createElement('div');
-          redRectangleElement.className = 'canvas-red-rectangle';
-          redRectangleElement.style.width = redRectangleWidth + 'px';
-          redRectangleElement.style.height = redRectangleHeight + 'px';
-          redRectangleElement.style.position = 'absolute';
-          redRectangleElement.style.pointerEvents = 'none';
-          canvas.parentElement.appendChild(redRectangleElement);
-
-          // Update rectangle position based on canvas transforms
-          updateRedRectanglePosition();
-
-          // Fade in red rectangle
-          requestAnimationFrame(() => {
-            redRectangleElement.classList.add('fade-in');
-          });
 
           // Store references before clearing variables (important for setTimeout callback)
           const cardToRestore = draggedCard;
@@ -14209,6 +14488,9 @@ function initializeCardStack() {
           }, 300);
         } else if (hasMoved) {
           // Not dropped on canvas but was dragged - restore card immediately
+          // Remove card preview
+          removeCardPreview();
+          
           const cardToRestore = draggedCard;
           const originalParent = draggedCardOriginalParent;
           const originalIndex = draggedCardOriginalIndex;
@@ -14245,6 +14527,9 @@ function initializeCardStack() {
         draggedCardIndex = -1;
         draggedCardOriginalParent = null;
         draggedCardOriginalIndex = -1;
+
+        // Remove card preview
+        removeCardPreview();
 
         // Restore DPR
         setInteracting(false);

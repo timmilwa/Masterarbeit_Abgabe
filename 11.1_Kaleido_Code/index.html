@@ -72,7 +72,8 @@
         #overlay-container.closing-overlay #side-panel,
         #overlay-container.closing-overlay #bottom-toolbar,
         #overlay-container.closing-overlay #reflection-button,
-        #overlay-container.closing-overlay #top-right-toggles {
+        #overlay-container.closing-overlay #top-right-toggles,
+        #overlay-container.closing-overlay #fps-counter {
             opacity: 0;
             transition: opacity 0.15s ease-out;
             pointer-events: none;
@@ -186,6 +187,8 @@
             width: auto;
             min-width: 46px;
             padding: 0 8px;
+            position: relative;
+            z-index: 11;
         }
 
         #svg-button-1 img {
@@ -323,7 +326,7 @@
             bottom: 20px;
             transform: translateX(-50%);
             z-index: 10;
-            pointer-events: auto;
+            pointer-events: none;
         }
 
 
@@ -363,6 +366,7 @@
             margin-left: -90px;
             bottom: 0;
             opacity: 1 !important;
+            pointer-events: auto;
         }
 
         /* Front card - Reflective Analogy (beige) - most visible */
@@ -522,7 +526,7 @@
 
         /* FPS Counter */
         #fps-counter {
-            display: flex;
+            display: none;
             position: fixed;
             top: 120px; /* Positioned below the toggles with more spacing */
             left: 20px;
@@ -544,7 +548,7 @@
             transition: opacity 0.3s ease;
         }
 
-        #fps-counter.visible {
+        #overlay-container.active #fps-counter.visible {
             display: flex;
         }
 
@@ -769,10 +773,6 @@
 
         #overlay-container.active #top-right-toggles {
             display: flex;
-        }
-
-        #overlay-container.active #top-right-toggles.show-on-hover,
-        #overlay-container.active #top-right-toggles:hover {
             opacity: 1;
         }
 
@@ -1713,8 +1713,8 @@
 
         <!-- Top Right Toggles -->
         <div id="top-right-toggles">
-            <div class="top-toggle-item" id="ai-mode-toggle-top" title="Toggle AI Mode">
-                <span class="top-toggle-label">AI Mode</span>
+            <div class="top-toggle-item" id="ai-mode-toggle-top" title="Toggle AI Functionality">
+                <span class="top-toggle-label">AI Functionality</span>
                 <label class="top-toggle">
                     <input type="checkbox" id="ai-mode-toggle-top-input">
                     <span class="top-toggle-slider"></span>
@@ -1939,10 +1939,10 @@
                                 Configure AI settings for enhanced features. AI functionality uses Google Gemini as the model.
                             </p>
                             
-                            <!-- AI Mode Toggle -->
+                            <!-- AI Functionality Toggle -->
                             <div class="settings-section">
                                 <div style="display: flex; align-items: center; justify-content: space-between;">
-                                    <label class="settings-label" for="ai-mode-toggle" style="margin-bottom: 0;">Enable AI Mode</label>
+                                    <label class="settings-label" for="ai-mode-toggle" style="margin-bottom: 0;">Enable AI Functionality</label>
                                     <label class="settings-toggle">
                                         <input type="checkbox" id="ai-mode-toggle">
                                         <span class="settings-toggle-slider"></span>
