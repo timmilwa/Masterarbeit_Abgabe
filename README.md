@@ -4,11 +4,8 @@ In diesem Repo finden sich alle Prototypen, die als Teil meiner Masterarbeit bes
 ## Nutzung 
 In den meisten Fällen ist zur Nutzung lediglich die lokale Hinterlegung eines eigenen Google AI API-Keys in den Einstellungen des Interface erforderlich, bei einigen muss Zugriff auf bestimmte Funktionen des Betriebssystem gegeben werden. Die dabei verarbeiteten Daten sind für mich nicht zugänglich.
 
-### Setup Kaleido (Proto 11)
-1. Download aus dem Release bereich des Github Repos oder auf https://www.timmilwa.com/kaleido und entpacken.
-2. Auf 'Kaleido.app'-Datei doppelklicken. 
-3. MacOS blockiert Applikationen von nicht signierten Apps in der Regel.
-4. In MacOS Systemeinstellungen -> Datenschutz & Sicherheit -> Runterscrollen zu "Sicherheit" -> Bei Nachricht zu "Kaleido.app" auf "Dennoch erlauben" klicken. 
+### Setup Kaleido App (Proto 11)
+Alle Informationen auf: https://github.com/timmilwa/Masterarbeit_Abgabe/releases/tag/v0.1.5
 
 
 
