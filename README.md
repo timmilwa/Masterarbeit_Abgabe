@@ -29,9 +29,11 @@ Setup Variante 3 (für Proto 8)
 3. Text aus der 'InputPrompt.txt'-Datei mit eigenen Inhalten ausfüllen und in den gleichen Texte, wie zuvor schicken. 
 
 Setup Variante 4 (für Proto 11)
-1. Download über https://github.com/timmilwa/Masterarbeit_Abgabe/releases/download/v0.1.5/Kaleido.zip und entpacken.
+1. Download aus dem Release bereich des Github Repos oder auf https://www.timmilwa.com/kaleido und entpacken.
 2. Auf 'Kaleido.app'-Datei doppelklicken. 
-3. App installieren und aufpoppende Aufforderungen auf Systemzugriffe erlauben. 
+3. MacOS blockiert Applikationen von nicht signierten Apps in der Regel.
+4. In MacOS Systemeinstellungen -> Datenschutz & Sicherheit -> Runterscrollen zu "Sicherheit" -> Bei Nachricht zu "Kaleido.app" auf "Dennoch erlauben" klicken. 
+
 
 (der vollständige Code für Proto 11 kann als 11.1_Kaleido_Code eingesehen werden. Er kann mit "npm i" und dann "npm start" ausgeführt werden.)
 

@@ -1,0 +1,4 @@
+1. Download https://github.com/timmilwa/Masterarbeit_Abgabe/releases/download/v0.1.5/Kaleido.zip zu erreichen.
+2. Entpacken und auf Kaleido.app klickt. 
+3. MacOS blockiert Applikationen von nicht signierten Apps in der Regel.
+4. In Systemeinstellungen -> Datenschutz & Sicherheit -> Runterscrollen zu "Sicherheit" -> Bei Nachricht zu "Kaleido.app" auf "Dennoch erlauben" klicken. 
