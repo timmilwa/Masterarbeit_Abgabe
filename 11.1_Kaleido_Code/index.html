@@ -246,8 +246,18 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            pointer-events: none;
+            pointer-events: auto; /* Changed to auto so Vector.svg can be clicked/dragged */
             z-index: 1;
+        }
+        
+        /* Make sure Vector.svg is draggable */
+        #svg-vector {
+            pointer-events: auto !important;
+            cursor: grab;
+        }
+        
+        #svg-vector:active {
+            cursor: grabbing;
         }
 
         #svg-button-3 img {
@@ -713,6 +723,15 @@
 
         #bottom-toolbar .tool-button.active {
             color: #ffffff;
+        }
+
+        /* AI Cursor Container - Make draggable */
+        #ai-cursor-container {
+            cursor: grab;
+        }
+
+        #ai-cursor-container:active {
+            cursor: grabbing;
         }
 
         /* FPS Counter */
@@ -1923,9 +1942,9 @@
                         </div>
                     </div>
                 </div>
-                <div style="position: relative; display: flex; align-items: center; justify-content: center;" class="toolbar-svg-container">
+                <div style="position: relative; display: flex; align-items: center; justify-content: center;" class="toolbar-svg-container" id="ai-cursor-container" title="AI Autonomous Reflection">
                     <img src="assets/F.svg" alt="" id="svg-f" class="toolbar-svg">
-                    <img src="assets/Vector.svg" alt="" id="svg-vector" class="toolbar-svg-overlay">
+                    <img src="assets/Vector.svg" alt="" id="svg-vector" class="toolbar-svg-overlay" style="cursor: grab;">
                 </div>
                 
             </div>

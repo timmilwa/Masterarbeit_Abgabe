@@ -17,6 +17,7 @@ const selectTool = document.getElementById('select-tool');
 const postitTool = document.getElementById('postit-tool');
 const uploadTool = document.getElementById('upload-tool');
 const duplicateTool = document.getElementById('duplicate-tool');
+const aiCursorContainer = document.getElementById('ai-cursor-container');
 const settingsPopup = document.getElementById('settings-popup');
 const settingsModalOverlay = document.getElementById('settings-modal-overlay');
 const settingsModal = document.getElementById('settings-modal');
@@ -1343,6 +1344,211 @@ async function regenerateValuesAIText() {
     updateAccordionHeightIfExpanded('values');
     requestDraw();
   }
+}
+
+// ============================================================================
+// Autonomous AI Pin Generation
+// ============================================================================
+
+// Generate autonomous feature (not a question, but a direct feature description)
+async function generateAutonomousFeature(imageBase64, title, focus, existingPins, imageId) {
+  if (!isAIModeEnabled()) {
+    // Return demo features if AI is disabled
+    const demoFeatures = [
+      'Interactive navigation elements',
+      'Visual feedback mechanisms',
+      'Information hierarchy structure',
+      'User input controls'
+    ];
+    return demoFeatures[Math.floor(Math.random() * demoFeatures.length)];
+  }
+
+  const generalInstructions = customInstructions.general || '';
+  const featuresInstructions = customInstructions.features || '';
+
+  let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${featuresInstructions ? featuresInstructions + '\n\n' : ''}`;
+  prompt += `Analyze this image and identify ONE specific feature or interaction pattern that stands out. Return ONLY a concise description of that feature (2-8 words), nothing else. Do not ask a question, just describe the feature directly.\n\n`;
+
+  if (title) prompt += `Title: ${title}\n`;
+  if (focus) prompt += `Focus: ${focus}\n`;
+  if (existingPins && existingPins.length > 0) {
+    prompt += `Existing features already identified:\n`;
+    existingPins.forEach((pin, idx) => {
+      prompt += `${idx + 1}. ${pin.feature}\n`;
+    });
+    prompt += `\nPlease identify a DIFFERENT feature that hasn't been identified yet.\n`;
+  }
+
+  try {
+    const feature = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    return feature.trim();
+  } catch (error) {
+    console.error('Error generating autonomous feature:', error);
+    const demoFeatures = [
+      'Interactive navigation elements',
+      'Visual feedback mechanisms',
+      'Information hierarchy structure',
+      'User input controls'
+    ];
+    return demoFeatures[Math.floor(Math.random() * demoFeatures.length)];
+  }
+}
+
+// Generate autonomous emotions (direct emotion words, not questions)
+async function generateAutonomousEmotions(imageBase64, title, focus, selectedPin, imageId) {
+  if (!isAIModeEnabled()) {
+    // Return demo emotions if AI is disabled
+    const demoEmotions = [
+      ['Calm', 'Pleasant'],
+      ['Informed', 'Confident'],
+      ['Organized', 'In control'],
+      ['Thoughtful', 'Prepared']
+    ];
+    return demoEmotions[Math.floor(Math.random() * demoEmotions.length)];
+  }
+
+  const generalInstructions = customInstructions.general || '';
+  const emotionsInstructions = customInstructions.emotions || '';
+
+  let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${emotionsInstructions ? emotionsInstructions + '\n\n' : ''}`;
+  prompt += `Analyze this image and the specific feature that has been pinned. Identify 2-3 emotions that this feature might evoke in users. Return ONLY a comma-separated list of emotion words (e.g., "Calm, Pleasant, Confident"), nothing else. Do not ask a question.\n\n`;
+
+  if (title) prompt += `Title: ${title}\n`;
+  if (focus) prompt += `Focus: ${focus}\n`;
+  if (selectedPin) {
+    prompt += `Pinned feature: ${selectedPin.feature}\n`;
+    prompt += `Feature location: (${selectedPin.location.x.toFixed(2)}, ${selectedPin.location.y.toFixed(2)})\n`;
+  }
+
+  try {
+    const emotionsText = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    const emotions = emotionsText.split(',').map(e => e.trim()).filter(e => e.length > 0);
+    return emotions.slice(0, 3); // Limit to 3 emotions
+  } catch (error) {
+    console.error('Error generating autonomous emotions:', error);
+    const demoEmotions = [
+      ['Calm', 'Pleasant'],
+      ['Informed', 'Confident'],
+      ['Organized', 'In control']
+    ];
+    return demoEmotions[Math.floor(Math.random() * demoEmotions.length)];
+  }
+}
+
+// Generate autonomous values (direct value words, not questions)
+async function generateAutonomousValues(imageBase64, title, focus, selectedPin, emotions, imageId) {
+  if (!isAIModeEnabled()) {
+    // Return demo values if AI is disabled
+    const demoValues = [
+      ['Clarity', 'Accessibility', 'Aesthetics'],
+      ['Practicality', 'Simplicity', 'Planning'],
+      ['Readability', 'Overview', 'Context']
+    ];
+    return demoValues[Math.floor(Math.random() * demoValues.length)];
+  }
+
+  const generalInstructions = customInstructions.general || '';
+  const valuesInstructions = customInstructions.values || '';
+
+  let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${valuesInstructions ? valuesInstructions + '\n\n' : ''}`;
+  prompt += `Analyze this image, the pinned feature, and the emotions associated with it. Identify 2-3 underlying values that drive these emotional responses. Return ONLY a comma-separated list of value words (e.g., "Clarity, Accessibility, Aesthetics"), nothing else. Do not ask a question.\n\n`;
+
+  if (title) prompt += `Title: ${title}\n`;
+  if (focus) prompt += `Focus: ${focus}\n`;
+  if (selectedPin) {
+    prompt += `Pinned feature: ${selectedPin.feature}\n`;
+  }
+  if (emotions && emotions.length > 0) {
+    prompt += `Emotions: ${emotions.join(', ')}\n`;
+  }
+
+  try {
+    const valuesText = await callGeminiAPI(prompt, null, null, null, imageBase64);
+    const values = valuesText.split(',').map(v => v.trim()).filter(v => v.length > 0);
+    return values.slice(0, 3); // Limit to 3 values
+  } catch (error) {
+    console.error('Error generating autonomous values:', error);
+    const demoValues = [
+      ['Clarity', 'Accessibility', 'Aesthetics'],
+      ['Practicality', 'Simplicity', 'Planning']
+    ];
+    return demoValues[Math.floor(Math.random() * demoValues.length)];
+  }
+}
+
+// Generate autonomous pins for an image
+async function generateAutonomousPins(img) {
+  if (!img || !img.element) return;
+
+  // Ensure pins array exists
+  if (!img.pins) {
+    img.pins = [];
+  }
+
+  // Generate 2-3 autonomous pins
+  const numPins = Math.floor(Math.random() * 2) + 2; // 2 or 3 pins
+  const imageBase64 = await compressImageToBase64(img.element, 500);
+
+  for (let i = 0; i < numPins; i++) {
+    // Generate random position on image (avoid edges)
+    const x = 0.2 + Math.random() * 0.6; // Between 0.2 and 0.8
+    const y = 0.2 + Math.random() * 0.6; // Between 0.2 and 0.8
+
+    // Get existing pins for context
+    const existingPins = img.pins.map(pin => ({
+      feature: pin.feature,
+      location: pin.location
+    }));
+
+    // Generate feature
+    const feature = await generateAutonomousFeature(
+      imageBase64,
+      img.title,
+      img.focus,
+      existingPins,
+      img.id
+    );
+
+    // Create pin
+    const newPin = {
+      id: generateId(),
+      imageId: img.id,
+      imageVersion: img.version,
+      location: { x, y },
+      semanticLocation: '',
+      feature: feature,
+      questionId: currentQuestionId,
+      emotionalAspects: [],
+      valueAspects: []
+    };
+
+    // Generate emotions for this pin
+    const emotions = await generateAutonomousEmotions(
+      imageBase64,
+      img.title,
+      img.focus,
+      { feature, location: { x, y } },
+      img.id
+    );
+    newPin.emotionalAspects = emotions;
+
+    // Generate values for this pin
+    const values = await generateAutonomousValues(
+      imageBase64,
+      img.title,
+      img.focus,
+      { feature, location: { x, y } },
+      emotions,
+      img.id
+    );
+    newPin.valueAspects = values;
+
+    // Add pin to image
+    img.pins.push(newPin);
+  }
+
+  // Redraw to show new pins
+  requestDraw();
 }
 
 // ============================================================================
@@ -12238,6 +12444,524 @@ if (postitTool) {
 uploadTool.addEventListener('click', () => {
   fileInput.click();
 });
+
+// AI Cursor (F.svg) - Drag functionality
+let isAICursorDragging = false;
+let aiCursorDragStartX = 0;
+let aiCursorDragStartY = 0;
+let aiCursorHasMoved = false;
+const AI_CURSOR_DRAG_THRESHOLD = 5; // pixels
+
+// Global state for cursor ghost animation
+let activeCursorGhost = null; // Reference to the cursor ghost element
+let cursorGhostImageCenter = null; // { x, y } in canvas coordinates
+let cursorGhostCircleAnimation = null; // { active, radius, speed, angle, startTime }
+
+// Initialize AI cursor drag functionality when DOM is ready
+function initializeAICursorDrag() {
+  const container = document.getElementById('ai-cursor-container');
+  if (!container) {
+    console.warn('AI cursor container not found');
+    return;
+  }
+  
+  const svgVector = document.getElementById('svg-vector');
+  if (!svgVector) {
+    console.warn('svg-vector element not found');
+    return;
+  }
+  
+  console.log('Attaching drag handler to Vector.svg');
+  
+  // Only attach drag handler to Vector.svg element itself
+  svgVector.addEventListener('mousedown', (e) => {
+    // Don't require overlay to be active - allow dragging anytime
+    console.log('AI cursor (Vector.svg) mousedown detected');
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const svgRect = svgVector.getBoundingClientRect();
+    aiCursorDragStartX = e.clientX;
+    aiCursorDragStartY = e.clientY;
+    const offsetX = e.clientX - svgRect.left;
+    const offsetY = e.clientY - svgRect.top;
+    aiCursorHasMoved = false;
+    isAICursorDragging = true;
+    
+    // Store original opacity of Vector.svg
+    const originalOpacity = svgVector.style.opacity || '';
+    
+    // Change cursor style
+    svgVector.style.cursor = 'grabbing';
+    document.body.style.cursor = 'grabbing';
+    
+    // Create a drag ghost element for visual feedback (only clone Vector.svg)
+    let dragGhost = null;
+    
+    // Add global mouse move and mouse up handlers
+    const handleAICursorMove = (e) => {
+      if (!isAICursorDragging) return;
+      
+      const deltaX = Math.abs(e.clientX - aiCursorDragStartX);
+      const deltaY = Math.abs(e.clientY - aiCursorDragStartY);
+      
+      if (!aiCursorHasMoved && (deltaX > AI_CURSOR_DRAG_THRESHOLD || deltaY > AI_CURSOR_DRAG_THRESHOLD)) {
+        aiCursorHasMoved = true;
+        console.log('AI cursor drag started');
+        
+        // Create a drag ghost element that follows the mouse (only Vector.svg)
+        dragGhost = svgVector.cloneNode(true);
+        dragGhost.id = 'ai-cursor-drag-ghost';
+        dragGhost.style.position = 'fixed';
+        dragGhost.style.left = (e.clientX - offsetX) + 'px';
+        dragGhost.style.top = (e.clientY - offsetY) + 'px';
+        dragGhost.style.zIndex = '10000';
+        dragGhost.style.opacity = '0.8';
+        dragGhost.style.pointerEvents = 'none';
+        dragGhost.style.cursor = 'grabbing';
+        dragGhost.style.width = svgRect.width + 'px';
+        dragGhost.style.height = svgRect.height + 'px';
+        document.body.appendChild(dragGhost);
+        
+        // Hide original Vector.svg completely (0% opacity) so it doesn't show in toolbar
+        svgVector.style.opacity = '0';
+      }
+      
+      // Update ghost position if dragging has started
+      if (aiCursorHasMoved && dragGhost) {
+        dragGhost.style.left = (e.clientX - offsetX) + 'px';
+        dragGhost.style.top = (e.clientY - offsetY) + 'px';
+      }
+    };
+    
+    const handleAICursorUp = async (e) => {
+      if (!isAICursorDragging) {
+        document.removeEventListener('mousemove', handleAICursorMove);
+        document.removeEventListener('mouseup', handleAICursorUp);
+        return;
+      }
+      
+      isAICursorDragging = false;
+      
+      // Remove event listeners
+      document.removeEventListener('mousemove', handleAICursorMove);
+      document.removeEventListener('mouseup', handleAICursorUp);
+      
+      // Restore original cursor styles
+      svgVector.style.cursor = '';
+      document.body.style.cursor = '';
+      
+      // Check if dropped on canvas
+      const canvasRect = canvas.getBoundingClientRect();
+      const isOverCanvas = e.clientX >= canvasRect.left && 
+                          e.clientX <= canvasRect.right &&
+                          e.clientY >= canvasRect.top && 
+                          e.clientY <= canvasRect.bottom;
+      
+      console.log('AI cursor mouseup', { isOverCanvas, isOverlayActive, aiCursorHasMoved, dropX: e.clientX, dropY: e.clientY });
+      
+      // Allow dropping even if overlay is not active - we'll open it if needed
+      if (isOverCanvas && aiCursorHasMoved && dragGhost) {
+        // Ensure overlay is active
+        if (!isOverlayActive) {
+          console.log('Opening overlay for AI cursor drop');
+          if (!overlayContainer.classList.contains('active')) {
+            overlayContainer.classList.add('active');
+          }
+          isOverlayActive = true;
+        }
+        
+        // Pick a random image (excluding cards and tokens)
+        const eligibleImages = images.filter((img, index) => 
+          !img.hidden && 
+          !img.isCard && 
+          !img.isToken && 
+          img.element
+        );
+        
+        console.log('Eligible images:', eligibleImages.length);
+        
+        if (eligibleImages.length === 0) {
+          // Remove ghost and restore if no images
+          if (dragGhost) {
+            dragGhost.remove();
+            dragGhost = null;
+          }
+          svgVector.style.opacity = originalOpacity || '1';
+          showToast('No images available for AI reflection', false);
+          return;
+        }
+        
+        // Pick random image
+        const randomIndex = Math.floor(Math.random() * eligibleImages.length);
+        const selectedImage = eligibleImages[randomIndex];
+        const selectedImageIndex = images.indexOf(selectedImage);
+        
+        console.log('Selected random image:', { randomIndex, selectedImageIndex, imageId: selectedImage.id });
+        
+        if (selectedImageIndex === -1) {
+          console.error('Could not find selected image in images array');
+          // Remove ghost and restore
+          if (dragGhost) {
+            dragGhost.remove();
+            dragGhost = null;
+          }
+          svgVector.style.opacity = originalOpacity || '1';
+          return;
+        }
+        
+        console.log('Animating cursor to image and generating pins', selectedImageIndex);
+        
+        // Store drop position for ghost animation
+        const dropX = e.clientX;
+        const dropY = e.clientY;
+        
+        // Animate cursor ghost to image, generate pins, then return to toolbar
+        await animateCursorToImageAndGeneratePins(selectedImageIndex, dragGhost, dropX, dropY, svgVector, originalOpacity);
+        
+        // Clean up ghost after animation completes
+        if (dragGhost) {
+          dragGhost.remove();
+          dragGhost = null;
+        }
+      } else {
+        console.log('Drop conditions not met:', { isOverCanvas, isOverlayActive, aiCursorHasMoved });
+        // Remove ghost and restore if not dropped on canvas
+        if (dragGhost) {
+          dragGhost.remove();
+          dragGhost = null;
+        }
+        svgVector.style.opacity = originalOpacity || '1';
+      }
+    };
+    
+    document.addEventListener('mousemove', handleAICursorMove);
+    document.addEventListener('mouseup', handleAICursorUp);
+  });
+  
+  console.log('AI cursor drag initialized');
+}
+
+// Initialize when DOM is ready - try multiple times to ensure element exists
+function tryInitializeAICursorDrag() {
+  const container = document.getElementById('ai-cursor-container');
+  const svgVector = document.getElementById('svg-vector');
+  
+  if (!container || !svgVector) {
+    console.log('AI cursor elements not ready yet, retrying...', { container: !!container, svgVector: !!svgVector });
+    setTimeout(tryInitializeAICursorDrag, 100);
+    return;
+  }
+  
+  console.log('Initializing AI cursor drag for Vector.svg');
+  initializeAICursorDrag();
+}
+
+// Try initializing immediately
+tryInitializeAICursorDrag();
+
+// Also try when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', tryInitializeAICursorDrag);
+} else {
+  // DOM already loaded, but try again after a short delay
+  setTimeout(tryInitializeAICursorDrag, 100);
+}
+
+// Animate cursor ghost to image, generate pins, then return to toolbar
+async function animateCursorToImageAndGeneratePins(imageIndex, cursorGhost, dropX, dropY, originalElement, originalOpacity) {
+  console.log('animateCursorToImageAndGeneratePins called with imageIndex:', imageIndex);
+  
+  if (imageIndex < 0 || imageIndex >= images.length) {
+    console.error('Invalid image index:', imageIndex);
+    return;
+  }
+  
+  const img = images[imageIndex];
+  if (!img || !img.element) {
+    console.error('Image not found or has no element');
+    return;
+  }
+  
+  console.log('Starting cursor animation to image:', imageIndex);
+  
+  // Exit reflection mode if currently in it
+  if (isReflectionMode) {
+    console.log('Exiting reflection mode first');
+    exitReflectionMode();
+    // Wait for animation to complete
+    await new Promise(resolve => {
+      const checkAnimation = () => {
+        if (!isAnimating) {
+          console.log('Reflection mode exit animation complete');
+          resolve();
+        } else {
+          setTimeout(checkAnimation, 50);
+        }
+      };
+      checkAnimation();
+    });
+  }
+  
+  // Calculate target position to center the image
+  const cssDims = getCanvasCSSDimensions();
+  const imageCenterX = img.x + img.width / 2;
+  const imageCenterY = img.y + img.height / 2;
+  
+  // Use a reasonable scale (similar to reflection mode)
+  const targetScale = 0.5; // Same as reflection mode
+  
+  // Calculate target translate to center image
+  const targetTranslateX = cssDims.width / 2 - imageCenterX * targetScale;
+  const targetTranslateY = cssDims.height / 2 - imageCenterY * targetScale;
+  
+  // Set animation start values
+  animationStartScale = canvasScale;
+  animationStartTranslateX = canvasTranslateX;
+  animationStartTranslateY = canvasTranslateY;
+  
+  // Set animation end values
+  animationEndScale = targetScale;
+  animationEndTranslateX = targetTranslateX;
+  animationEndTranslateY = targetTranslateY;
+  
+  // After canvas animation, image center will be at screen center
+  const cursorEndX = cssDims.width / 2;
+  const cursorEndY = cssDims.height / 2;
+  
+  // Animate cursor ghost from drop position to image center (screen center after animation)
+  const cursorAnimationDuration = Math.max(animationDuration, 800); // Match or exceed canvas animation duration
+  const cursorStartX = dropX;
+  const cursorStartY = dropY;
+  
+  // Start both animations together
+  isAnimating = true;
+  animationStartTime = Date.now();
+  setInteracting(true);
+  animateCanvasTransform();
+  
+  // Animate cursor ghost to image center while canvas is animating
+  await new Promise(resolve => {
+    const startTime = Date.now();
+    const animateCursor = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / cursorAnimationDuration, 1);
+      const easedProgress = easeInOutCubic(progress);
+      
+      // Interpolate cursor position to screen center (where image will be after canvas animation)
+      const currentX = cursorStartX + (cursorEndX - cursorStartX) * easedProgress;
+      const currentY = cursorStartY + (cursorEndY - cursorStartY) * easedProgress;
+      
+      cursorGhost.style.left = currentX + 'px';
+      cursorGhost.style.top = currentY + 'px';
+      
+      if (progress < 1) {
+        requestAnimationFrame(animateCursor);
+      } else {
+        resolve();
+      }
+    };
+    animateCursor();
+  });
+  
+  console.log('Cursor reached image, waiting for canvas animation');
+  
+  // Wait for canvas animation to complete
+  await new Promise(resolve => {
+    const checkAnimation = () => {
+      if (!isAnimating) {
+        console.log('Canvas animation complete');
+        resolve();
+      } else {
+        setTimeout(checkAnimation, 50);
+      }
+    };
+    checkAnimation();
+  });
+  
+  // Generate autonomous pins (cursor stays at image during this)
+  console.log('Starting to generate autonomous pins');
+  showToast('Generating AI reflections...', false);
+  
+  // Store global references for cursor ghost animation
+  activeCursorGhost = cursorGhost;
+  cursorGhostImageCenter = { x: imageCenterX, y: imageCenterY };
+  
+  // Start search-like animation around image center while generating
+  cursorGhostCircleAnimation = {
+    active: true,
+    radius: 40, // pixels - base radius for the search pattern
+    speed: 0.001, // Speed multiplier for the animation (slower = more deliberate searching)
+    angle: 0,
+    startTime: Date.now()
+  };
+  
+  // Start the cursor position update loop
+  updateCursorGhostPosition();
+  
+  // Generate pins (this happens while cursor is animating in circles)
+  await generateAutonomousPins(img);
+  
+  // Stop circular animation
+  if (cursorGhostCircleAnimation) {
+    cursorGhostCircleAnimation.active = false;
+  }
+  
+  showToast('AI reflections complete', false);
+  
+  // Redraw to show pins
+  requestDraw();
+  console.log('Autonomous pins generated and drawn');
+  
+  // Wait a bit to show the pins
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Get current image center position for return animation start
+  const finalImageScreenCenter = canvasToScreen(imageCenterX, imageCenterY);
+  
+  // Clear global references
+  activeCursorGhost = null;
+  cursorGhostImageCenter = null;
+  cursorGhostCircleAnimation = null;
+  
+  // Get original toolbar position for cursor return
+  const originalRect = originalElement.getBoundingClientRect();
+  const toolbarX = originalRect.left + originalRect.width / 2;
+  const toolbarY = originalRect.top + originalRect.height / 2;
+  
+  // Animate cursor ghost back to toolbar
+  console.log('Animating cursor back to toolbar');
+  await new Promise(resolve => {
+    const startTime = Date.now();
+    const returnStartX = finalImageScreenCenter.x;
+    const returnStartY = finalImageScreenCenter.y;
+    
+    const animateCursorReturn = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / cursorAnimationDuration, 1);
+      const easedProgress = easeInOutCubic(progress);
+      
+      const currentX = returnStartX + (toolbarX - returnStartX) * easedProgress;
+      const currentY = returnStartY + (toolbarY - returnStartY) * easedProgress;
+      
+      cursorGhost.style.left = currentX + 'px';
+      cursorGhost.style.top = currentY + 'px';
+      
+      if (progress < 1) {
+        requestAnimationFrame(animateCursorReturn);
+      } else {
+        // Restore original opacity when cursor returns
+        originalElement.style.opacity = originalOpacity || '1';
+        resolve();
+      }
+    };
+    animateCursorReturn();
+  });
+  
+  console.log('Cursor returned to toolbar');
+}
+
+// Update cursor ghost position to stay pinned to image and animate in a search-like pattern
+function updateCursorGhostPosition() {
+  if (!activeCursorGhost || !cursorGhostImageCenter || !cursorGhostCircleAnimation) {
+    return;
+  }
+  
+  if (!cursorGhostCircleAnimation.active) {
+    return;
+  }
+  
+  // Calculate current image center in screen coordinates (accounts for canvas pan/zoom)
+  const currentImageScreenCenter = canvasToScreen(cursorGhostImageCenter.x, cursorGhostImageCenter.y);
+  
+  // Update animation time
+  const now = Date.now();
+  const elapsed = now - cursorGhostCircleAnimation.startTime;
+  const t = elapsed * cursorGhostCircleAnimation.speed; // Time-based progression
+  
+  // Create a more random-looking search pattern using multiple sine waves with different frequencies
+  // This creates a figure-8-like or irregular wandering pattern
+  const radius1 = cursorGhostCircleAnimation.radius;
+  const radius2 = cursorGhostCircleAnimation.radius * 0.6;
+  const radius3 = cursorGhostCircleAnimation.radius * 0.3;
+  
+  // Combine multiple sine waves for irregular motion
+  const offsetX = 
+    Math.cos(t) * radius1 +                    // Main circular component
+    Math.cos(t * 2.3) * radius2 +              // Secondary component (different frequency)
+    Math.sin(t * 3.7) * radius3;              // Tertiary component for more randomness
+  
+  const offsetY = 
+    Math.sin(t) * radius1 +                    // Main circular component
+    Math.sin(t * 1.7) * radius2 +             // Secondary component
+    Math.cos(t * 2.9) * radius3;              // Tertiary component
+  
+  // Position cursor at image center + irregular offset
+  activeCursorGhost.style.left = (currentImageScreenCenter.x + offsetX) + 'px';
+  activeCursorGhost.style.top = (currentImageScreenCenter.y + offsetY) + 'px';
+  
+  // Continue animation loop
+  requestAnimationFrame(updateCursorGhostPosition);
+}
+
+// Animate canvas to image and generate autonomous pins (legacy function, kept for compatibility)
+async function animateToImageAndGeneratePins(imageIndex) {
+  // This function is kept for compatibility but now uses the new cursor animation
+  const img = images[imageIndex];
+  if (!img || !img.element) return;
+  
+  // For now, just do the canvas animation without cursor animation
+  // (This might be called from other places)
+  if (isReflectionMode) {
+    exitReflectionMode();
+    await new Promise(resolve => {
+      const checkAnimation = () => {
+        if (!isAnimating) {
+          resolve();
+        } else {
+          setTimeout(checkAnimation, 50);
+        }
+      };
+      checkAnimation();
+    });
+  }
+  
+  const cssDims = getCanvasCSSDimensions();
+  const imageCenterX = img.x + img.width / 2;
+  const imageCenterY = img.y + img.height / 2;
+  const targetScale = 0.5;
+  const targetTranslateX = cssDims.width / 2 - imageCenterX * targetScale;
+  const targetTranslateY = cssDims.height / 2 - imageCenterY * targetScale;
+  
+  animationStartScale = canvasScale;
+  animationStartTranslateX = canvasTranslateX;
+  animationStartTranslateY = canvasTranslateY;
+  animationEndScale = targetScale;
+  animationEndTranslateX = targetTranslateX;
+  animationEndTranslateY = targetTranslateY;
+  
+  isAnimating = true;
+  animationStartTime = Date.now();
+  setInteracting(true);
+  animateCanvasTransform();
+  
+  await new Promise(resolve => {
+    const checkAnimation = () => {
+      if (!isAnimating) {
+        resolve();
+      } else {
+        setTimeout(checkAnimation, 50);
+      }
+    };
+    checkAnimation();
+  });
+  
+  showToast('Generating AI reflections...', false);
+  await generateAutonomousPins(img);
+  showToast('AI reflections complete', false);
+  requestDraw();
+}
 
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
