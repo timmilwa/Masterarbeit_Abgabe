@@ -738,7 +738,7 @@
         #fps-counter {
             display: none;
             position: fixed;
-            top: 120px; /* Positioned below the toggles with more spacing */
+            top: 150px; /* Positioned below the toggles with more spacing */
             left: 20px;
             background-color: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(10px);
@@ -986,6 +986,24 @@
             opacity: 1;
         }
 
+        /* When "Keep visible" is off: hide toggles and FPS until mouse is in top-left (show-on-hover) */
+        #overlay-container.active.top-left-hover-only #top-right-toggles {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #overlay-container.active.top-left-hover-only #top-right-toggles.show-on-hover {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #overlay-container.active.top-left-hover-only #fps-counter.visible {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #overlay-container.active.top-left-hover-only #fps-counter.visible.show-on-hover {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
         .top-toggle-item {
             display: flex;
             align-items: center;
@@ -1029,6 +1047,17 @@
         }
 
         #demo-data-toggle-top:hover {
+            opacity: 1;
+        }
+
+        #keep-visible-toggle-top {
+            cursor: pointer;
+            pointer-events: auto;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        #keep-visible-toggle-top:hover {
             opacity: 1;
         }
 
@@ -1240,6 +1269,24 @@
             padding: 16px 0;
             overflow-y: auto;
             flex-shrink: 0;
+        }
+
+        .settings-sidebar-group {
+            margin-bottom: 20px;
+        }
+
+        .settings-sidebar-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .settings-sidebar-group-title {
+            padding: 8px 20px 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: rgba(0, 0, 0, 0.45);
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
         .settings-tab {
@@ -1988,6 +2035,13 @@
                     <span class="top-toggle-slider"></span>
                 </label>
             </div>
+            <div class="top-toggle-item" id="keep-visible-toggle-top" title="When on, toggles and FPS stay visible; when off, they appear only when the cursor is in the top-left corner">
+                <span class="top-toggle-label">Keep visible</span>
+                <label class="top-toggle">
+                    <input type="checkbox" id="keep-visible-toggle-top-input" checked>
+                    <span class="top-toggle-slider"></span>
+                </label>
+            </div>
         </div>
 
         <!-- FPS Counter -->
@@ -2062,16 +2116,22 @@
             </div>
             <div class="settings-modal-body">
                 <div class="settings-sidebar">
-                    <button class="settings-tab active" data-tab="appearance">Appearance</button>
-                    <button class="settings-tab" data-tab="ai">AI</button>
-                    <button class="settings-tab" data-tab="development">Development</button>
-                    <button class="settings-tab" data-tab="permissions">Permissions</button>
-                    <button class="settings-tab" data-tab="about">About</button>
-                    <button class="settings-tab" data-tab="help">Help</button>
+                    <div class="settings-sidebar-group">
+                        <div class="settings-sidebar-group-title">General</div>
+                        <button class="settings-tab active" data-tab="about">About</button>
+                        <button class="settings-tab" data-tab="permissions">Setup (API-Key & Permissions)</button>
+                        <button class="settings-tab" data-tab="help">Help</button>
+                    </div>
+                    <div class="settings-sidebar-group">
+                        <div class="settings-sidebar-group-title">Dev</div>
+                        <button class="settings-tab" data-tab="ai">AI</button>
+                        <button class="settings-tab" data-tab="appearance">Appearance</button>
+                        <button class="settings-tab" data-tab="development">Development</button>
+                    </div>
                 </div>
                 <div class="settings-content">
                     <!-- Appearance Tab -->
-                    <div class="settings-tab-pane active" id="appearance-tab">
+                    <div class="settings-tab-pane" id="appearance-tab">
                         <div class="settings-section">
                             <label class="settings-label" for="tint-color-input">Background Tint Color</label>
                             <input type="text" id="tint-color-input" class="settings-input" placeholder="#E4DCC0" value="#E4DCC0">
@@ -2208,37 +2268,6 @@
                                 </div>
                                 <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
                                     When enabled, AI-generated questions and content will be used via API calls. When disabled, demo content is used. You can configure all AI settings below regardless of this toggle.
-                                </p>
-                            </div>
-
-                            <!-- API Key Section -->
-                            <div class="settings-section" id="ai-api-key-section">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label class="settings-label" for="ai-api-key-input" style="margin-bottom: 0;">API Key</label>
-                                    <span id="ai-api-key-validation" style="display: none; font-size: 16px;">✓</span>
-                                </div>
-                                <div id="ai-api-key-container" style="position: relative;">
-                                    <!-- Button state (when empty) -->
-                                    <button id="ai-api-key-paste-button" class="api-key-paste-button" style="display: none;">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
-                                            <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                                        </svg>
-                                        <span>Paste API Key</span>
-                                    </button>
-                                    <!-- Input state (when filled) -->
-                                    <div id="ai-api-key-input-container" style="position: relative; display: none;">
-                                        <input type="text" id="ai-api-key-input" class="settings-input" style="padding-right: 40px;" readonly>
-                                        <button id="ai-api-key-clear-btn" class="api-key-clear-button" title="Clear API key">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                                <line x1="6" y1="6" x2="18" y2="18"></line>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
-                                    Your API key is stored locally and never shared. Must start with "AIza".
                                 </p>
                             </div>
 
@@ -2379,10 +2408,42 @@
                             </div>
                         </div>
                     </div>
-                    <!-- Permissions Tab -->
+                    <!-- Setup Tab (API key + System Permissions) -->
                     <div class="settings-tab-pane" id="permissions-tab">
                         <div class="settings-section">
-                            <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">System Permissions</h3>
+                            <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">Setup</h3>
+                            
+                            <!-- API Key Section -->
+                            <div class="settings-section" id="ai-api-key-section" style="margin-bottom: 24px;">
+                                <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 12px;">API Key</h4>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <label class="settings-label" for="ai-api-key-input" style="margin-bottom: 0;">Google Gemini API Key</label>
+                                    <span id="ai-api-key-validation" style="display: none; font-size: 16px;">✓</span>
+                                </div>
+                                <div id="ai-api-key-container" style="position: relative;">
+                                    <button id="ai-api-key-paste-button" class="api-key-paste-button" style="display: none;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+                                            <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                        </svg>
+                                        <span>Paste API Key</span>
+                                    </button>
+                                    <div id="ai-api-key-input-container" style="position: relative; display: none;">
+                                        <input type="text" id="ai-api-key-input" class="settings-input" style="padding-right: 40px;" readonly>
+                                        <button id="ai-api-key-clear-btn" class="api-key-clear-button" title="Clear API key">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
+                                    Your API key is stored locally and never shared. Must start with "AIza". Used for AI features in the Dev section.
+                                </p>
+                            </div>
+
+                            <h4 style="font-size: 14px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 12px;">System Permissions</h4>
                             <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 24px; opacity: 0.7; line-height: 1.6;">
                                 Kaleido requires certain system permissions to function properly. Click the buttons below to open System Settings where you can grant the necessary permissions.
                             </p>
@@ -2416,15 +2477,32 @@
                         </div>
                     </div>
                     <!-- About Tab -->
-                    <div class="settings-tab-pane" id="about-tab">
+                    <div class="settings-tab-pane active" id="about-tab">
                         <div class="settings-section">
                             <h3 style="font-size: 16px; font-weight: 600; color: oklch(0.145 0 0); margin-bottom: 16px;">About Kaleido</h3>
                             <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 16px; line-height: 1.6;">
-                                Kaleido is a tool for meaning making.
+                                Kaleido is an experimental design tool for reflective meaning-making.
+                                It supports designers in exploring, articulating, and reframing meanings within their design process.
+                            </p>
+                            <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 16px; line-height: 1.6;">
+                                Rather than optimizing for speed or output, Kaleido positions AI as an augmenting co-actor that provokes reflection, irritation, and perspective shifts. Through annotation, recombination, analogies, and layered reflection, meanings are externalized, questioned, and transformed. <br> <br> Designed and developed as part of a masters thesis at HfG Schwäbisch Gmünd by Tim Milwa.
+                            </p>
+                            <p style="font-size: 14px; color: oklch(0.145 0 0); margin-bottom: 16px; line-height: 1.6;">
+                                © 2026
                             </p>
                             <div class="settings-section" style="margin-top: 24px;">
                                 <p style="font-size: 12px; color: oklch(0.145 0 0); opacity: 0.6; margin-bottom: 8px;">Version</p>
-                                <p style="font-size: 14px; color: oklch(0.145 0 0); font-weight: 500;" id="app-version">1.0.0</p>
+                                <p style="font-size: 14px; color: oklch(0.145 0 0); font-weight: 500;" id="app-version">0.1.5</p>
+                            </div>
+                            <div class="settings-section" style="margin-top: 24px;">
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); opacity: 0.6; margin-bottom: 8px;">Download the most recent version</p>
+                                <p style="font-size: 14px; color: oklch(0.145 0 0); font-weight: 500;" id="app-version">
+                                    <a href="https://www.timmilwa.com/kaleido" target="_blank">https://www.timmilwa.com/kaleido</a>
+                                </p>
+                            </div>
+                            <div class="settings-section" style="margin-top: 24px;">
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); opacity: 0.6; margin-bottom: 8px;">Contact</p>
+                                <p style="font-size: 14px; color: oklch(0.145 0 0); font-weight: 500;" id="app-version">tim@timmilwa.com</p>
                             </div>
                         </div>
                     </div>

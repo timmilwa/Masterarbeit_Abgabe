@@ -120,6 +120,7 @@ const dprModeSelect = document.getElementById('dpr-mode-select');
 const fpsCounterToggle = document.getElementById('fps-counter-toggle');
 const demoDataToggle = document.getElementById('demo-data-toggle');
 const demoDataToggleTop = document.getElementById('demo-data-toggle-top-input');
+const keepVisibleToggleTop = document.getElementById('keep-visible-toggle-top-input');
 const demoModeToggle = document.getElementById('demo-mode-toggle');
 const openScreenRecordingPermissionsButton = document.getElementById('open-screen-recording-permissions');
 const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
@@ -318,6 +319,7 @@ let fpsUpdateInterval = 1000; // Update FPS display every second
 let fpsLastUpdateTime = performance.now();
 let currentFPS = 0;
 let fpsCounterVisible = true; // Default: FPS counter is visible
+let topLeftPersistent = true; // When true, toggles and FPS always visible; when false, only when mouse in top-left
 
 // Pin system state
 let selectedPinId = null; // Currently selected pin ID
@@ -1490,9 +1492,11 @@ async function generateAutonomousPins(img) {
   const imageBase64 = await compressImageToBase64(img.element, 500);
 
   for (let i = 0; i < numPins; i++) {
-    // Generate random position on image (avoid edges)
+    // Generate random position on image (avoid edges).
+    // Use normalized coords: 0 = top/left, 1 = bottom/right (same as user-placed pins).
+    // Slight downward bias (y in [0.35, 0.9]) so AI pins don't appear too high.
     const x = 0.2 + Math.random() * 0.6; // Between 0.2 and 0.8
-    const y = 0.2 + Math.random() * 0.6; // Between 0.2 and 0.8
+    const y = 0.35 + Math.random() * 0.55; // Between 0.35 and 0.9 (centered lower)
 
     // Get existing pins for context
     const existingPins = img.pins.map(pin => ({
@@ -3169,9 +3173,14 @@ function toggleOverlay() {
       hideActionButtons();
 
       overlayContainer.classList.add('active');
+      if (!topLeftPersistent) {
+        overlayContainer.classList.add('top-left-hover-only');
+      } else {
+        overlayContainer.classList.remove('top-left-hover-only');
+      }
       overlayContainer.style.setProperty('display', 'block', 'important');
       overlayContainer.style.setProperty('visibility', 'visible', 'important');
-      
+
       // Check initial mouse position for top-left hover
       // Use a small delay to ensure mouse position is available
       setTimeout(() => {
@@ -13769,6 +13778,31 @@ if (demoDataToggle || demoDataToggleTop) {
       handleDemoDataToggleChange(isEnabled);
     });
   }
+
+  // "Keep visible" toggle: persistent vs show-on-hover for top-left toggles and FPS counter
+  const savedTopLeftPersistent = localStorage.getItem('topLeftPersistent');
+  if (savedTopLeftPersistent !== null) {
+    topLeftPersistent = savedTopLeftPersistent === 'true';
+  }
+  if (keepVisibleToggleTop) {
+    keepVisibleToggleTop.checked = topLeftPersistent;
+    keepVisibleToggleTop.addEventListener('change', (e) => {
+      topLeftPersistent = e.target.checked;
+      localStorage.setItem('topLeftPersistent', topLeftPersistent.toString());
+      if (overlayContainer.classList.contains('active')) {
+        if (topLeftPersistent) {
+          overlayContainer.classList.remove('top-left-hover-only');
+          if (topRightToggles) topRightToggles.classList.add('show-on-hover');
+          if (fpsCounter && fpsCounter.classList.contains('visible')) fpsCounter.classList.add('show-on-hover');
+        } else {
+          overlayContainer.classList.add('top-left-hover-only');
+          if (topRightToggles) topRightToggles.classList.remove('show-on-hover');
+          if (fpsCounter) fpsCounter.classList.remove('show-on-hover');
+          updateTopLeftHoverState(lastMouseX, lastMouseY);
+        }
+      }
+    });
+  }
 }
 
 // Demo mode toggle handler (demo data takes precedence on startup)
@@ -16137,9 +16171,11 @@ const TOP_LEFT_HOVER_AREA = 200; // Pixels from top and left edges to trigger ho
 
 function updateTopLeftHoverState(mouseX, mouseY) {
   if (!isOverlayActive) return;
-  
+  // When "Keep visible" is on, don't use show-on-hover – CSS keeps everything visible
+  if (topLeftPersistent) return;
+
   const isInTopLeftArea = mouseX <= TOP_LEFT_HOVER_AREA && mouseY <= TOP_LEFT_HOVER_AREA;
-  
+
   if (topRightToggles) {
     if (isInTopLeftArea) {
       topRightToggles.classList.add('show-on-hover');
@@ -16147,7 +16183,7 @@ function updateTopLeftHoverState(mouseX, mouseY) {
       topRightToggles.classList.remove('show-on-hover');
     }
   }
-  
+
   if (fpsCounter && fpsCounter.classList.contains('visible')) {
     if (isInTopLeftArea) {
       fpsCounter.classList.add('show-on-hover');
