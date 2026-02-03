@@ -13831,7 +13831,7 @@ let redRectangleWidth = 200;
 let redRectangleHeight = 150;
 let redRectangleElement = null;
 
-// Update red rectangle position based on canvas transforms
+// Update red rectangle position and size based on canvas transforms
 function updateRedRectanglePosition() {
   if (!redRectangleElement || redRectangleCanvasX === null || redRectangleCanvasY === null) {
     return;
@@ -13841,10 +13841,18 @@ function updateRedRectanglePosition() {
   // canvasToScreen returns coordinates relative to the canvas (which is at 0,0)
   const screenPos = canvasToScreen(redRectangleCanvasX, redRectangleCanvasY);
   
+  // Scale rectangle size with canvas zoom
+  const scaledWidth = redRectangleWidth * canvasScale;
+  const scaledHeight = redRectangleHeight * canvasScale;
+  
+  // Update rectangle size
+  redRectangleElement.style.width = scaledWidth + 'px';
+  redRectangleElement.style.height = scaledHeight + 'px';
+  
   // Position rectangle centered on the canvas coordinates
   // Since canvas is fullscreen at (0,0), screenPos is already in viewport coordinates
-  redRectangleElement.style.left = (screenPos.x - redRectangleWidth / 2) + 'px';
-  redRectangleElement.style.top = (screenPos.y - redRectangleHeight / 2) + 'px';
+  redRectangleElement.style.left = (screenPos.x - scaledWidth / 2) + 'px';
+  redRectangleElement.style.top = (screenPos.y - scaledHeight / 2) + 'px';
 }
 
 // Remove red rectangle
