@@ -99,6 +99,20 @@ function createWindow() {
 // IPC: expose userData path to renderer (so API key config is stored outside app bundle, never shipped in build)
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
 
+// IPC: path and mode for permissions (so user knows which app to enable and avoids adding "Electron" in dev)
+ipcMain.handle('get-app-path-for-permissions', () => {
+  const exe = process.execPath;
+  const isPackaged = app.isPackaged;
+  let displayPath;
+  if (process.platform === 'darwin' && exe.includes('.app/Contents/MacOS/')) {
+    displayPath = path.resolve(path.dirname(exe), '..', '..');
+  } else {
+    displayPath = path.resolve(exe);
+  }
+  const isElectronShell = !isPackaged || exe.toLowerCase().includes('electron.app') || exe.includes('node_modules');
+  return { path: displayPath, isElectronShell };
+});
+
 // IPC Handler für Click-Through
 ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -131,13 +145,20 @@ ipcMain.on('open-dev-tools', () => {
   }
 });
 
-// IPC Handler für Desktop Capturer
+// IPC Handler für Desktop Capturer (screen sources for capture)
+// Can fail if screen recording permission is not granted (macOS) or in some Electron environments.
 ipcMain.handle('get-sources', async () => {
-  const sources = await desktopCapturer.getSources({ types: ['screen'] });
-  return sources.map(source => ({
-    id: source.id,
-    name: source.name
-  }));
+  try {
+    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    return sources.map(source => ({
+      id: source.id,
+      name: source.name
+    }));
+  } catch (err) {
+    console.error('get-sources failed:', err.message || err);
+    // Return empty array so UI can degrade gracefully; callers should handle no sources.
+    return [];
+  }
 });
 
 // IPC Handler für Window Detection
@@ -299,37 +320,35 @@ app.whenReady().then(() => {
     }
   });
 
+  // Show accessibility permission dialog at most once per app run (key listener may write to stderr repeatedly)
+  let accessibilityDialogShown = false;
   keyListener.stderr.on('data', (data) => {
     const errorMessage = data.toString();
     console.error('Key listener error:', errorMessage);
-    
-    // Check if it's a permission error
-    if (errorMessage.includes('Accessibility permissions') || errorMessage.includes('Failed to create global keyboard monitor')) {
-      // Show native dialog after a short delay to ensure window is ready
-      setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          dialog.showMessageBox(mainWindow, {
-            type: 'warning',
-            title: 'Accessibility Permissions Required',
-            message: 'Keyboard shortcuts require accessibility permissions',
-            detail: 'Kaleido needs accessibility permissions to monitor keyboard shortcuts.\n\n' +
-                    'Please grant permissions:\n' +
-                    '1. Open System Settings\n' +
-                    '2. Go to Privacy & Security > Accessibility\n' +
-                    '3. Enable Kaleido\n' +
-                    '4. Restart the app',
-            buttons: ['Open System Settings', 'OK'],
-            defaultId: 0,
-            cancelId: 1
-          }).then((result) => {
-            if (result.response === 0) {
-              // Open System Settings to Accessibility pane
-              exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
-            }
-          });
+    if (accessibilityDialogShown) return;
+    if (!errorMessage.includes('Accessibility permissions') && !errorMessage.includes('Failed to create global keyboard monitor')) return;
+    accessibilityDialogShown = true;
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        title: 'Accessibility Permissions Required',
+        message: 'Keyboard shortcuts require accessibility permissions',
+        detail: 'Kaleido needs accessibility permissions to monitor keyboard shortcuts.\n\n' +
+                'Please grant permissions:\n' +
+                '1. Open System Settings\n' +
+                '2. Go to Privacy & Security > Accessibility\n' +
+                '3. Enable the Kaleido entry that matches the path shown in Settings → Setup\n' +
+                '4. Restart the app',
+        buttons: ['Open System Settings', 'OK'],
+        defaultId: 0,
+        cancelId: 1
+      }).then((result) => {
+        if (result.response === 0) {
+          exec('open "x-apple.systemsettings:com.apple.preference.security?Privacy_Accessibility"');
         }
-      }, 1000);
-    }
+      });
+    }, 1000);
   });
 
   keyListener.on('error', (error) => {

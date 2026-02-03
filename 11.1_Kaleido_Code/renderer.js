@@ -125,6 +125,10 @@ const demoModeToggle = document.getElementById('demo-mode-toggle');
 const openScreenRecordingPermissionsButton = document.getElementById('open-screen-recording-permissions');
 const openAccessibilityPermissionsButton = document.getElementById('open-accessibility-permissions');
 const openAllPermissionsButton = document.getElementById('open-all-permissions');
+const permissionsAppPathEl = document.getElementById('permissions-app-path');
+const permissionsAppModeHintEl = document.getElementById('permissions-app-mode-hint');
+const testScreenCaptureButton = document.getElementById('test-screen-capture');
+const screenCaptureTestStatusEl = document.getElementById('screen-capture-test-status');
 const aiModeToggle = document.getElementById('ai-mode-toggle');
 const aiModeToggleTop = document.getElementById('ai-mode-toggle-top-input');
 const aiApiKeyInput = document.getElementById('ai-api-key-input');
@@ -13155,9 +13159,11 @@ if (settingsTabs && settingsTabs.length > 0) {
       const targetPane = document.getElementById(`${targetTab}-tab`);
       if (targetPane) {
         targetPane.classList.add('active');
-        // Initialize AI settings UI when AI tab is opened
         if (targetTab === 'ai') {
           initializeAISettingsUI();
+        }
+        if (targetTab === 'permissions') {
+          updatePermissionsAppPath();
         }
       }
     });
@@ -13415,41 +13421,82 @@ if (openDevToolsButton) {
   });
 }
 
+// Show which app path to enable in System Settings (helps when user has multiple Kaleido versions)
+async function updatePermissionsAppPath() {
+  if (!permissionsAppPathEl) return;
+  try {
+    const result = await ipcRenderer.invoke('get-app-path-for-permissions');
+    const appPath = result && typeof result === 'object' ? result.path : result;
+    const isElectronShell = result && typeof result === 'object' && result.isElectronShell;
+    permissionsAppPathEl.textContent = appPath || '—';
+    if (permissionsAppModeHintEl) {
+      if (isElectronShell) {
+        permissionsAppModeHintEl.innerHTML = 'You are running from the project (npm start). To use screen capture in dev: add <strong>Electron</strong> (the app at the path above) to Screen Recording. If System Settings then opens the Electron welcome window when you click that entry, ignore it and keep using this Kaleido window—capture will work here. Alternatively, use the built Kaleido.app for capture.';
+        permissionsAppModeHintEl.style.color = 'oklch(0.7 0.12 85)';
+      } else {
+        permissionsAppModeHintEl.textContent = 'In Screen Recording, enable this app (Kaleido).';
+        permissionsAppModeHintEl.style.color = '';
+      }
+    }
+  } catch (e) {
+    permissionsAppPathEl.textContent = '—';
+    if (permissionsAppModeHintEl) permissionsAppModeHintEl.textContent = '';
+  }
+}
+
 // Permission buttons handlers
+// Open System Settings to permission panes without closing the modal (avoids focus/capture triggering system permission pop-up)
 if (openScreenRecordingPermissionsButton) {
   openScreenRecordingPermissionsButton.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('Opening screen recording permissions...');
     ipcRenderer.send('open-system-settings', 'screen-recording');
-    closeSettingsModal();
   });
-} else {
-  console.warn('openScreenRecordingPermissionsButton not found');
+}
+
+// Test screen capture permission (same API as real capture) and show clear status + next steps
+async function runScreenCaptureTest() {
+  if (!screenCaptureTestStatusEl) return;
+  screenCaptureTestStatusEl.textContent = 'Testing…';
+  screenCaptureTestStatusEl.style.color = '';
+  screenCaptureTestStatusEl.style.opacity = '1';
+  try {
+    const sources = await ipcRenderer.invoke('get-sources');
+    if (sources && sources.length > 0) {
+      screenCaptureTestStatusEl.textContent = 'Screen capture works. You can use the capture artefact feature.';
+      screenCaptureTestStatusEl.style.color = 'oklch(0.45 0.2 145)';
+    } else {
+      screenCaptureTestStatusEl.innerHTML = 'Screen capture failed (no sources). Try: 1) Open Screen Recording above and ensure the Kaleido entry matching the path above is enabled (turn it off then on if it’s already on). 2) Quit Kaleido completely (⌘Q) and reopen. 3) Click "Test screen capture" again.';
+      screenCaptureTestStatusEl.style.color = 'oklch(0.65 0.2 25)';
+    }
+  } catch (err) {
+    screenCaptureTestStatusEl.textContent = 'Test failed: ' + (err && err.message ? err.message : String(err));
+    screenCaptureTestStatusEl.style.color = 'oklch(0.55 0.22 25)';
+  }
+}
+
+if (testScreenCaptureButton) {
+  testScreenCaptureButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    runScreenCaptureTest();
+  });
 }
 
 if (openAccessibilityPermissionsButton) {
   openAccessibilityPermissionsButton.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('Opening accessibility permissions...');
     ipcRenderer.send('open-system-settings', 'accessibility');
-    closeSettingsModal();
   });
-} else {
-  console.warn('openAccessibilityPermissionsButton not found');
 }
 
 if (openAllPermissionsButton) {
   openAllPermissionsButton.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('Opening privacy & security settings...');
     ipcRenderer.send('open-system-settings', 'privacy');
-    closeSettingsModal();
   });
-} else {
-  console.warn('openAllPermissionsButton not found');
 }
 
 // FPS counter visibility toggle
