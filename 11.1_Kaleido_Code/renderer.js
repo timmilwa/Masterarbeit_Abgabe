@@ -655,6 +655,12 @@ function updateAISettingsUI() {
     aiModeToggleTop.checked = aiSettings.aiModeEnabled;
   }
 
+  // Show "(demo data is used)" next to AI Functionality label when AI is off
+  const aiDemoDataNotice = document.getElementById('ai-demo-data-notice');
+  if (aiDemoDataNotice) {
+    aiDemoDataNotice.textContent = aiSettings.aiModeEnabled ? '' : ' (demo data is used)';
+  }
+
   // All settings are always enabled - AI mode toggle only controls functionality, not configurability
   // Keep all sections enabled and visible
   const sectionsToEnable = [aiApiKeySection, aiModelSection, aiCustomInstructionsSection];
