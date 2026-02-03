@@ -5,11 +5,11 @@ In diesem Repo finden sich alle Prototypen, die als Teil meiner Masterarbeit bes
 In den meisten Fällen ist zur Nutzung lediglich die lokale Hinterlegung eines eigenen Google AI API-Keys in den Einstellungen des Interface erforderlich, bei einigen muss Zugriff auf bestimmte Funktionen des Betriebssystem gegeben werden. Die dabei verarbeiteten Daten sind für mich nicht zugänglich.
 
 ### Setup Kaleido App (Proto 11)
-Alle Informationen auf: https://github.com/timmilwa/Masterarbeit_Abgabe/releases/tag/v0.1.5
+Alle Informationen und Download auf: https://github.com/timmilwa/Masterarbeit_Abgabe/releases/tag/v0.1.5
 
 
 
-### Setup Weitere Prototypen   
+### Setup Weitere Prototypen (Proto 1-10) 
 Das Setup der einzelnen Prototypen unterscheidet sich zum Teil, da sie unterschiedlich Technologien und Strukturen nutzen. 
 
 Allgemeine Anforderungen
