@@ -270,6 +270,61 @@
             transform: translateX(2px);
         }
 
+        /* Tooltip Component - appears after 2s hover */
+        #kaleido-tooltip {
+            position: fixed;
+            z-index: 10000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        #kaleido-tooltip.visible {
+            opacity: 1;
+        }
+
+        #kaleido-tooltip .tooltip-content {
+            padding: 8px 14px;
+            background-color: rgba(245, 245, 245, 0.98);
+            color: #404040;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 10px;
+            white-space: nowrap;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+            position: relative;
+        }
+
+        /* Downward-pointing tail (when tooltip is above element) */
+        #kaleido-tooltip.position-above .tooltip-content::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 6px solid rgba(245, 245, 245, 0.98);
+            filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.06));
+        }
+
+        /* Upward-pointing tail (when tooltip is below element) */
+        #kaleido-tooltip.position-below .tooltip-content::after {
+            content: '';
+            position: absolute;
+            top: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-bottom: 6px solid rgba(245, 245, 245, 0.98);
+            filter: drop-shadow(0 -1px 1px rgba(0, 0, 0, 0.06));
+        }
+
         /* Make the pluses inside toolbar inputs a bit larger */
         #pin-confirm-button,
         #emotions-answer-add-button,
@@ -1228,6 +1283,138 @@
             display: flex;
         }
 
+        /* Welcome / API Key Dialog (first start when no API key) */
+        #welcome-api-key-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 3100;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        #welcome-api-key-overlay.visible {
+            display: flex;
+        }
+        #welcome-api-key-modal {
+            background-color: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+            padding: 0;
+            z-index: 3101;
+            width: 440px;
+            max-width: 90vw;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            animation: modalFadeIn 0.2s ease-out;
+            display: flex;
+            flex-direction: column;
+            pointer-events: auto;
+        }
+        #welcome-api-key-modal input {
+            pointer-events: auto;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+        .welcome-api-key-header {
+            padding: 24px 24px 0;
+        }
+        .welcome-api-key-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: oklch(0.145 0 0);
+            margin: 0 0 8px 0;
+        }
+        .welcome-api-key-help-link {
+            font-size: 13px;
+            color: oklch(0.35 0.1 250);
+            text-decoration: none;
+            margin-top: 4px;
+            display: inline-block;
+        }
+        .welcome-api-key-help-link:hover {
+            text-decoration: underline;
+        }
+        .welcome-api-key-body {
+            padding: 20px 24px 24px;
+        }
+        #welcome-api-key-container { position: relative; }
+        #welcome-api-key-paste-btn.welcome-paste-btn {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 6px;
+            background-color: #f3f3f5;
+            font-size: 14px;
+            color: oklch(0.145 0 0);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        #welcome-api-key-paste-btn.welcome-paste-btn:hover {
+            background-color: #e9ebef;
+            border-color: #030213;
+        }
+        .welcome-api-key-input-wrap {
+            position: relative;
+            display: none;
+        }
+        .welcome-api-key-input-wrap.visible { display: block; }
+        #welcome-api-key-input { padding-right: 40px; }
+        .welcome-api-key-clear-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: oklch(0.145 0 0);
+            opacity: 0.6;
+        }
+        .welcome-api-key-clear-btn:hover { background-color: #e9ebef; opacity: 1; }
+        .welcome-api-key-validation { font-size: 16px; margin-left: 4px; }
+        .welcome-api-key-actions {
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .welcome-api-key-actions button {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+        }
+        #welcome-api-key-done-btn {
+            background-color: #030213;
+            color: white;
+        }
+        #welcome-api-key-done-btn:hover { opacity: 0.9; }
+        #welcome-api-key-skip-btn {
+            background-color: transparent;
+            color: oklch(0.145 0 0);
+            border: 1px solid rgba(0, 0, 0, 0.2);
+        }
+        #welcome-api-key-skip-btn:hover { background-color: #f3f3f5; }
+
         /* Settings Modal */
         #settings-modal {
             background-color: rgba(255, 255, 255, 0.95);
@@ -1378,6 +1565,82 @@
             padding: 24px;
             overflow-y: auto;
             overflow-x: hidden;
+            position: relative;
+        }
+
+        #settings-dev-password-overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.97);
+            z-index: 10;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+
+        #settings-dev-password-overlay.visible {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .settings-dev-password-content {
+            max-width: 320px;
+            width: 100%;
+        }
+
+        .settings-dev-password-content h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: oklch(0.145 0 0);
+            margin: 0 0 8px;
+        }
+
+        .settings-dev-password-content p {
+            font-size: 14px;
+            color: oklch(0.145 0 0);
+            opacity: 0.7;
+            margin: 0 0 20px;
+        }
+
+        .settings-dev-password-content input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+            margin-bottom: 8px;
+        }
+
+        .settings-dev-password-content input:focus {
+            outline: none;
+            border-color: #030213;
+        }
+
+        #settings-dev-password-error {
+            font-size: 12px;
+            color: #ef4444;
+            margin-bottom: 12px;
+        }
+
+        .settings-dev-password-submit {
+            padding: 10px 20px;
+            background: #030213;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .settings-dev-password-submit:hover {
+            background: #1a1a2e;
         }
 
         .settings-tab-pane {
@@ -1980,19 +2243,19 @@
         <div id="bottom-toolbar">
             <div class="toolbar-center-icons">
                 <div class="toolbar-sliding-bg position-1"></div>
-                <button class="tool-button active" id="select-tool" title="Select Tool">
+                <button class="tool-button active" id="select-tool" title="Select Tool" data-tooltip="Select" data-tooltip-position="above">
                     <svg xmlns="http://www.w3.org/2000/svg" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>
                     </svg>
                 </button>
-                <button class="tool-button" id="postit-tool" title="Create Note">
+                <button class="tool-button" id="postit-tool" title="Create Note" data-tooltip="Add comment" data-tooltip-position="above">
                     <svg xmlns="http://www.w3.org/2000/svg" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/>
                         <path d="M12 8v6"/>
                         <path d="M9 11h6"/>
                     </svg>
                 </button>
-                <button class="tool-button" id="upload-tool" title="Upload Image">
+                <button class="tool-button" id="upload-tool" title="Upload Image" data-tooltip="Upload image" data-tooltip-position="above">
                     <svg xmlns="http://www.w3.org/2000/svg" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M16 5h6"/>
                         <path d="M19 2v6"/>
@@ -2002,7 +2265,7 @@
                     </svg>
                 </button>
                 
-                <button class="tool-button" id="duplicate-tool" title="Download">
+                <button class="tool-button" id="duplicate-tool" title="Download" data-tooltip="Download image" data-tooltip-position="above">
                     <svg xmlns="http://www.w3.org/2000/svg" width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 15V3"/>
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -2011,7 +2274,7 @@
                 </button>
                 <div class="toolbar-divider"></div>
                 <div style="position: relative; overflow: visible; clip-path: polygon(-1000px -1000px, 1000px -1000px, 1000px 53px, -1000px 53px);">
-                    <button class="tool-button" id="svg-button-1" title="" style="margin-left:8px; margin-right:8px;">
+                    <button class="tool-button" id="svg-button-1" title="" data-tooltip="Cards" data-tooltip-position="above" style="margin-left:8px; margin-right:8px;">
                         <img src="assets/Group_1561.svg" alt="">
                     </button>
                     <div class="card-stack-container" id="card-stack-container">
@@ -2025,7 +2288,7 @@
                 </div>
                 <div class="toolbar-divider"></div>
                 <div style="position: relative; overflow: visible; clip-path: polygon(-1000px -1000px, 1000px -1000px, 1000px 53px, -1000px 53px);">
-                    <button class="tool-button" id="svg-button-1-2" title="" style="margin-left:8px; margin-right:8px;">
+                    <button class="tool-button" id="svg-button-1-2" title="" data-tooltip="Tokens" data-tooltip-position="above" style="margin-left:8px; margin-right:8px;">
                         <img src="assets/Group_1e562.svg" alt="">
                     </button>
                     <div class="token-stack-container" id="token-stack-container">
@@ -2040,7 +2303,7 @@
                         <div class="token-label" data-token-index="2">Counterfactual</div>
                     </div>
                 </div>
-                <div style="position: relative; display: flex; align-items: center; justify-content: center;" class="toolbar-svg-container" id="ai-cursor-container" title="AI Autonomous Reflection">
+                <div style="position: relative; display: flex; align-items: center; justify-content: center;" class="toolbar-svg-container" id="ai-cursor-container" title="AI Autonomous Reflection" data-tooltip="Autonomous AI (drag on canvas)" data-tooltip-position="above">
                     <img src="assets/F.svg" alt="" id="svg-f" class="toolbar-svg">
                     <img src="assets/Vector.svg" alt="" id="svg-vector" class="toolbar-svg-overlay" style="cursor: grab;">
                 </div>
@@ -2152,6 +2415,43 @@
         </div>
     </div>
 
+    <!-- Welcome / API Key Dialog (shown on first start when no API key) -->
+    <div id="welcome-api-key-overlay">
+        <div id="welcome-api-key-modal">
+            <div class="welcome-api-key-header">
+                <h2 class="welcome-api-key-title">Willkommen bei Kaleido</h2>
+                <p style="font-size: 14px; color: oklch(0.145 0 0); line-height: 1.5; margin: 0; opacity: 0.85;">
+                    Kaleido ist ein experimentelles Designtool für reflexives Meaning-Making. Um KI-Funktionen zu nutzen, trage unten deinen Google-Gemini-API-Key ein. Du kannst den Key jederzeit in den Einstellungen unter Setup anpassen.
+                </p>
+                <a href="#" id="welcome-open-help-link" class="welcome-api-key-help-link">Hilfeseite in den Einstellungen öffnen</a>
+            </div>
+            <div class="welcome-api-key-body">
+                <div style="margin-bottom: 8px;">
+                    <label class="settings-label" for="welcome-api-key-input" style="margin-bottom: 0;">Google Gemini API Key</label>
+                    <span id="welcome-api-key-validation" class="welcome-api-key-validation" style="display: none;">✓</span>
+                </div>
+                <div id="welcome-api-key-container">
+                    <button type="button" id="welcome-api-key-paste-btn" class="welcome-paste-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path></svg>
+                        <span>API Key einfügen</span>
+                    </button>
+                    <div id="welcome-api-key-input-wrap" class="welcome-api-key-input-wrap">
+                        <input type="text" id="welcome-api-key-input" class="settings-input" readonly>
+                        <button type="button" id="welcome-api-key-clear-btn" class="welcome-api-key-clear-btn" title="API Key löschen">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                </div>
+                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
+                    Der Key wird nur lokal gespeichert und beginnt mit „AIza“. Du kannst ihn später unter Einstellungen → Setup ändern.
+                </p>
+                <div class="welcome-api-key-actions">
+                    <button type="button" id="welcome-api-key-skip-btn">Später</button>
+                    <button type="button" id="welcome-api-key-done-btn">Fertig</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Settings Modal -->
     <div id="settings-modal-overlay">
@@ -2181,6 +2481,16 @@
                     </div>
                 </div>
                 <div class="settings-content">
+                    <!-- Dev Sections Password Overlay -->
+                    <div id="settings-dev-password-overlay">
+                        <div class="settings-dev-password-content">
+                            <h3>Dev Sections</h3>
+                            <p>Enter password to access AI, Appearance, and Development settings.</p>
+                            <input type="password" id="settings-dev-password-input" placeholder="Password" autocomplete="off">
+                            <div id="settings-dev-password-error"></div>
+                            <button type="button" class="settings-dev-password-submit" id="settings-dev-password-submit">Unlock</button>
+                        </div>
+                    </div>
                     <!-- Appearance Tab -->
                     <div class="settings-tab-pane" id="appearance-tab">
                         <div class="settings-section">
@@ -2296,6 +2606,14 @@
                                 </div>
                                 <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
                                     When enabled, the demo weather app image with example pins (feature, emotions, value) is always shown on the canvas, including after app restart.
+                                </p>
+                            </div>
+                            <div class="settings-section">
+                                <button id="show-welcome-dialog-button" class="settings-input" style="cursor: pointer; background-color: #1a1a2e; color: white; border: 1px solid rgba(255,255,255,0.2); padding: 10px; font-weight: 500;">
+                                    Show Welcome / API Key Dialog
+                                </button>
+                                <p style="font-size: 12px; color: oklch(0.145 0 0); margin-top: 8px; opacity: 0.6;">
+                                    Opens the first-start dialog for preview. Your existing API key is not modified.
                                 </p>
                             </div>
                         </div>
@@ -2600,6 +2918,11 @@
 
     <!-- Old Settings Popup (hidden, kept for backward compatibility) -->
     <div id="settings-popup" style="display: none;">
+    </div>
+
+    <!-- Tooltip component (global, reusable) -->
+    <div id="kaleido-tooltip" class="position-above" aria-hidden="true">
+        <span class="tooltip-content"></span>
     </div>
 
     <!-- SVG filter for blur effect -->

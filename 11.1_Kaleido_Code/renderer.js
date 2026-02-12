@@ -24,6 +24,24 @@ const settingsModal = document.getElementById('settings-modal');
 const settingsModalClose = document.getElementById('settings-modal-close');
 const settingsTabs = document.querySelectorAll('.settings-tab');
 const settingsTabPanes = document.querySelectorAll('.settings-tab-pane');
+const settingsDevPasswordOverlay = document.getElementById('settings-dev-password-overlay');
+const settingsDevPasswordInput = document.getElementById('settings-dev-password-input');
+const settingsDevPasswordError = document.getElementById('settings-dev-password-error');
+const settingsDevPasswordSubmit = document.getElementById('settings-dev-password-submit');
+
+const DEV_TABS = ['ai', 'appearance', 'development'];
+const DEV_PASSWORD = '123';
+let devSectionsUnlocked = false;
+let pendingDevTab = null;
+const welcomeAPIKeyOverlay = document.getElementById('welcome-api-key-overlay');
+const welcomeAPIKeyPasteBtn = document.getElementById('welcome-api-key-paste-btn');
+const welcomeAPIKeyInputWrap = document.getElementById('welcome-api-key-input-wrap');
+const welcomeAPIKeyInput = document.getElementById('welcome-api-key-input');
+const welcomeAPIKeyClearBtn = document.getElementById('welcome-api-key-clear-btn');
+const welcomeAPIKeyValidation = document.getElementById('welcome-api-key-validation');
+const welcomeAPIKeyDoneBtn = document.getElementById('welcome-api-key-done-btn');
+const welcomeAPIKeySkipBtn = document.getElementById('welcome-api-key-skip-btn');
+const welcomeOpenHelpLink = document.getElementById('welcome-open-help-link');
 const tintColorInput = document.getElementById('tint-color-input');
 const openDevToolsButton = document.getElementById('open-dev-tools-button');
 const colorPreview = document.getElementById('color-preview');
@@ -192,6 +210,8 @@ let previousCanvasTranslateX = 0;
 let previousCanvasTranslateY = 0;
 let reflectionButtonBounds = null; // Store button bounds for click detection
 let cardGenerateButtonBounds = {}; // Store generate button bounds for each card image: { imageId: { x, y, width, height, isScreenCoords } }
+let analogyGridCircleDragging = null; // { imageId, imageIndex } when dragging the 3x3 grid circle on Reflective Analogy card
+let analogyGridCircleAnimation = null; // { imageId, imageIndex, fromX, fromY, toX, toY, radius, startTime, duration }
 let tokenPillBounds = {}; // Store pill bounds for each token image: { imageId: { pill: { x, y, width, height }, closeButton: { x, y, width, height }, isScreenCoords: true } }
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
 let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
@@ -333,8 +353,7 @@ let hoveredPinId = null; // Currently hovered pin ID (for hover tooltip)
 let isPlacingPin = false; // Whether currently placing a pin
 let tempPinLocation = null; // Temporary pin location during placement {x, y} in normalized coordinates
 let pinFeatureText = ''; // Text for feature during pin placement
-let pinThumbnailSvg = null; // SVG image for pin thumbnail overlay on card images
-let analogyCardActiveImage = null; // Image used for analogy card when exactly one pin is active (100% opacity)
+let pinThumbnailSvg = null; // SVG image for pin thumbnail overlay on card images (shown top-right when pin selected)
 
 // Pin expansion animation state
 let pinExpansionAnimation = null; // { pinId, startTime, duration, fromState: 'collapsed'|'expanded', toState: 'collapsed'|'expanded' }
@@ -442,6 +461,7 @@ function loadLabelImages() {
   emotionsLabelImage.src = 'file://' + emotionsPath;
 
   // Load pin thumbnail SVG (try project assets first, then Desktop/Cards)
+  // Use base64 data URL for reliability in Electron (file:// can have cross-origin issues)
   const pinThumbnailPaths = [
     path.join(__dirname, 'assets', 'pinthumg.svg'),
     path.join(process.cwd(), 'assets', 'pinthumg.svg'),
@@ -462,7 +482,12 @@ function loadLabelImages() {
     console.error('Failed to load pin thumbnail SVG from:', pinThumbnailPath || 'no path found');
   };
   if (pinThumbnailPath) {
-    pinThumbnailSvg.src = 'file://' + pinThumbnailPath;
+    try {
+      const pinThumbBuffer = fs.readFileSync(pinThumbnailPath);
+      pinThumbnailSvg.src = 'data:image/svg+xml;base64,' + pinThumbBuffer.toString('base64');
+    } catch (err) {
+      console.error('Failed to read pin thumbnail SVG:', err);
+    }
   }
 
   // Load Values SVG
@@ -474,35 +499,6 @@ function loadLabelImages() {
     console.error('Failed to load Values.svg from:', valuesPath);
   };
   valuesLabelImage.src = 'file://' + valuesPath;
-
-  // Load analogy card "active" image (one pin selected - 100% opacity state)
-  const analogyActivePaths = [
-    path.join(__dirname, 'assets', 'AnalogycardbigActive.png'),
-    path.join(process.cwd(), 'assets', 'AnalogycardbigActive.png')
-  ];
-  let analogyActivePath = null;
-  for (const p of analogyActivePaths) {
-    if (fs.existsSync(p)) {
-      analogyActivePath = p;
-      break;
-    }
-  }
-  if (analogyActivePath) {
-    try {
-      const imageBuffer = fs.readFileSync(analogyActivePath);
-      const imageBase64 = imageBuffer.toString('base64');
-      analogyCardActiveImage = new Image();
-      analogyCardActiveImage.onload = () => {
-        requestDraw();
-      };
-      analogyCardActiveImage.onerror = () => {
-        console.error('Failed to decode AnalogycardbigActive.png');
-      };
-      analogyCardActiveImage.src = 'data:image/png;base64,' + imageBase64;
-    } catch (err) {
-      console.error('Failed to load AnalogycardbigActive.png:', err);
-    }
-  }
 }
 
 // Initialize label images on load
@@ -512,18 +508,24 @@ if (typeof window !== 'undefined') {
   window.addEventListener('load', async () => {
     await loadAISettings();
     loadCustomInstructions();
+    maybeShowWelcomeAPIKeyDialog();
   });
   // Also try loading immediately in case window is already loaded
   if (document.readyState === 'complete') {
     loadLabelImages();
     initializeGeneralInfoIcons();
-    (async () => { await loadAISettings(); loadCustomInstructions(); })();
+    (async () => {
+      await loadAISettings();
+      loadCustomInstructions();
+      maybeShowWelcomeAPIKeyDialog();
+    })();
   } else {
     // Try loading after a short delay
     setTimeout(loadLabelImages, 100);
     setTimeout(async () => {
       await loadAISettings();
       loadCustomInstructions();
+      maybeShowWelcomeAPIKeyDialog();
     }, 100);
   }
 }
@@ -786,6 +788,82 @@ function updateAPIKeyValidation(key) {
 async function initializeAISettingsUI() {
   await loadAISettings();
   updateAISettingsUI();
+}
+
+// ============================================================================
+// Welcome / API Key Dialog (first start when no API key)
+// ============================================================================
+
+function maybeShowWelcomeAPIKeyDialog() {
+  const key = aiSettings.apiKey || '';
+  if (!key.trim()) {
+    showWelcomeAPIKeyDialog();
+    ipcRenderer.send('set-ignore-mouse-events', false);
+  }
+}
+
+function showWelcomeAPIKeyDialog() {
+  if (!welcomeAPIKeyOverlay) return;
+  welcomeAPIKeyOverlay.classList.add('visible');
+  initWelcomeAPIKeyUI();
+}
+
+function closeWelcomeAPIKeyDialog() {
+  if (!welcomeAPIKeyOverlay) return;
+  welcomeAPIKeyOverlay.classList.remove('visible');
+  if (!isOverlayActive && !isScreenshotMode && !isMouseOverUI(lastMouseX, lastMouseY)) {
+    ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+  }
+}
+
+function initWelcomeAPIKeyUI() {
+  const key = aiSettings.apiKey || '';
+  if (!welcomeAPIKeyPasteBtn || !welcomeAPIKeyInputWrap || !welcomeAPIKeyInput) return;
+
+  if (key.trim().length > 0) {
+    welcomeAPIKeyInput.value = key;
+    welcomeAPIKeyPasteBtn.style.display = 'none';
+    welcomeAPIKeyInputWrap.classList.add('visible');
+    updateWelcomeAPIKeyValidation(key);
+  } else {
+    welcomeAPIKeyPasteBtn.style.display = 'flex';
+    welcomeAPIKeyInputWrap.classList.remove('visible');
+    welcomeAPIKeyInput.value = '';
+    updateWelcomeAPIKeyValidation('');
+  }
+}
+
+function updateWelcomeAPIKeyValidation(key) {
+  if (!welcomeAPIKeyValidation) return;
+  if (!key || key.trim().length === 0) {
+    welcomeAPIKeyValidation.style.display = 'none';
+    return;
+  }
+  const isValid = validateAPIKey(key);
+  welcomeAPIKeyValidation.style.display = 'inline-block';
+  welcomeAPIKeyValidation.textContent = isValid ? '✓' : '✗';
+  welcomeAPIKeyValidation.style.color = isValid ? '#10b981' : '#ef4444';
+}
+
+function openSettingsToTab(tabName) {
+  if (!settingsModalOverlay || !settingsTabs || !settingsTabPanes) return;
+  settingsModalOverlay.classList.add('visible');
+  ipcRenderer.send('set-ignore-mouse-events', false);
+
+  // Dev tabs require password
+  if (DEV_TABS.includes(tabName) && !devSectionsUnlocked) {
+    pendingDevTab = tabName;
+    switchToSettingsTab('about'); // Show general tab first
+    if (settingsDevPasswordOverlay) settingsDevPasswordOverlay.classList.add('visible');
+    if (settingsDevPasswordInput) {
+      settingsDevPasswordInput.value = '';
+      settingsDevPasswordInput.focus();
+    }
+    if (settingsDevPasswordError) settingsDevPasswordError.textContent = '';
+    return;
+  }
+
+  switchToSettingsTab(tabName);
 }
 
 // ============================================================================
@@ -4098,6 +4176,42 @@ function draw() {
     });
   }
 
+  // Draw pin thumbnail overlays for Reflective Analogy card IN CANVAS COORDINATES (before restore)
+  // So they scale with the card when zooming the canvas
+  const analogyPinsToShow = [];
+  selectedImageIndices.forEach(idx => {
+    const img = images[idx];
+    if (!img || !img.isCard || img.hidden || img.cardIndex !== 0) return;
+    if (scaledPinIds.length === 0) return;
+    scaledPinIds.forEach((pinId, index) => {
+      let pin = null;
+      for (const candidateImg of images) {
+        if (candidateImg && candidateImg.pins) {
+          pin = candidateImg.pins.find(p => p.id === pinId);
+          if (pin) break;
+        }
+      }
+      if (pin) analogyPinsToShow.push({ img, pin, index });
+    });
+  });
+  analogyPinsToShow.forEach(({ img, pin, index }) => {
+    drawPinThumbnailOverlayCanvasCoords(img, pin, index);
+  });
+
+  // 3x3 Grid-Kreis für Reflective Analogy Karte (nur wenn ausgewählt)
+  selectedImageIndices.forEach(idx => {
+    const img = images[idx];
+    if (img && img.isCard && !img.hidden && img.cardIndex === 0) {
+      drawAnalogyGridCircle(img);
+    }
+  });
+  // Animation weiterlaufen lassen
+  if (analogyGridCircleAnimation) {
+    const anim = analogyGridCircleAnimation;
+    const elapsed = Date.now() - anim.startTime;
+    if (elapsed < anim.duration) requestDraw();
+  }
+
   ctx.restore();
   aspectDotsForHitTesting.length = 0;
 
@@ -4139,20 +4253,15 @@ function draw() {
   // Check all selected cards
   selectedImageIndices.forEach(idx => {
     const img = images[idx];
-    if (!img || !img.isCard || img.hidden || !img.pins) return;
+    if (!img || !img.isCard || img.hidden) return;
     
     const isAnalogyCard = img.cardIndex === 0;
     
     if (isAnalogyCard && scaledPinIds.length > 0) {
-      // Analogy card: show overlay for all pins in scaledPinIds that belong to this card
-      scaledPinIds.forEach((pinId, index) => {
-        const pin = img.pins.find(p => p.id === pinId);
-        if (pin) {
-          pinsToShow.push({ img, pin, index });
-        }
-      });
-    } else if (!isAnalogyCard && (scaledPinId !== null || selectedPinId !== null)) {
-      // Other cards: show single selected pin
+      // Analogy card: drawn in canvas coords before restore (scales with zoom) - skip here
+      return;
+    } else if (!isAnalogyCard && (scaledPinId !== null || selectedPinId !== null) && img.pins) {
+      // Other cards: show single selected pin (must be on this card)
       const pinIdToShow = scaledPinId || selectedPinId;
       const selectedPin = img.pins.find(p => p.id === pinIdToShow);
       if (selectedPin) {
@@ -4999,13 +5108,9 @@ function drawImage(img, isSelected) {
   ctx.save();
   ctx.globalAlpha = opacity;
 
-  // For analogy card: when it is the selected card and any pin on the canvas is selected (on this card or any other image), use the active variant
-  const isAnalogyCardSelected = isAnyCardSelected && selectedCardIndex === 0 && img.isCard && img.cardIndex === 0 && selectedImageIndices.some(idx => images[idx] === img);
-  const anyPinSelectedOnCanvas = scaledPinIds.length >= 1 || scaledPinId !== null;
-  const useActiveAnalogyImage = isAnalogyCardSelected && anyPinSelectedOnCanvas && analogyCardActiveImage && analogyCardActiveImage.complete;
-  const elementToDraw = useActiveAnalogyImage ? analogyCardActiveImage : img.element;
-
-  ctx.drawImage(elementToDraw, img.x, img.y, img.width, img.height);
+  // Analogy card: always use the card background (card-analogy.svg). When pins are selected,
+  // pinthumg.svg is drawn as overlay in top-right via drawPinThumbnailOverlay.
+  ctx.drawImage(img.element, img.x, img.y, img.width, img.height);
 
   ctx.restore();
 
@@ -5473,6 +5578,15 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
     ? isInScaledPinIds
     : (isScaledPinId || isSelectedPinId);
   const scaleFactor = isScaled ? 1.03 : 1.0; // 3% scale up
+
+  // Opacity: Analogy-Karte aktiv – Pins in scaledPinIds 100%; bei 2 ausgewählt: andere 0%; bei 1 ausgewählt: andere 50%
+  // Andere Karten: selectedPinId 100%; andere 50%
+  let basePinOpacity = 1.0;
+  if (isAnyCardSelected && selectedCardIndex === 0) {
+    basePinOpacity = isInScaledPinIds ? 1.0 : (scaledPinIds.length >= 2 ? 0.0 : scaledPinIds.length === 1 ? 0.5 : 1.0);
+  } else {
+    basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
+  }
   
   // Get animation progress (0.0 = collapsed, 1.0 = expanded)
   // CRITICAL: Never allow expansion if shouldPreventExpansion is true
@@ -5596,8 +5710,6 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
-      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
       const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = collapsedFade * pinOpacity;
@@ -5625,8 +5737,6 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
-      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
       const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = collapsedFade * pinOpacity;
@@ -5737,9 +5847,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       }
 
       // Then draw the semi-transparent colored overlay
-      // Apply 50% opacity to unselected pins when a feature is selected
-      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
-      const bgOpacity = 0.35 * combinedProgress * pinOpacity; // Moderate transparency (0.3-0.4)
+      const bgOpacity = 0.35 * combinedProgress * basePinOpacity; // Moderate transparency (0.3-0.4)
       ctx.fillStyle = `rgba(76, 185, 72, ${bgOpacity})`; // Green with transparency
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentValuesAreaOuterRadius, 0, Math.PI * 2);
@@ -5910,9 +6018,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       }
 
       // Then draw the semi-transparent colored overlay
-      // Apply 50% opacity to unselected pins when a feature is selected
-      const pinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
-      const bgOpacity = 0.35 * expansionProgress * pinOpacity; // Moderate transparency (0.3-0.4)
+      const bgOpacity = 0.35 * expansionProgress * basePinOpacity; // Moderate transparency (0.3-0.4)
       ctx.fillStyle = `rgba(240, 206, 37, ${bgOpacity})`; // Yellow with transparency
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentEmotionsAreaOuterRadius, 0, Math.PI * 2);
@@ -6010,8 +6116,6 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
-      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
       const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = pinOpacity;
@@ -6035,8 +6139,6 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
-      // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
-      const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
       const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
       ctx.globalAlpha = pinOpacity;
@@ -6060,8 +6162,6 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   }
 
   // Draw blue circle (innermost) - always visible, same size in both states
-  // Apply 50% opacity to unselected pins when a feature is selected, or 50% when token is dragging
-  const basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
   const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
   ctx.save();
   ctx.globalAlpha = pinOpacity;
@@ -6088,7 +6188,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   }
 }
 
-// Draw pin thumbnail SVG overlay on card images when a pin is selected
+// Draw pin thumbnail SVG overlay on card images when a pin is selected (screen coordinates - fixed size)
 function drawPinThumbnailOverlay(img, pin, index = 0) {
   if (!img || !img.isCard || !pin || !pinThumbnailSvg || !pinThumbnailSvg.complete) {
     return;
@@ -6097,21 +6197,142 @@ function drawPinThumbnailOverlay(img, pin, index = 0) {
   // Calculate card image corners in screen coordinates
   const topLeft = canvasToScreen(img.x, img.y);
   const topRight = canvasToScreen(img.x + img.width, img.y);
-  const bottomRight = canvasToScreen(img.x + img.width, img.y + img.height);
 
-  // Position SVG in top-right corner of the card image
-  // For analogy cards with multiple pins, stack them vertically
+  // Position SVG in top-right corner - fixed screen size
   const overlaySize = 60;
-  const padding = 10; // Padding from edge
-  const spacing = 5; // Spacing between overlays when multiple pins
-  
-  // For analogy cards: stack overlays vertically (first pin at top, second below)
-  // For other cards: single overlay at top-right
+  const padding = 10;
+  const spacing = 5;
   const overlayX = topRight.x - overlaySize - padding;
   const overlayY = topLeft.y + padding + (index * (overlaySize + spacing));
 
   ctx.save();
   ctx.drawImage(pinThumbnailSvg, overlayX, overlayY, overlaySize, overlaySize);
+  ctx.restore();
+}
+
+// Draw pin thumbnail overlay in CANVAS coordinates - scales with zoom (Reflective Analogy card only)
+// Pins aligned exactly on the dashed circular outlines on the card background (867x1183 source)
+function drawPinThumbnailOverlayCanvasCoords(img, pin, index = 0) {
+  if (!img || !img.isCard || !pin || !pinThumbnailSvg || !pinThumbnailSvg.complete) {
+    return;
+  }
+
+  // Position/size aligned with dashed circular outlines on card (867x1183)
+  // Größere Pins; Position auf den gestrichelten Umrissen (etwas weiter links und unten)
+  const leftCircleLeft = 0.605;          // linke Kante des linken Kreises
+  const circleSizeRatio = 0.16;        // Durchmesser ~18% – etwas größer
+  const spacingRatio = 0.025;           // Abstand zwischen den Pins
+  const topOffsetRatio = 0.14;         // vertikale Position
+
+  const overlaySize = img.width * circleSizeRatio;
+  const spacing = img.width * spacingRatio;
+
+  // Side by side: index 0 left, index 1 right
+  const baseX = img.x + img.width * leftCircleLeft;
+  const overlayX = baseX + index * (overlaySize + spacing);
+  const overlayY = img.y + img.height * topOffsetRatio;
+
+  ctx.save();
+  ctx.drawImage(pinThumbnailSvg, overlayX, overlayY, overlaySize, overlaySize);
+  ctx.restore();
+}
+
+// 3x3 Grid auf Reflective Analogy Card – Positionen (Bereiche auf Karte 867x1183)
+const ANALOGY_GRID_LEFT = 0.12;
+const ANALOGY_GRID_RIGHT = 0.88;
+const ANALOGY_GRID_TOP = 0.42;
+const ANALOGY_GRID_BOTTOM = 0.92;
+const ANALOGY_GRID_OFFSET_Y = -23; // 23 Pixel weiter nach oben
+const ANALOGY_CIRCLE_COLOR = '#AD7E3B';
+const ANALOGY_GRID_ANIMATION_DURATION = 180;
+
+// Gibt Zellzentrum in Canvas-Koordinaten zurück (cell 0–8: row*3+col)
+function getAnalogyGridCellCenter(img, cell) {
+  if (!img || cell < 0 || cell > 8) return null;
+  const gridLeft = img.x + img.width * ANALOGY_GRID_LEFT;
+  const gridTop = img.y + img.height * ANALOGY_GRID_TOP + ANALOGY_GRID_OFFSET_Y;
+  const gridW = img.width * (ANALOGY_GRID_RIGHT - ANALOGY_GRID_LEFT);
+  const gridH = img.height * (ANALOGY_GRID_BOTTOM - ANALOGY_GRID_TOP);
+  const cellW = gridW / 3;
+  const cellH = gridH / 3;
+  const col = cell % 3;
+  const row = Math.floor(cell / 3);
+  const cx = gridLeft + cellW * (col + 0.5);
+  const cy = gridTop + cellH * (row + 0.5);
+  const radius = Math.min(cellW, cellH) * 0.35; // Kreis passt in die Zelle
+  return { x: cx, y: cy, radius };
+}
+
+// Canvas-Punkt → Grid-Zelle (0–8), -1 wenn außerhalb
+function getAnalogyGridCellFromPoint(img, canvasX, canvasY) {
+  if (!img || img.cardIndex !== 0) return -1;
+  const gridLeft = img.x + img.width * ANALOGY_GRID_LEFT;
+  const gridTop = img.y + img.height * ANALOGY_GRID_TOP + ANALOGY_GRID_OFFSET_Y;
+  const gridW = img.width * (ANALOGY_GRID_RIGHT - ANALOGY_GRID_LEFT);
+  const gridH = img.height * (ANALOGY_GRID_BOTTOM - ANALOGY_GRID_TOP);
+  const cellW = gridW / 3;
+  const cellH = gridH / 3;
+  const relX = canvasX - gridLeft;
+  const relY = canvasY - gridTop;
+  if (relX < 0 || relX >= gridW || relY < 0 || relY >= gridH) return -1;
+  const col = Math.floor(relX / cellW);
+  const row = Math.floor(relY / cellH);
+  if (col < 0 || col > 2 || row < 0 || row > 2) return -1;
+  return row * 3 + col;
+}
+
+// Aktueller visueller Kreis-Mittelpunkt (mit Animation)
+function getAnalogyGridCircleVisualCenter(img) {
+  const cell = img.analogyGridCell !== undefined ? img.analogyGridCell : 4;
+  const target = getAnalogyGridCellCenter(img, cell);
+  if (!target) return null;
+  if (analogyGridCircleAnimation && analogyGridCircleAnimation.imageId === img.id) {
+    const anim = analogyGridCircleAnimation;
+    const elapsed = Date.now() - anim.startTime;
+    if (elapsed >= anim.duration) {
+      analogyGridCircleAnimation = null;
+      return target;
+    }
+    const t = elapsed / anim.duration;
+    const eased = t * (2 - t); // ease-out-quad
+    return {
+      x: anim.fromX + (anim.toX - anim.fromX) * eased,
+      y: anim.fromY + (anim.toY - anim.fromY) * eased,
+      radius: anim.radius
+    };
+  }
+  return target;
+}
+
+// Prüft ob Bildschirmpunkt auf dem Analogy-Grid-Kreis einer ausgewählten Reflective Analogy Karte liegt
+function getAnalogyGridCircleAt(screenX, screenY) {
+  const canvasPos = screenToCanvas(screenX, screenY);
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    if (!img || !img.isCard || img.cardIndex !== 0 || img.hidden) continue;
+    if (!selectedImageIndices.includes(i)) continue; // Nur sichtbar wenn Karte ausgewählt
+    const center = getAnalogyGridCircleVisualCenter(img);
+    if (!center) continue;
+    const dx = canvasPos.x - center.x;
+    const dy = canvasPos.y - center.y;
+    if (dx * dx + dy * dy <= center.radius * center.radius) {
+      return { imageId: img.id, imageIndex: i };
+    }
+  }
+  return null;
+}
+
+// Zeichnet den Kreis im 3x3 Grid der Reflective Analogy Karte (nur wenn ausgewählt)
+function drawAnalogyGridCircle(img) {
+  if (!img || !img.isCard || img.cardIndex !== 0 || img.hidden) return;
+  if (!selectedImageIndices.some(idx => images[idx] === img)) return; // Nur wenn ausgewählt
+  const center = getAnalogyGridCircleVisualCenter(img);
+  if (!center) return;
+  ctx.save();
+  ctx.fillStyle = ANALOGY_CIRCLE_COLOR;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, center.radius, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -8712,11 +8933,12 @@ function drawAspectTag(text, x, y, type, index) {
   ctx.restore();
 }
 
-// Draw generate button below card images (tokens don't have generate buttons - they auto-generate)
+// Draw generate button below card images – nur Reflective Analogy (tokens auto-generate)
 function drawCardGenerateButton(img) {
   if (!img || !img.isCard) return;
-
+  // Nur Reflective Analogy zeigt Generate-Button; Perspective Switch und Feeling Lucky nicht
   const cardIndex = img.cardIndex !== undefined ? img.cardIndex : 0;
+  if (cardIndex !== 0) return;
   
   // Use card config
   const buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
@@ -10014,6 +10236,13 @@ window.addEventListener('contextmenu', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+  // Escape closes welcome API key dialog first
+  if (e.key === 'Escape' && welcomeAPIKeyOverlay && welcomeAPIKeyOverlay.classList.contains('visible')) {
+    closeWelcomeAPIKeyDialog();
+    e.preventDefault();
+    return;
+  }
+
   // Allow normal input operations when user is typing in settings modal inputs
   const activeElement = document.activeElement;
   const isSettingsInput = activeElement && settingsModalOverlay && settingsModalOverlay.classList.contains('visible') && (
@@ -10476,6 +10705,19 @@ canvas.addEventListener('mousedown', (e) => {
     }
   }
 
+  // Check if clicking on Analogy Grid Circle (VOR Pin-Leer-Klick-Logik, damit Pins ausgewählt bleiben)
+  if (!isReflectionMode) {
+    const circleHit = getAnalogyGridCircleAt(e.clientX, e.clientY);
+    if (circleHit) {
+      e.preventDefault();
+      e.stopPropagation();
+      analogyGridCircleDragging = { imageId: circleHit.imageId, imageIndex: circleHit.imageIndex };
+      setInteracting(true);
+      requestDraw();
+      return;
+    }
+  }
+
   // When NOT in reflection mode, handle pin clicks for viewing/expanding
   if (!isReflectionMode) {
     // Check all images for pins
@@ -10504,10 +10746,10 @@ canvas.addEventListener('mousedown', (e) => {
           }
           
           // Handle scaling instead of expansion
-          // Check if this image (which contains the clicked pin) is a selected card
+          // For analogy card: allow selecting pins from ANY image when analogy card is selected
+          // For other cards: only allow selecting pins on the selected card itself
           const isThisCardSelected = img.isCard && selectedImageIndices.includes(i);
-          const cardIndex = isThisCardSelected ? (img.cardIndex !== undefined ? img.cardIndex : null) : null;
-          const isAnalogyCard = cardIndex === 0;
+          const isAnalogyCard = selectedCardIndex === 0;
           
           if (isAnalogyCard) {
             // Analogy card: allow up to 2 pins selected
@@ -11138,6 +11380,34 @@ canvas.addEventListener('mousemove', (e) => {
   }
 
   // Update selection box if selecting
+  // Analogy Grid Circle Drag – Kreis in 3x3 Grid ziehen (mit animiertem Übergang)
+  if (analogyGridCircleDragging) {
+    const img = images[analogyGridCircleDragging.imageIndex];
+    if (img && img.isCard && img.cardIndex === 0) {
+      const canvasPos = screenToCanvas(e.clientX, e.clientY);
+      const cell = getAnalogyGridCellFromPoint(img, canvasPos.x, canvasPos.y);
+      if (cell >= 0 && cell <= 8 && cell !== (img.analogyGridCell !== undefined ? img.analogyGridCell : 4)) {
+        const from = getAnalogyGridCircleVisualCenter(img);
+        const to = getAnalogyGridCellCenter(img, cell);
+        if (from && to) {
+          img.analogyGridCell = cell;
+          analogyGridCircleAnimation = {
+            imageId: img.id,
+            imageIndex: analogyGridCircleDragging.imageIndex,
+            fromX: from.x,
+            fromY: from.y,
+            toX: to.x,
+            toY: to.y,
+            radius: to.radius,
+            startTime: Date.now(),
+            duration: ANALOGY_GRID_ANIMATION_DURATION
+          };
+        }
+        requestDraw();
+      }
+    }
+  }
+
   if (isSelecting) {
     selectionBoxEndX = e.clientX;
     selectionBoxEndY = e.clientY;
@@ -11277,6 +11547,10 @@ canvas.addEventListener('mousemove', (e) => {
     dragStartX = e.clientX;
     dragStartY = e.clientY;
     requestDraw();
+  } else if (analogyGridCircleDragging) {
+    canvas.style.cursor = 'grabbing';
+  } else if (!isReflectionMode && getAnalogyGridCircleAt(e.clientX, e.clientY)) {
+    canvas.style.cursor = 'grab';
   } else if (isPointOnReflectionButton(e.clientX, e.clientY)) {
     // Show pointer cursor when hovering over reflection button
     canvas.style.cursor = 'pointer';
@@ -11368,6 +11642,15 @@ canvas.addEventListener('mouseup', (e) => {
   // Don't interfere with pin placement
   if (isPlacingPin && isReflectionMode) {
     // Let pin placement handle its own mouseup
+    return;
+  }
+
+  // Analogy Grid Circle Drag beenden
+  if (analogyGridCircleDragging) {
+    analogyGridCircleDragging = null;
+    analogyGridCircleAnimation = null; // Laufende Animation abbrechen
+    setInteracting(false);
+    requestDraw();
     return;
   }
 
@@ -12407,7 +12690,8 @@ function addCardImageToCanvas(dataURL, screenX, screenY, cardIndex = 0, fixedWid
       isToken: fixedWidth === 100, // Mark as token image if small size (100px)
       cardIndex: cardIndex, // Store which card/token type this is
       parentImageId: parentImageId, // Store parent image ID for tokens (null for cards)
-      isGenerating: false // Track if token is generating
+      isGenerating: false, // Track if token is generating
+      analogyGridCell: cardIndex === 0 ? 4 : undefined // Reflective Analogy: 0–8 für 3x3 Grid, 4 = Mitte
     };
     
     imageObjRef = imageObj; // Store reference
@@ -13138,6 +13422,12 @@ if (generateVariantButton) {
 // Close modal function
 function closeSettingsModal() {
   settingsModalOverlay.classList.remove('visible');
+  // Reset dev sections lock when closing settings
+  devSectionsUnlocked = false;
+  pendingDevTab = null;
+  if (settingsDevPasswordOverlay) settingsDevPasswordOverlay.classList.remove('visible');
+  if (settingsDevPasswordInput) settingsDevPasswordInput.value = '';
+  if (settingsDevPasswordError) settingsDevPasswordError.textContent = '';
   // Re-enable click-through if overlay is not active
   if (!isOverlayActive && !isScreenshotMode) {
     if (!isMouseOverUI(lastMouseX, lastMouseY)) {
@@ -13191,31 +13481,78 @@ if (settingsModalClose) {
   });
 }
 
+// Helper: actually switch to a tab (used after password unlock or for non-dev tabs)
+function switchToSettingsTab(targetTab) {
+  // Hide password overlay when switching (e.g. user clicks General tab to cancel)
+  if (settingsDevPasswordOverlay) settingsDevPasswordOverlay.classList.remove('visible');
+  pendingDevTab = null;
+  if (settingsDevPasswordInput) settingsDevPasswordInput.value = '';
+  if (settingsDevPasswordError) settingsDevPasswordError.textContent = '';
+
+  settingsTabs.forEach(t => t.classList.remove('active'));
+  if (settingsTabPanes && settingsTabPanes.length > 0) {
+    settingsTabPanes.forEach(p => p.classList.remove('active'));
+  }
+  const tab = Array.from(settingsTabs).find(t => t.getAttribute('data-tab') === targetTab);
+  const targetPane = document.getElementById(`${targetTab}-tab`);
+  if (tab) tab.classList.add('active');
+  if (targetPane) {
+    targetPane.classList.add('active');
+    if (targetTab === 'ai') initializeAISettingsUI();
+    if (targetTab === 'permissions') updatePermissionsAppPath();
+  }
+}
+
 // Tab switching functionality
 if (settingsTabs && settingsTabs.length > 0) {
   settingsTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       const targetTab = tab.getAttribute('data-tab');
 
-      // Remove active class from all tabs and panes
-      settingsTabs.forEach(t => t.classList.remove('active'));
-      if (settingsTabPanes && settingsTabPanes.length > 0) {
-        settingsTabPanes.forEach(p => p.classList.remove('active'));
+      // Dev tabs require password
+      if (DEV_TABS.includes(targetTab) && !devSectionsUnlocked) {
+        pendingDevTab = targetTab;
+        if (settingsDevPasswordOverlay) settingsDevPasswordOverlay.classList.add('visible');
+        if (settingsDevPasswordInput) {
+          settingsDevPasswordInput.value = '';
+          settingsDevPasswordInput.focus();
+        }
+        if (settingsDevPasswordError) settingsDevPasswordError.textContent = '';
+        return;
       }
 
-      // Add active class to clicked tab and corresponding pane
-      tab.classList.add('active');
-      const targetPane = document.getElementById(`${targetTab}-tab`);
-      if (targetPane) {
-        targetPane.classList.add('active');
-        if (targetTab === 'ai') {
-          initializeAISettingsUI();
-        }
-        if (targetTab === 'permissions') {
-          updatePermissionsAppPath();
-        }
-      }
+      switchToSettingsTab(targetTab);
     });
+  });
+}
+
+// Dev password submit handler
+if (settingsDevPasswordSubmit && settingsDevPasswordInput) {
+  settingsDevPasswordSubmit.addEventListener('click', () => {
+    const entered = settingsDevPasswordInput.value.trim();
+    if (entered === DEV_PASSWORD) {
+      devSectionsUnlocked = true;
+      if (settingsDevPasswordOverlay) settingsDevPasswordOverlay.classList.remove('visible');
+      settingsDevPasswordInput.value = '';
+      if (settingsDevPasswordError) settingsDevPasswordError.textContent = '';
+      if (pendingDevTab) {
+        switchToSettingsTab(pendingDevTab);
+        pendingDevTab = null;
+      }
+    } else {
+      if (settingsDevPasswordError) {
+        settingsDevPasswordError.textContent = 'Incorrect password';
+      }
+    }
+  });
+}
+
+// Enter key in password field
+if (settingsDevPasswordInput) {
+  settingsDevPasswordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && settingsDevPasswordSubmit) {
+      settingsDevPasswordSubmit.click();
+    }
   });
 }
 
@@ -13437,6 +13774,59 @@ if (aiApiKeyClearBtn) {
   });
 }
 
+// Welcome API Key Dialog: paste, clear, done, skip, help link
+if (welcomeAPIKeyPasteBtn) {
+  welcomeAPIKeyPasteBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim()) {
+        aiSettings.apiKey = text.trim();
+        await saveAISettings({ apiKey: text.trim() });
+        initWelcomeAPIKeyUI();
+        updateWelcomeAPIKeyValidation(text.trim());
+      }
+    } catch (err) {
+      console.error('Failed to paste from clipboard:', err);
+      alert('Zugriff auf Zwischenablage fehlgeschlagen. Bitte Berechtigung prüfen.');
+    }
+  });
+}
+if (welcomeAPIKeyClearBtn) {
+  welcomeAPIKeyClearBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    aiSettings.apiKey = '';
+    await saveAISettings({ apiKey: '' });
+    initWelcomeAPIKeyUI();
+    updateWelcomeAPIKeyValidation('');
+  });
+}
+if (welcomeAPIKeyDoneBtn) {
+  welcomeAPIKeyDoneBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    const currentKey = (welcomeAPIKeyInput && welcomeAPIKeyInput.value) ? welcomeAPIKeyInput.value.trim() : (aiSettings.apiKey || '').trim();
+    if (currentKey) {
+      aiSettings.apiKey = currentKey;
+      saveAISettings({ apiKey: currentKey }).then(() => {});
+      if (updateAISettingsUI) updateAISettingsUI();
+    }
+    closeWelcomeAPIKeyDialog();
+  });
+}
+if (welcomeAPIKeySkipBtn) {
+  welcomeAPIKeySkipBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeWelcomeAPIKeyDialog();
+  });
+}
+if (welcomeOpenHelpLink) {
+  welcomeOpenHelpLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeWelcomeAPIKeyDialog();
+    openSettingsToTab('help');
+  });
+}
+
 // Custom instructions paste buttons removed - fields are now read-only
 // Instructions can only be edited in the ai-custom-instructions.json file
 
@@ -13444,6 +13834,17 @@ if (aiApiKeyClearBtn) {
 settingsModal.addEventListener('click', (e) => {
   e.stopPropagation();
 });
+
+// Show welcome/API key dialog button (for preview)
+const showWelcomeDialogButton = document.getElementById('show-welcome-dialog-button');
+if (showWelcomeDialogButton) {
+  showWelcomeDialogButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeSettingsModal();
+    showWelcomeAPIKeyDialog();
+    ipcRenderer.send('set-ignore-mouse-events', false);
+  });
+}
 
 // Toggle developer console button
 if (openDevToolsButton) {
@@ -16319,9 +16720,9 @@ let draggedTokenOffsetY = 0;
 
 // Map card indices to their corresponding image files
 const cardImageMap = {
-  0: 'Analogycardbig.png',      // First card - Analogy card
-  1: 'Perspectivecardbig.png',  // Second card - Perspective card
-  2: 'Luckycardbig.png'         // Third card - Lucky card
+  0: 'card-reflective-analogy-canvas.png',  // Canvas only; toolbar uses card-reflective-analogy.png
+  1: 'Perspectivecardbig.png',      // Second card - Perspective card
+  2: 'Luckycardbig.png'             // Third card - Lucky card
 };
 
 // Map token indices to their corresponding image files (using same images as tokens)
@@ -16688,7 +17089,10 @@ function initializeCardStack() {
               if (imagePath) {
                 const imageBuffer = fs.readFileSync(imagePath);
                 const imageBase64 = imageBuffer.toString('base64');
-                cardPreviewImage.src = `data:image/png;base64,${imageBase64}`;
+                const isSvg = imagePath.toLowerCase().endsWith('.svg');
+                cardPreviewImage.src = isSvg
+                  ? `data:image/svg+xml;base64,${imageBase64}`
+                  : `data:image/png;base64,${imageBase64}`;
               }
             }
             
@@ -16766,7 +17170,10 @@ function initializeCardStack() {
             if (imagePath) {
               const imageBuffer = fs.readFileSync(imagePath);
               const imageBase64 = imageBuffer.toString('base64');
-              const imageDataURL = `data:image/png;base64,${imageBase64}`;
+              const isSvg = imagePath.toLowerCase().endsWith('.svg');
+              const imageDataURL = isSvg
+                ? `data:image/svg+xml;base64,${imageBase64}`
+                : `data:image/png;base64,${imageBase64}`;
               
               // Add image to canvas at the drop position with isCard flag
               addCardImageToCanvas(imageDataURL, e.clientX, e.clientY, draggedCardIndex);
@@ -17375,15 +17782,71 @@ function initializeTokenStack() {
   }
 }
 
+// Tooltip component: shows after 2s hover on elements with data-tooltip
+const TOOLTIP_DELAY_MS = 2000;
+let tooltipTimeoutId = null;
+let tooltipCurrentTarget = null;
+
+function initTooltips() {
+  const tooltipEl = document.getElementById('kaleido-tooltip');
+  const tooltipContent = tooltipEl ? tooltipEl.querySelector('.tooltip-content') : null;
+  if (!tooltipEl || !tooltipContent) return;
+
+  const showTooltip = (target) => {
+    const text = target.getAttribute('data-tooltip');
+    const position = target.getAttribute('data-tooltip-position') || 'above';
+    if (!text) return;
+    tooltipContent.textContent = text;
+    tooltipEl.className = `position-${position}`;
+    const rect = target.getBoundingClientRect();
+    const gapAbove = 20;
+    const gapBelow = 10;
+    tooltipEl.style.left = `${rect.left + rect.width / 2}px`;
+    tooltipEl.style.top = position === 'above' ? `${rect.top - gapAbove}px` : `${rect.bottom + gapBelow}px`;
+    tooltipEl.style.transform = position === 'above' ? 'translate(-50%, -100%)' : 'translate(-50%, 0)';
+    tooltipEl.classList.add('visible');
+    tooltipEl.setAttribute('aria-hidden', 'false');
+  };
+
+  const hideTooltip = () => {
+    tooltipEl.classList.remove('visible');
+    tooltipEl.setAttribute('aria-hidden', 'true');
+    tooltipCurrentTarget = null;
+  };
+
+  const cancelPending = () => {
+    if (tooltipTimeoutId) {
+      clearTimeout(tooltipTimeoutId);
+      tooltipTimeoutId = null;
+    }
+    hideTooltip();
+  };
+
+  document.querySelectorAll('[data-tooltip]').forEach((el) => {
+    el.addEventListener('mouseenter', () => {
+      tooltipCurrentTarget = el;
+      tooltipTimeoutId = setTimeout(() => {
+        if (tooltipCurrentTarget === el) showTooltip(el);
+        tooltipTimeoutId = null;
+      }, TOOLTIP_DELAY_MS);
+    });
+    el.addEventListener('mouseleave', () => {
+      cancelPending();
+    });
+  });
+}
+
 // Initialize card stack when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     initializeCardStack();
     initializeTokenStack();
+    initTooltips();
   });
 } else {
   initializeCardStack();
   initializeTokenStack();
+  initTooltips();
 }
 
 // Initial draw
