@@ -334,6 +334,7 @@ let isPlacingPin = false; // Whether currently placing a pin
 let tempPinLocation = null; // Temporary pin location during placement {x, y} in normalized coordinates
 let pinFeatureText = ''; // Text for feature during pin placement
 let pinThumbnailSvg = null; // SVG image for pin thumbnail overlay on card images
+let analogyCardActiveImage = null; // Image used for analogy card when exactly one pin is active (100% opacity)
 
 // Pin expansion animation state
 let pinExpansionAnimation = null; // { pinId, startTime, duration, fromState: 'collapsed'|'expanded', toState: 'collapsed'|'expanded' }
@@ -440,16 +441,29 @@ function loadLabelImages() {
   };
   emotionsLabelImage.src = 'file://' + emotionsPath;
 
-  // Load pin thumbnail SVG
-  const pinThumbnailPath = path.join(os.homedir(), 'Desktop', 'Cards', 'pinthumg.svg');
+  // Load pin thumbnail SVG (try project assets first, then Desktop/Cards)
+  const pinThumbnailPaths = [
+    path.join(__dirname, 'assets', 'pinthumg.svg'),
+    path.join(process.cwd(), 'assets', 'pinthumg.svg'),
+    path.join(os.homedir(), 'Desktop', 'Cards', 'pinthumg.svg')
+  ];
+  let pinThumbnailPath = null;
+  for (const p of pinThumbnailPaths) {
+    if (fs.existsSync(p)) {
+      pinThumbnailPath = p;
+      break;
+    }
+  }
   pinThumbnailSvg = new Image();
   pinThumbnailSvg.onload = () => {
     requestDraw();
   };
   pinThumbnailSvg.onerror = () => {
-    console.error('Failed to load pin thumbnail SVG from:', pinThumbnailPath);
+    console.error('Failed to load pin thumbnail SVG from:', pinThumbnailPath || 'no path found');
   };
-  pinThumbnailSvg.src = 'file://' + pinThumbnailPath;
+  if (pinThumbnailPath) {
+    pinThumbnailSvg.src = 'file://' + pinThumbnailPath;
+  }
 
   // Load Values SVG
   valuesLabelImage = new Image();
@@ -460,6 +474,35 @@ function loadLabelImages() {
     console.error('Failed to load Values.svg from:', valuesPath);
   };
   valuesLabelImage.src = 'file://' + valuesPath;
+
+  // Load analogy card "active" image (one pin selected - 100% opacity state)
+  const analogyActivePaths = [
+    path.join(__dirname, 'assets', 'AnalogycardbigActive.png'),
+    path.join(process.cwd(), 'assets', 'AnalogycardbigActive.png')
+  ];
+  let analogyActivePath = null;
+  for (const p of analogyActivePaths) {
+    if (fs.existsSync(p)) {
+      analogyActivePath = p;
+      break;
+    }
+  }
+  if (analogyActivePath) {
+    try {
+      const imageBuffer = fs.readFileSync(analogyActivePath);
+      const imageBase64 = imageBuffer.toString('base64');
+      analogyCardActiveImage = new Image();
+      analogyCardActiveImage.onload = () => {
+        requestDraw();
+      };
+      analogyCardActiveImage.onerror = () => {
+        console.error('Failed to decode AnalogycardbigActive.png');
+      };
+      analogyCardActiveImage.src = 'data:image/png;base64,' + imageBase64;
+    } catch (err) {
+      console.error('Failed to load AnalogycardbigActive.png:', err);
+    }
+  }
 }
 
 // Initialize label images on load
@@ -4956,7 +4999,13 @@ function drawImage(img, isSelected) {
   ctx.save();
   ctx.globalAlpha = opacity;
 
-  ctx.drawImage(img.element, img.x, img.y, img.width, img.height);
+  // For analogy card: when it is the selected card and any pin on the canvas is selected (on this card or any other image), use the active variant
+  const isAnalogyCardSelected = isAnyCardSelected && selectedCardIndex === 0 && img.isCard && img.cardIndex === 0 && selectedImageIndices.some(idx => images[idx] === img);
+  const anyPinSelectedOnCanvas = scaledPinIds.length >= 1 || scaledPinId !== null;
+  const useActiveAnalogyImage = isAnalogyCardSelected && anyPinSelectedOnCanvas && analogyCardActiveImage && analogyCardActiveImage.complete;
+  const elementToDraw = useActiveAnalogyImage ? analogyCardActiveImage : img.element;
+
+  ctx.drawImage(elementToDraw, img.x, img.y, img.width, img.height);
 
   ctx.restore();
 
@@ -13689,16 +13738,16 @@ function loadDemoData() {
         id: generateId(),
         version: 1,
         pins: [],
-        title: null,
-        focus: null,
+        title: 'Apple Weather App',
+        focus: 'Layout',
         titleGenerated: false
       };
 
       const pins = [
-        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.22 }, semanticLocation: '', feature: 'Current temperature (66°)', emotionalAspects: ['Informed', 'Reassured'], valueAspects: ['Clarity', 'Practicality'] },
-        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.30 }, semanticLocation: '', feature: 'Weather condition label (Sunny)', emotionalAspects: ['Pleasant', 'Calm'], valueAspects: ['Readability', 'Simplicity'] },
-        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.42 }, semanticLocation: '', feature: 'Hourly forecast strip', emotionalAspects: ['Prepared', 'Confident'], valueAspects: ['Planning', 'Accessibility'] },
-        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.72 }, semanticLocation: '', feature: '10-day forecast', emotionalAspects: ['Organized', 'In control'], valueAspects: ['Long-term planning', 'Overview'] }
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.6, y: 0.33 }, semanticLocation: '', feature: 'Weather condition label (Sunny)', emotionalAspects: ['Pleasant', 'Calm'], valueAspects: ['Readability', 'Simplicity'] },
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.25 }, semanticLocation: '', feature: 'Current temperature (66°)', emotionalAspects: ['Informed', 'Reassured'], valueAspects: ['Clarity', 'Practicality', 'Simplicity'] },
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.5, y: 0.6 }, semanticLocation: '', feature: 'Hourly forecast strip', emotionalAspects: ['Prepared', 'Confident'], valueAspects: ['Planning', 'Accessibility'] },
+        { id: generateId(), imageId: imageObj.id, imageVersion: imageObj.version, location: { x: 0.3, y: 0.72 }, semanticLocation: '', feature: '10-day forecast', emotionalAspects: ['Organized', 'In control'], valueAspects: ['Long-term planning', 'Overview'] }
       ];
       imageObj.pins = pins;
       images.push(imageObj);
@@ -13733,16 +13782,16 @@ function loadDemoData() {
           id: generateId(),
           version: 1,
           pins: [],
-          title: null,
-          focus: null,
+          title: 'Illustrated Weather App',
+          focus: 'Illustrations',
           titleGenerated: false
         };
 
         const rainPins = [
-          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.22 }, semanticLocation: '', feature: 'Rain cloud illustration', emotionalAspects: ['Thoughtful', 'Sober'], valueAspects: ['Atmosphere', 'Context'] },
-          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.38 }, semanticLocation: '', feature: 'Current temperature (27°)', emotionalAspects: ['Informed', 'Aware'], valueAspects: ['Clarity', 'Practicality'] },
-          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.48 }, semanticLocation: '', feature: 'Precipitation label (Rain)', emotionalAspects: ['Calm', 'Prepared'], valueAspects: ['Readability', 'Simplicity'] },
-          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.78 }, semanticLocation: '', feature: 'Temperature range / timeline (29°–26°)', emotionalAspects: ['Oriented', 'In control'], valueAspects: ['Planning', 'Overview'] }
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.22 }, semanticLocation: '', feature: 'Rain cloud illustration', emotionalAspects: ['Joyful', 'Cute', 'Informed'], valueAspects: ['Atmospheric', 'Accessibility', 'Approachable', 'Warmth'] },
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.4, y: 0.6 }, semanticLocation: '', feature: 'Current temperature (27°)', emotionalAspects: ['Informed', 'Aware', 'Reassured'], valueAspects: ['Practicality', 'Efficiency', 'Simplicity', 'Clarity'] },
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.5, y: 0.8 }, semanticLocation: '', feature: 'Precipitation label (Rain)', emotionalAspects: ['Calm', 'Prepared'], valueAspects: ['Readability', 'Simplicity'] },
+          { id: generateId(), imageId: rainObj.id, imageVersion: rainObj.version, location: { x: 0.6, y: 0.9 }, semanticLocation: '', feature: 'Temperature range / timeline (29°–26°)', emotionalAspects: ['Oriented', 'In control'], valueAspects: ['Planning', 'Overview'] }
         ];
         rainObj.pins = rainPins;
         images.push(rainObj);
