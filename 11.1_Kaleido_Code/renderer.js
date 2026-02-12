@@ -1162,7 +1162,7 @@ async function generateFeatureQuestion(imageBase64, title, focus, existingPins, 
   }
 
   const generalInstructions = customInstructions.general || '';
-  const featuresInstructions = customInstructions || customInstructions.features || '';
+  const featuresInstructions = customInstructions.features || '';
 
   let prompt = `${generalInstructions ? generalInstructions + '\n\n' : ''}${featuresInstructions ? featuresInstructions + '\n\n' : ''}`;
   prompt += `Generate a question about the features or functionality visible in this image.\n\n`;
