@@ -575,7 +575,9 @@ let customInstructions = {
   variantGenerationPrompt: "",
   tokenPrompt0: "",
   tokenPrompt1: "",
-  tokenPrompt2: ""
+  tokenPrompt2: "",
+  reflectiveAnalogySystem: "",
+  reflectiveAnalogyInput: ""
 };
 
 // User data path (set once via IPC from main process - not available in renderer)
@@ -615,6 +617,13 @@ async function loadAISettings() {
   return aiSettings;
 }
 
+// Path to reflective analogy TXT files (fallback when not in JSON)
+function getReflectiveAnalogyTxtPath(filename) {
+  const assetsPath = path.join(__dirname, 'assets', 'reflective-analogy', filename);
+  if (fs.existsSync(assetsPath)) return assetsPath;
+  return path.join(__dirname, '..', '8_Reflective_Analogies', filename);
+}
+
 // Load custom instructions from project file (part of build)
 function loadCustomInstructions() {
   try {
@@ -631,8 +640,25 @@ function loadCustomInstructions() {
         variantGenerationPrompt: loaded.variantGenerationPrompt || "",
         tokenPrompt0: loaded.tokenPrompt0 || "",
         tokenPrompt1: loaded.tokenPrompt1 || "",
-        tokenPrompt2: loaded.tokenPrompt2 || ""
+        tokenPrompt2: loaded.tokenPrompt2 || "",
+        reflectiveAnalogySystem: loaded.reflectiveAnalogySystem || "",
+        reflectiveAnalogyInput: loaded.reflectiveAnalogyInput || ""
       };
+      // Fallback: load from TXT if missing in JSON
+      if (!customInstructions.reflectiveAnalogySystem) {
+        const ciPath = getReflectiveAnalogyTxtPath('CustomInstructions.txt');
+        if (fs.existsSync(ciPath)) {
+          let txt = fs.readFileSync(ciPath, 'utf8');
+          txt = txt.replace(/^Custom instructions:\s*\n?/i, '');
+          customInstructions.reflectiveAnalogySystem = txt.trim();
+        }
+      }
+      if (!customInstructions.reflectiveAnalogyInput) {
+        const ipPath = getReflectiveAnalogyTxtPath('InputPrompt.txt');
+        if (fs.existsSync(ipPath)) {
+          customInstructions.reflectiveAnalogyInput = fs.readFileSync(ipPath, 'utf8').trim();
+        }
+      }
     }
   } catch (error) {
     console.error('Error loading custom instructions:', error);
@@ -2769,6 +2795,126 @@ function buildTokenGenerationPrompt(tokenPrompt, parentImage) {
   return prompt.trim();
 }
 
+// Collect pin data for Reflective Analogy (1 or 2 pins, tension format for 2)
+function collectReflectiveAnalogyPinData(scaledPinIds) {
+  if (!scaledPinIds || scaledPinIds.length === 0) return { function: '', emotion: '', value: '' };
+  const getEmotions = (pin) => {
+    const cards = aspectCards.filter(c => c.pinId === pin.id && c.type === 'emotional');
+    if (cards.length > 0) return cards.map(c => c.transformedAspect || c.originalAspect).filter(Boolean);
+    return pin.emotionalAspects || [];
+  };
+  const getValues = (pin) => {
+    const cards = aspectCards.filter(c => c.pinId === pin.id && c.type === 'value');
+    if (cards.length > 0) return cards.map(c => c.transformedAspect || c.originalAspect).filter(Boolean);
+    return pin.valueAspects || [];
+  };
+  const pins = [];
+  for (const pinId of scaledPinIds) {
+    for (const img of images) {
+      const pin = img?.pins?.find(p => p.id === pinId);
+      if (pin) {
+        pins.push(pin);
+        break;
+      }
+    }
+  }
+  if (pins.length === 0) return { function: '', emotion: '', value: '' };
+  const f1 = (pins[0].feature || '').trim();
+  const e1 = getEmotions(pins[0]).join(', ');
+  const v1 = getValues(pins[0]).join(', ');
+  if (pins.length === 1) {
+    return { function: f1, emotion: e1, value: v1 };
+  }
+  const f2 = (pins[1].feature || '').trim();
+  const e2 = getEmotions(pins[1]).join(', ');
+  const v2 = getValues(pins[1]).join(', ');
+  return {
+    function: `Zwischen „${f1}" und „${f2}"`,
+    emotion: e1 && e2 ? `Zwischen ${e1} und ${e2}` : (e1 || e2),
+    value: v1 && v2 ? `Zwischen ${v1} und ${v2}` : (v1 || v2)
+  };
+}
+
+// Build full prompt for Reflective Analogy generation
+function buildReflectiveAnalogyPrompt(img) {
+  const pinData = collectReflectiveAnalogyPinData(scaledPinIds);
+  const baseData = getBaseImageData();
+  const artifactContext = baseImageId && baseData.title
+    ? [baseData.title, baseData.focus].filter(Boolean).join('. ')
+    : '';
+  const cell = img.analogyGridCell !== undefined ? img.analogyGridCell : 4;
+  const fieldDistance = (cell % 3) - 1;
+  const commonness = Math.floor(cell / 3) - 1;
+  let system = customInstructions.reflectiveAnalogySystem || '';
+  system = system
+    .replace(/\{\{ARTIFACT_CONTEXT\}\}/g, artifactContext)
+    .replace(/\{\{FUNCTION\}\}/g, pinData.function)
+    .replace(/\{\{EMOTION\}\}/g, pinData.emotion)
+    .replace(/\{\{VALUE\}\}/g, pinData.value);
+  const inputTemplate = customInstructions.reflectiveAnalogyInput || '';
+  let userInput = inputTemplate
+    .replace(/\[What is the artifact\?[^\]]*\]/i, artifactContext || '[nicht angegeben]')
+    .replace(/\[What is pinned on the artifact\?\]/i, pinData.function)
+    .replace(/\[What emotions are associated with this feature\?\]/i, pinData.emotion)
+    .replace(/\[What higher-level value\(s\) are assumed\?\]/i, pinData.value);
+  const brackets = userInput.match(/\[-1 \| 0 \|\+1\]/g);
+  if (brackets) {
+    userInput = userInput.replace(brackets[0], String(fieldDistance));
+    if (brackets[1]) userInput = userInput.replace(brackets[1], String(commonness));
+  }
+  return system + '\n\n---\n\n' + userInput;
+}
+
+// Parse API response into analogy and question
+function parseReflectiveAnalogyResponse(text) {
+  if (!text || !text.trim()) return { analogy: '', question: '' };
+  const trimmed = text.trim();
+  const tensionMatch = trimmed.match(/(?:What this analogy puts under tension|puts under tension)[:\s]*(.+?)(?:\n\n|$)/is);
+  const lines = trimmed.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  let analogy = '';
+  let question = '';
+  if (tensionMatch) {
+    question = tensionMatch[1].trim();
+    analogy = trimmed.slice(0, trimmed.indexOf(tensionMatch[0])).replace(/^Analogy[:\s]*/i, '').trim();
+  } else {
+    analogy = lines[0]?.replace(/^Analogy[:\s]*/i, '') || trimmed;
+    question = lines[1] || '';
+  }
+  return { analogy: analogy || trimmed, question };
+}
+
+// Generate reflective analogy and replace card with output
+async function handleReflectiveAnalogyGenerate(img) {
+  if (!img || !img.isCard || img.cardIndex !== 0) return;
+  if (scaledPinIds.length < 1) {
+    showToast('Bitte mindestens einen Pin auswählen', true);
+    return;
+  }
+  if (!isAIModeEnabled()) {
+    showToast('AI-Modus ist deaktiviert', true);
+    return;
+  }
+  if (!aiSettings.apiKey || !validateAPIKey(aiSettings.apiKey)) {
+    showToast('Ungültiger API-Key. Bitte in den Einstellungen prüfen.', true);
+    return;
+  }
+  img.analogyGenerating = true;
+  requestDraw();
+  try {
+    const prompt = buildReflectiveAnalogyPrompt(img);
+    const response = await callGeminiAPI(prompt, null, null, aiSettings.model);
+    const parsed = parseReflectiveAnalogyResponse(response);
+    img.analogyOutput = parsed;
+    showToast('Analogie generiert');
+  } catch (error) {
+    console.error('Reflective analogy generation failed:', error);
+    showToast(error.message || 'Generierung fehlgeschlagen', true);
+  } finally {
+    img.analogyGenerating = false;
+    requestDraw();
+  }
+}
+
 // Helper function to get device pixel ratio
 // Get the base device pixel ratio from the browser
 function getBaseDevicePixelRatio() {
@@ -4181,7 +4327,7 @@ function draw() {
   const analogyPinsToShow = [];
   selectedImageIndices.forEach(idx => {
     const img = images[idx];
-    if (!img || !img.isCard || img.hidden || img.cardIndex !== 0) return;
+    if (!img || !img.isCard || img.hidden || img.cardIndex !== 0 || img.analogyOutput) return;
     if (scaledPinIds.length === 0) return;
     scaledPinIds.forEach((pinId, index) => {
       let pin = null;
@@ -4198,10 +4344,10 @@ function draw() {
     drawPinThumbnailOverlayCanvasCoords(img, pin, index);
   });
 
-  // 3x3 Grid-Kreis für Reflective Analogy Karte (nur wenn ausgewählt)
+  // 3x3 Grid-Kreis für Reflective Analogy Karte (nur wenn ausgewählt, nicht bei Output-Karte)
   selectedImageIndices.forEach(idx => {
     const img = images[idx];
-    if (img && img.isCard && !img.hidden && img.cardIndex === 0) {
+    if (img && img.isCard && !img.hidden && img.cardIndex === 0 && !img.analogyOutput) {
       drawAnalogyGridCircle(img);
     }
   });
@@ -5078,10 +5224,65 @@ function drawGrid() {
   ctx.restore();
 }
 
+// Draw reflective analogy output card (text overlay on beige background)
+function drawReflectiveAnalogyOutputCard(img) {
+  if (!img.analogyOutput) return;
+  const { analogy, question } = img.analogyOutput;
+  const CARD_COLOR = '#E4DCC0';
+  const TEXT_COLOR = '#3d3630';
+  const padding = 24;
+  const maxWidth = img.width - padding * 2;
+  ctx.save();
+  ctx.fillStyle = CARD_COLOR;
+  ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, img.x, img.y, img.width, img.height, 16);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = TEXT_COLOR;
+  ctx.font = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  let y = img.y + padding;
+  const lineHeight = 22;
+  const wrap = (text, maxW) => {
+    const words = text.split(/\s+/);
+    const lines = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      const m = ctx.measureText(test);
+      if (m.width > maxW && line) {
+        lines.push(line);
+        line = w;
+      } else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  wrap(analogy, maxWidth).forEach(line => {
+    ctx.fillText(line, img.x + padding, y);
+    y += lineHeight;
+  });
+  if (question) {
+    y += lineHeight * 0.5;
+    ctx.font = '14px ui-sans-serif, system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = '#5a5048';
+    wrap(question, maxWidth).forEach(line => {
+      ctx.fillText(line, img.x + padding, y);
+      y += lineHeight;
+    });
+  }
+  ctx.restore();
+}
+
 // Draw image with selection
 function drawImage(img, isSelected) {
-  if (!img.element) return;
-
+  if (!img.element && !img.analogyOutput) return;
+  if (img.analogyOutput) {
+    drawReflectiveAnalogyOutputCard(img);
+    return;
+  }
   // Check if image is loaded before drawing
   // This ensures images show immediately when canvas is opened
   if (!img.element.complete) {
@@ -6309,7 +6510,7 @@ function getAnalogyGridCircleAt(screenX, screenY) {
   const canvasPos = screenToCanvas(screenX, screenY);
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
-    if (!img || !img.isCard || img.cardIndex !== 0 || img.hidden) continue;
+    if (!img || !img.isCard || img.cardIndex !== 0 || img.hidden || img.analogyOutput) continue;
     if (!selectedImageIndices.includes(i)) continue; // Nur sichtbar wenn Karte ausgewählt
     const center = getAnalogyGridCircleVisualCenter(img);
     if (!center) continue;
@@ -8939,10 +9140,10 @@ function drawCardGenerateButton(img) {
   // Nur Reflective Analogy zeigt Generate-Button; Perspective Switch und Feeling Lucky nicht
   const cardIndex = img.cardIndex !== undefined ? img.cardIndex : 0;
   if (cardIndex !== 0) return;
-  
+  if (img.analogyOutput) return; // Output-Karte hat keinen Generate-Button
   // Use card config
   const buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
-  const buttonText = buttonConfig.text;
+  const buttonText = img.analogyGenerating ? 'Generating…' : (buttonConfig.text || 'Generate');
   const buttonBgColor = buttonConfig.bgColor;
   const buttonPadding = 10; // Fixed pixel padding (screen coordinates)
   const buttonSpacing = 10; // Fixed pixel spacing between image and button (screen coordinates)
@@ -10616,13 +10817,9 @@ canvas.addEventListener('mousedown', (e) => {
   if (cardButtonClick) {
     e.stopPropagation();
     e.preventDefault();
-    // Handle card generate button click
     const img = images.find(img => img.id === cardButtonClick.imageId);
-    if (img) {
-      // Handle card generate button click
-      console.log('Card generate button clicked:', { cardIndex: cardButtonClick.cardIndex, imageId: cardButtonClick.imageId });
-      // TODO: Implement generate functionality for each card type
-      // For now, just log the click
+    if (img && cardButtonClick.cardIndex === 0 && !img.analogyGenerating && !img.analogyOutput) {
+      handleReflectiveAnalogyGenerate(img);
     }
     return;
   }
