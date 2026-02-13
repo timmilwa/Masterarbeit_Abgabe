@@ -2853,15 +2853,15 @@ function buildReflectiveAnalogyPrompt(img) {
     .replace(/\{\{VALUE\}\}/g, pinData.value);
   const inputTemplate = customInstructions.reflectiveAnalogyInput || '';
   let userInput = inputTemplate
-    .replace(/\[What is the artifact\?[^\]]*\]/i, artifactContext || '[nicht angegeben]')
-    .replace(/\[What is pinned on the artifact\?\]/i, pinData.function)
-    .replace(/\[What emotions are associated with this feature\?\]/i, pinData.emotion)
-    .replace(/\[What higher-level value\(s\) are assumed\?\]/i, pinData.value);
-  const brackets = userInput.match(/\[-1 \| 0 \|\+1\]/g);
-  if (brackets) {
-    userInput = userInput.replace(brackets[0], String(fieldDistance));
-    if (brackets[1]) userInput = userInput.replace(brackets[1], String(commonness));
-  }
+    .replace(/\[What is the artifact\?[^\]]*\]/i, String(artifactContext || '').trim() || '[nicht angegeben]')
+    .replace(/\[What is pinned on the artifact\?\]/i, String(pinData.function || ''))
+    .replace(/\[What emotions are associated with this feature\?\]/i, String(pinData.emotion || ''))
+    .replace(/\[What higher-level value\(s\) are assumed\?\]/i, String(pinData.value || ''));
+  // Field distance und Commonness explizit ersetzen (robust gegen Format-Unterschiede)
+  userInput = userInput.replace(/Near field\s*↔\s*Far field:\s*\[[^\]]*\]/gi, `Near field ↔ Far field: ${fieldDistance}`);
+  userInput = userInput.replace(/Common\s*↔\s*Less common:\s*\[[^\]]*\]/gi, `Common ↔ Less common: ${commonness}`);
+  // Explizite Parameter-Zusammenfassung am Ende, damit die AI die Werte garantiert erhält
+  userInput += `\n\nExplicit parameter values: Field distance = ${fieldDistance}, Commonness = ${commonness}`;
   return system + '\n\n---\n\n' + userInput;
 }
 
@@ -2870,16 +2870,44 @@ function parseReflectiveAnalogyResponse(text) {
   if (!text || !text.trim()) return { analogy: '', question: '' };
   const trimmed = text.trim();
   const tensionMatch = trimmed.match(/(?:What this analogy puts under tension|puts under tension)[:\s]*(.+?)(?:\n\n|$)/is);
-  const lines = trimmed.split(/\n+/).map(l => l.trim()).filter(Boolean);
   let analogy = '';
   let question = '';
   if (tensionMatch) {
     question = tensionMatch[1].trim();
     analogy = trimmed.slice(0, trimmed.indexOf(tensionMatch[0])).replace(/^Analogy[:\s]*/i, '').trim();
   } else {
+    const lines = trimmed.split(/\n+/).map(l => l.trim()).filter(Boolean);
     analogy = lines[0]?.replace(/^Analogy[:\s]*/i, '') || trimmed;
     question = lines[1] || '';
   }
+  // Doppelte Absätze entfernen (AI gibt manchmal Analogie zweimal aus)
+  const paragraphs = analogy.split(/\n\s*\n|\r\n\s*\r\n/).map(p => p.trim()).filter(Boolean);
+  const unique = [];
+  for (const p of paragraphs) {
+    const t = p.trim();
+    const dupIdx = unique.findIndex(u => {
+      const a = u.trim();
+      return a === t || a.includes(t) || t.includes(a) || a.slice(0, 80) === t.slice(0, 80);
+    });
+    if (dupIdx >= 0) {
+      if (t.length > unique[dupIdx].trim().length) unique[dupIdx] = p;
+    } else unique.push(p);
+  }
+  let deduped = unique.join('\n\n').trim() || analogy;
+  // Fallback: Gesamter Text wiederholt sich (z.B. "A. A." oder "A\nA" ohne Absatz)
+  const len = deduped.length;
+  if (len > 100) {
+    for (let n = Math.floor(len / 2); n >= 50; n--) {
+      const first = deduped.slice(0, n).trim();
+      const rest = deduped.slice(n).replace(/^[.\s\n\r]+/, '').trim();
+      const firstStart = first.slice(0, 50);
+      if (first.length > 40 && rest.length > 40 && (rest === first || rest.startsWith(firstStart))) {
+        deduped = first;
+        break;
+      }
+    }
+  }
+  analogy = deduped;
   return { analogy: analogy || trimmed, question };
 }
 
@@ -5240,11 +5268,24 @@ function drawReflectiveAnalogyOutputCard(img) {
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = TEXT_COLOR;
-  ctx.font = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   let y = img.y + padding;
   const lineHeight = 22;
+  // Headline „Analogy“
+  ctx.font = 'bold 16px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.fillText('Analogy', img.x + padding, y);
+  y += lineHeight + 8;
+  // Analogie-Text: „Analogy:“-Präfix entfernen, Doppelungen bei Darstellung entfernen
+  let analogyText = (analogy || '').replace(/^Analogy[:\s]*/i, '').trim();
+  const parts = analogyText.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+  const displayParts = [];
+  for (const p of parts) {
+    const isDup = displayParts.some(u => u === p || (u.length > 40 && p.length > 40 && u.slice(0, 50) === p.slice(0, 50)));
+    if (!isDup) displayParts.push(p);
+  }
+  analogyText = displayParts.join('\n\n');
+  ctx.font = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
   const wrap = (text, maxW) => {
     const words = text.split(/\s+/);
     const lines = [];
@@ -5260,7 +5301,7 @@ function drawReflectiveAnalogyOutputCard(img) {
     if (line) lines.push(line);
     return lines;
   };
-  wrap(analogy, maxWidth).forEach(line => {
+  wrap(analogyText, maxWidth).forEach(line => {
     ctx.fillText(line, img.x + padding, y);
     y += lineHeight;
   });
@@ -6439,10 +6480,10 @@ function drawPinThumbnailOverlayCanvasCoords(img, pin, index = 0) {
 }
 
 // 3x3 Grid auf Reflective Analogy Card – Positionen (Bereiche auf Karte 867x1183)
-const ANALOGY_GRID_LEFT = 0.12;
-const ANALOGY_GRID_RIGHT = 0.88;
-const ANALOGY_GRID_TOP = 0.42;
-const ANALOGY_GRID_BOTTOM = 0.92;
+const ANALOGY_GRID_LEFT = 0.135;
+const ANALOGY_GRID_RIGHT = 0.865;
+const ANALOGY_GRID_TOP = 0.425;
+const ANALOGY_GRID_BOTTOM = 0.925;
 const ANALOGY_GRID_OFFSET_Y = -23; // 23 Pixel weiter nach oben
 const ANALOGY_CIRCLE_COLOR = '#AD7E3B';
 const ANALOGY_GRID_ANIMATION_DURATION = 180;
