@@ -136,6 +136,7 @@ const fpsCounterDpr = document.getElementById('fps-counter-dpr');
 const fpsCounterSettingsIcon = document.getElementById('fps-counter-settings-icon');
 const dprModeSelect = document.getElementById('dpr-mode-select');
 const fpsCounterToggle = document.getElementById('fps-counter-toggle');
+const toastsToggle = document.getElementById('toasts-toggle');
 const demoDataToggle = document.getElementById('demo-data-toggle');
 const demoDataToggleTop = document.getElementById('demo-data-toggle-top-input');
 const keepVisibleToggleTop = document.getElementById('keep-visible-toggle-top-input');
@@ -212,6 +213,8 @@ let reflectionButtonBounds = null; // Store button bounds for click detection
 let cardGenerateButtonBounds = {}; // Store generate button bounds for each card image: { imageId: { x, y, width, height, isScreenCoords } }
 let analogyGridCircleDragging = null; // { imageId, imageIndex } when dragging the 3x3 grid circle on Reflective Analogy card
 let analogyGridCircleAnimation = null; // { imageId, imageIndex, fromX, fromY, toX, toY, radius, startTime, duration }
+let analogyOutputHeightAnimation = null; // { imageId, startHeight, targetHeight, startTime, duration } für Schrumpf-Animation
+const ANALOGY_OUTPUT_HEIGHT_ANIMATION_DURATION = 400;
 let tokenPillBounds = {}; // Store pill bounds for each token image: { imageId: { pill: { x, y, width, height }, closeButton: { x, y, width, height }, isScreenCoords: true } }
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
 let accordionAnimations = {}; // Track accordion animations: { accordionId: { startTime, duration, fromHeight, toHeight } }
@@ -343,6 +346,7 @@ let fpsUpdateInterval = 1000; // Update FPS display every second
 let fpsLastUpdateTime = performance.now();
 let currentFPS = 0;
 let fpsCounterVisible = true; // Default: FPS counter is visible
+let toastsEnabled = true; // Default: toasts shown (success/error messages in top right)
 let topLeftPersistent = true; // When true, toggles and FPS always visible; when false, only when mouse in top-left
 
 // Pin system state
@@ -921,6 +925,7 @@ function createToastContainer() {
 }
 
 function showToast(message, error = false, retryCallback = null) {
+  if (!toastsEnabled) return;
   const container = createToastContainer();
   const toast = document.createElement('div');
   toast.style.cssText = `
@@ -5260,34 +5265,15 @@ function drawReflectiveAnalogyOutputCard(img) {
   const TEXT_COLOR = '#3d3630';
   const padding = 24;
   const maxWidth = img.width - padding * 2;
+  const lineHeight = 22;
+
+  // Wrap-Helfer für Textmessung
   ctx.save();
-  ctx.fillStyle = CARD_COLOR;
-  ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-  ctx.lineWidth = 1;
-  drawRoundedRect(ctx, img.x, img.y, img.width, img.height, 16);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = TEXT_COLOR;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  let y = img.y + padding;
-  const lineHeight = 22;
-  // Headline „Analogy“
-  ctx.font = 'bold 16px ui-sans-serif, system-ui, -apple-system, sans-serif';
-  ctx.fillText('Analogy', img.x + padding, y);
-  y += lineHeight + 8;
-  // Analogie-Text: „Analogy:“-Präfix entfernen, Doppelungen bei Darstellung entfernen
-  let analogyText = (analogy || '').replace(/^Analogy[:\s]*/i, '').trim();
-  const parts = analogyText.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-  const displayParts = [];
-  for (const p of parts) {
-    const isDup = displayParts.some(u => u === p || (u.length > 40 && p.length > 40 && u.slice(0, 50) === p.slice(0, 50)));
-    if (!isDup) displayParts.push(p);
-  }
-  analogyText = displayParts.join('\n\n');
-  ctx.font = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
-  const wrap = (text, maxW) => {
-    const words = text.split(/\s+/);
+  const wrap = (text, maxW, font) => {
+    ctx.font = font;
+    const words = (text || '').split(/\s+/).filter(Boolean);
     const lines = [];
     let line = '';
     for (const w of words) {
@@ -5301,7 +5287,72 @@ function drawReflectiveAnalogyOutputCard(img) {
     if (line) lines.push(line);
     return lines;
   };
-  wrap(analogyText, maxWidth).forEach(line => {
+
+  // Analogie-Text vorbereiten (wie beim Zeichnen)
+  let analogyText = (analogy || '').replace(/^Analogy[:\s]*/i, '').trim();
+  const parts = analogyText.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+  const displayParts = [];
+  for (const p of parts) {
+    const isDup = displayParts.some(u => u === p || (u.length > 40 && p.length > 40 && u.slice(0, 50) === p.slice(0, 50)));
+    if (!isDup) displayParts.push(p);
+  }
+  analogyText = displayParts.join('\n\n');
+
+  // Zielhöhe aus Textinhalt berechnen
+  const analogyLines = wrap(analogyText, maxWidth, '15px ui-sans-serif, system-ui, -apple-system, sans-serif');
+  const questionLines = question ? wrap(question, maxWidth, '14px ui-sans-serif, system-ui, -apple-system, sans-serif') : [];
+  const targetHeight = padding * 2 + (lineHeight + 8) + analogyLines.length * lineHeight +
+    (question ? lineHeight * 0.5 + questionLines.length * lineHeight : 0);
+
+  // Höhenanimation: erst nach Laden des Textes von Konfig-Höhe auf Zielhöhe schrumpfen (kein Sprung beim Übergang)
+  const currentStartHeight = img.height; // Beim ersten Draw = Konfig-Kartenhöhe
+  const needsShrink = targetHeight < currentStartHeight - 2;
+
+  if (needsShrink) {
+    const now = Date.now();
+    if (!analogyOutputHeightAnimation || analogyOutputHeightAnimation.imageId !== img.id) {
+      analogyOutputHeightAnimation = {
+        imageId: img.id,
+        startHeight: currentStartHeight,
+        targetHeight,
+        startTime: now,
+        duration: ANALOGY_OUTPUT_HEIGHT_ANIMATION_DURATION
+      };
+    }
+    const anim = analogyOutputHeightAnimation;
+    const elapsed = now - anim.startTime;
+    const t = Math.min(1, elapsed / anim.duration);
+    const easeOut = 1 - Math.pow(1 - t, 3);
+    img.height = anim.startHeight + (anim.targetHeight - anim.startHeight) * easeOut;
+    if (t >= 1) {
+      img.height = anim.targetHeight;
+      analogyOutputHeightAnimation = null;
+    } else {
+      requestDraw();
+    }
+  } else {
+    img.height = targetHeight;
+    analogyOutputHeightAnimation = null;
+  }
+  ctx.restore();
+
+  // Zeichnen der Karte mit aktueller Höhe
+  ctx.save();
+  ctx.fillStyle = CARD_COLOR;
+  ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, img.x, img.y, img.width, img.height, 16);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = TEXT_COLOR;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  let y = img.y + padding;
+  ctx.font = 'bold 16px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.fillText('Analogy', img.x + padding, y);
+  y += lineHeight + 8;
+  ctx.font = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  analogyLines.forEach(line => {
     ctx.fillText(line, img.x + padding, y);
     y += lineHeight;
   });
@@ -5309,7 +5360,7 @@ function drawReflectiveAnalogyOutputCard(img) {
     y += lineHeight * 0.5;
     ctx.font = '14px ui-sans-serif, system-ui, -apple-system, sans-serif';
     ctx.fillStyle = '#5a5048';
-    wrap(question, maxWidth).forEach(line => {
+    questionLines.forEach(line => {
       ctx.fillText(line, img.x + padding, y);
       y += lineHeight;
     });
@@ -14208,6 +14259,17 @@ if (fpsCounterToggle) {
   fpsCounterToggle.addEventListener('change', (e) => {
     fpsCounterVisible = e.target.checked;
     updateFpsCounterVisibility();
+  });
+}
+
+// Toast toggle: load from localStorage and handle changes
+if (toastsToggle) {
+  const savedToasts = localStorage.getItem('toastsEnabled');
+  toastsEnabled = savedToasts === null ? true : savedToasts === 'true';
+  toastsToggle.checked = toastsEnabled;
+  toastsToggle.addEventListener('change', (e) => {
+    toastsEnabled = e.target.checked;
+    localStorage.setItem('toastsEnabled', toastsEnabled.toString());
   });
 }
 
