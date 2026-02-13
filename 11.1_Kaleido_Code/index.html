@@ -988,6 +988,7 @@
             min-height: 28px;
             line-height: 1;
             font-weight: 500;
+            flex-shrink: 0;
         }
 
         .aspect-card .targeted-feature-close svg {
@@ -1005,6 +1006,16 @@
             line-height: 1;
             cursor: pointer;
             font-weight: 500;
+        }
+
+        .aspect-card .targeted-features-row {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            gap: 6px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            align-items: center;
         }
 
         .base-image-container {

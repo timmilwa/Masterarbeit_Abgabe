@@ -378,9 +378,14 @@ let tooltipCanvasCommentId = null;    // Canvas comment with visible tooltip
 let hoveredAspectDot = null; // { pinId, type: 'emotional'|'value', index, text, x, y, isValue: boolean }
 const aspectDotsForHitTesting = [];
 
+// Add feature mode - when active, canvas dims and blue pin centers are clickable to add features
+let isAddingFeatureMode = false;
+let addingFeatureForCardId = null;
+const bluePinCentersForHitTesting = [];
+
 // Sidebar state
 let baseImageId = null; // ID of the base image in sidebar (null when empty)
-let aspectCards = []; // Array of aspect cards: [{ id, pinId, type: 'emotional'|'value', originalAspect, transformedAspect, activeAction, isGenerating, targetedFeature, isEditing }]
+let aspectCards = []; // Array of aspect cards: [{ id, pinId, type: 'emotional'|'value', originalAspect, transformedAspect, activeAction, isGenerating, targetedFeatures, isEditing }]
 
 // Dot position animation state - tracks repositioning animations for aspect dots
 // Structure: { pinId: { emotional: { startTime, duration, oldAngles: [], newAngles: [], isNewDot: [] }, value: { ... } } }
@@ -1883,9 +1888,8 @@ function createAspectCard(pinId, type, aspectText, targetedFeature) {
     transformedAspect: null,
     activeAction: null,
     isGenerating: false,
-    targetedFeature: targetedFeature || '',
-    isEditing: false
-    ,
+    targetedFeatures: targetedFeature ? [targetedFeature.trim()] : [],
+    isEditing: false,
     manualEdit: false
   };
 
@@ -1916,7 +1920,7 @@ function createCanvasCommentCard(commentId, commentText) {
     transformedAspect: null,
     activeAction: null,
     isGenerating: false,
-    targetedFeature: '',
+    targetedFeatures: [],
     isEditing: false
   };
 
@@ -1930,7 +1934,12 @@ function removeAspectCard(cardId) {
   const index = aspectCards.findIndex(card => card.id === cardId);
   if (index !== -1) {
     aspectCards.splice(index, 1);
+    if (addingFeatureForCardId === cardId) {
+      isAddingFeatureMode = false;
+      addingFeatureForCardId = null;
+    }
     updateAspectCards();
+    requestDraw();
   }
 }
 
@@ -1952,6 +1961,14 @@ function updateAspectCards() {
   refreshVariantButtonState();
 
   const cardsHTML = aspectCards.map(card => {
+    // Migrate legacy targetedFeature to targetedFeatures
+    if (card.targetedFeature !== undefined && !Array.isArray(card.targetedFeatures)) {
+      card.targetedFeatures = card.targetedFeature ? [card.targetedFeature] : [];
+    }
+    if (!Array.isArray(card.targetedFeatures)) {
+      card.targetedFeatures = [];
+    }
+
     const isEmotion = card.type === 'emotional';
     const isComment = card.type === 'comment';
     const color = isComment ? '#FF9000' : (isEmotion ? '#F5C842' : '#4CAF50'); // Orange for comment, Yellow for emotion, green for value
@@ -2028,18 +2045,20 @@ function updateAspectCards() {
         </div>
 
         <div>
-          <div style="font-size: 12px; color: #999; margin-bottom: 6px; font-weight: 500;">Targeted Feature</div>
-          ${card.targetedFeature ? `
-            <div class="targeted-feature-pill">
-              <span>${card.targetedFeature}</span>
-              <button class="targeted-feature-close" style="width: 14px; height: 14px; border: none; background: transparent; color: #3B82F6; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; margin-left: 4px;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-              </button>
-            </div>
-          ` : ''}
-          <button class="add-targeted-feature-pill add-targeted-feature-btn">
-            Add feature
-          </button>
+          <div style="font-size: 12px; color: #999; margin-bottom: 6px; font-weight: 500;">Targeted Features</div>
+          <div class="targeted-features-row">
+            ${(card.targetedFeatures || []).map((f, idx) => `
+              <div class="targeted-feature-pill" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 12px; color: #ffffff; background: #3B82F6; min-height: 28px; line-height: 1; font-weight: 500; flex-shrink: 0;">
+                <span>${f}</span>
+                <button class="targeted-feature-close" data-feature-index="${idx}" style="width: 14px; height: 14px; border: none; background: transparent; color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; margin-left: 4px;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+            `).join('')}
+            <button class="add-targeted-feature-pill add-targeted-feature-btn" data-card-id="${card.id}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; border: 1px solid ${(isAddingFeatureMode && addingFeatureForCardId === card.id) ? '#DC2626' : '#3B82F6'}; background: transparent; color: ${(isAddingFeatureMode && addingFeatureForCardId === card.id) ? '#DC2626' : '#3B82F6'}; font-size: 12px; min-height: 28px; line-height: 1; cursor: pointer; font-weight: 500; flex-shrink: 0;">
+              ${(isAddingFeatureMode && addingFeatureForCardId === card.id) ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> Cancel' : 'Add feature'}
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -2127,8 +2146,9 @@ function updateAspectCards() {
       e.stopPropagation();
       const cardId = btn.closest('.aspect-card').dataset.cardId;
       const card = aspectCards.find(c => c.id === cardId);
-      if (card) {
-        card.targetedFeature = '';
+      const idx = parseInt(btn.dataset.featureIndex, 10);
+      if (card && !isNaN(idx) && card.targetedFeatures) {
+        card.targetedFeatures.splice(idx, 1);
         updateAspectCards();
       }
     });
@@ -2140,11 +2160,15 @@ function updateAspectCards() {
       const cardId = btn.closest('.aspect-card').dataset.cardId;
       const card = aspectCards.find(c => c.id === cardId);
       if (card) {
-        const feature = prompt('Enter targeted feature:');
-        if (feature && feature.trim()) {
-          card.targetedFeature = feature.trim();
-          updateAspectCards();
+        if (isAddingFeatureMode && addingFeatureForCardId === card.id) {
+          isAddingFeatureMode = false;
+          addingFeatureForCardId = null;
+        } else {
+          isAddingFeatureMode = true;
+          addingFeatureForCardId = card.id;
         }
+        updateAspectCards();
+        requestDraw();
       }
     });
   });
@@ -2193,7 +2217,7 @@ async function generateTransformedAspect(cardId, action) {
       imageBase64,
       {
         pinId: card.pinId,
-        targetedFeature: card.targetedFeature,
+        targetedFeature: (card.targetedFeatures && card.targetedFeatures[0]) || '',
         imageTitle: img.title || null,
         imageFocus: img.focus || null
       }
@@ -2416,14 +2440,17 @@ function buildVariantGenerationPrompt(baseImageData, aspectCards, images) {
     
     const aspectText = card.transformedAspect || card.originalAspect;
     const aspectType = card.type === 'emotional' ? 'emotion' : 'value';
-    
-    if (card.targetedFeature && card.targetedFeature.trim()) {
-      // Targeted feature aspect
-      const feature = card.targetedFeature.trim();
-      if (!featureGroups[feature]) {
-        featureGroups[feature] = [];
+    const features = card.targetedFeatures && Array.isArray(card.targetedFeatures)
+      ? card.targetedFeatures.filter(f => f && f.trim()).map(f => f.trim())
+      : [];
+
+    if (features.length > 0) {
+      for (const feature of features) {
+        if (!featureGroups[feature]) {
+          featureGroups[feature] = [];
+        }
+        featureGroups[feature].push({ aspectText, aspectType, card });
       }
-      featureGroups[feature].push({ aspectText, aspectType, card });
     } else {
       // General aspect
       generalAspects.push({ aspectText, aspectType, card });
@@ -2965,11 +2992,9 @@ function getDevicePixelRatio() {
     return 2.0;
   }
 
-  // Check if pin expansion animation is active - use lower DPR for smooth animation
+  // Check if pin expansion animation is active - use INTERACTION_DPR (1.25) for smooth animation, then back to 2 when done
   if (pinExpansionAnimation) {
-    const baseDPR = getBaseDevicePixelRatio();
-    // Use animation DPR, but don't go below base DPR
-    return Math.max(ANIMATION_DPR, baseDPR);
+    return INTERACTION_DPR;
   }
 
   // Check if dot repositioning animation is active
@@ -3321,6 +3346,19 @@ function getAspectDotAt(clientX, clientY) {
   return null;
 }
 
+// Hit-test helper for blue pin centers (when in add feature mode)
+function getBluePinCenterAt(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = clientX - rect.left;
+  const cy = clientY - rect.top;
+  for (let i = bluePinCentersForHitTesting.length - 1; i >= 0; i--) {
+    const d = bluePinCentersForHitTesting[i];
+    const dist = Math.hypot(cx - d.x, cy - d.y);
+    if (dist <= d.hitRadius) return d;
+  }
+  return null;
+}
+
 // Create custom cursor from provided SVG
 const commentModeCursorSvg = `<svg fill="none" height="21" viewBox="0 0 21 21" width="21" xmlns="http://www.w3.org/2000/svg"><g stroke="#fff"><circle cx="10.5" cy="10.5" fill="#ff9000" r="9.75" stroke-width="1.5"/><g stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"><path d="m6 10.5h9"/><path d="m10.5 6v9"/></g></g></svg>`;
 
@@ -3635,6 +3673,10 @@ function toggleOverlay() {
     // Deselect any selected images
     selectedImageIndices = [];
     updateDownloadButtonState();
+
+    // Exit add feature mode when overlay closes
+    isAddingFeatureMode = false;
+    addingFeatureForCardId = null;
 
     // Save current canvas position before closing
     savedCanvasScale = canvasScale;
@@ -4393,6 +4435,7 @@ function draw() {
 
   ctx.restore();
   aspectDotsForHitTesting.length = 0;
+  bluePinCentersForHitTesting.length = 0;
 
   // Draw pins for all images (after transform is restored for fixed screen size)
   // Pin opacity is handled inside drawPins function when token is dragging
@@ -5396,8 +5439,9 @@ function drawImage(img, isSelected) {
     return;
   }
 
-  // Use image opacity (defaults to 1.0 if not set)
-  const opacity = img.opacity !== undefined ? img.opacity : 1.0;
+  // Use image opacity (defaults to 1.0 if not set). Dim when in add feature mode.
+  let opacity = img.opacity !== undefined ? img.opacity : 1.0;
+  if (isAddingFeatureMode) opacity *= 0.5;
   ctx.save();
   ctx.globalAlpha = opacity;
 
@@ -5874,12 +5918,15 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
   // Opacity: Analogy-Karte aktiv – Pins in scaledPinIds 100%; bei 2 ausgewählt: andere 0%; bei 1 ausgewählt: andere 50%
   // Andere Karten: selectedPinId 100%; andere 50%
+  // Add feature mode: green/yellow rings 50%, blue center stays 100%
   let basePinOpacity = 1.0;
   if (isAnyCardSelected && selectedCardIndex === 0) {
     basePinOpacity = isInScaledPinIds ? 1.0 : (scaledPinIds.length >= 2 ? 0.0 : scaledPinIds.length === 1 ? 0.5 : 1.0);
   } else {
     basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
   }
+  const ringsOpacity = isAddingFeatureMode ? basePinOpacity * 0.5 : basePinOpacity;
+  const blueCircleOpacity = isAddingFeatureMode ? basePinOpacity : (isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity);
   
   // Get animation progress (0.0 = collapsed, 1.0 = expanded)
   // CRITICAL: Never allow expansion if shouldPreventExpansion is true
@@ -6003,9 +6050,8 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
-      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
-      ctx.globalAlpha = collapsedFade * pinOpacity;
+      ctx.globalAlpha = collapsedFade * ringsOpacity;
 
       // Interpolate ring size during transition
       const currentGreenOuter = collapsedGreenRingOuterRadius + (expandedOuterOrbitRadius - collapsedGreenRingOuterRadius) * expansionProgress;
@@ -6030,9 +6076,8 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
-      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
-      ctx.globalAlpha = collapsedFade * pinOpacity;
+      ctx.globalAlpha = collapsedFade * ringsOpacity;
 
       // Interpolate ring size during transition
       const currentYellowOuter = collapsedYellowRingOuterRadius + (expandedInnerOrbitRadius - collapsedYellowRingOuterRadius) * expansionProgress;
@@ -6140,7 +6185,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       }
 
       // Then draw the semi-transparent colored overlay
-      const bgOpacity = 0.35 * combinedProgress * basePinOpacity; // Moderate transparency (0.3-0.4)
+      const bgOpacity = 0.35 * combinedProgress * ringsOpacity; // Moderate transparency (0.3-0.4)
       ctx.fillStyle = `rgba(76, 185, 72, ${bgOpacity})`; // Green with transparency
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentValuesAreaOuterRadius, 0, Math.PI * 2);
@@ -6179,8 +6224,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
           // Draw dot with white border (same size as blue pin)
           ctx.save();
-          ctx.globalAlpha = isTokenDragging ? animatedOpacity * 0.5 : animatedOpacity;
-          ctx.fillStyle = '#479A44'; // Green
+          ctx.globalAlpha = (isTokenDragging ? animatedOpacity * 0.5 : animatedOpacity) * (ringsOpacity / (basePinOpacity || 1));
           ctx.beginPath();
           ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
           ctx.fill();
@@ -6213,7 +6257,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       // Draw "Values" label SVG (curved along the ring, upper-middle section)
       if (valuesLabelImage && valuesLabelImage.complete && valuesLabelImage.naturalWidth > 0) {
         ctx.save();
-        ctx.globalAlpha = isTokenDragging ? combinedProgress * 0.5 : combinedProgress;
+        ctx.globalAlpha = (isTokenDragging ? combinedProgress * 0.5 : combinedProgress) * (ringsOpacity / (basePinOpacity || 1));
 
         // Position SVG along the curve of the values ring (upper-middle, angle = -90 degrees)
         const valuesLabelAngle = -Math.PI / 2; // -90 degrees (top)
@@ -6311,7 +6355,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       }
 
       // Then draw the semi-transparent colored overlay
-      const bgOpacity = 0.35 * expansionProgress * basePinOpacity; // Moderate transparency (0.3-0.4)
+      const bgOpacity = 0.35 * expansionProgress * ringsOpacity; // Moderate transparency (0.3-0.4)
       ctx.fillStyle = `rgba(240, 206, 37, ${bgOpacity})`; // Yellow with transparency
       ctx.beginPath();
       ctx.arc(screenX, screenY, currentEmotionsAreaOuterRadius, 0, Math.PI * 2);
@@ -6350,7 +6394,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
           // Draw dot with white border (same size as blue pin)
           ctx.save();
-          ctx.globalAlpha = isTokenDragging ? animatedOpacity * 0.5 : animatedOpacity;
+          ctx.globalAlpha = (isTokenDragging ? animatedOpacity * 0.5 : animatedOpacity) * (ringsOpacity / (basePinOpacity || 1));
           ctx.fillStyle = '#F0CE25'; // Yellow
           ctx.beginPath();
           ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
@@ -6384,7 +6428,7 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
       // Draw "Emotions" label SVG (curved along the ring, 12 o'clock position)
       if (emotionsLabelImage && emotionsLabelImage.complete && emotionsLabelImage.naturalWidth > 0) {
         ctx.save();
-        ctx.globalAlpha = isTokenDragging ? expansionProgress * 0.5 : expansionProgress;
+        ctx.globalAlpha = (isTokenDragging ? expansionProgress * 0.5 : expansionProgress) * (ringsOpacity / (basePinOpacity || 1));
 
         // Position SVG along the curve of the emotions ring (12 o'clock, angle = -90 degrees)
         const emotionsLabelAngle = -Math.PI / 2; // -90 degrees (12 o'clock)
@@ -6409,9 +6453,8 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw green ring (outermost) if value aspects exist
     if (hasValueAspects) {
-      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
-      ctx.globalAlpha = pinOpacity;
+      ctx.globalAlpha = ringsOpacity;
 
       // Draw green ring as a donut shape
       ctx.fillStyle = '#479A44'; // Green
@@ -6432,9 +6475,8 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
 
     // Draw yellow ring if emotional aspects exist
     if (hasEmotionalAspects) {
-      const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
       ctx.save();
-      ctx.globalAlpha = pinOpacity;
+      ctx.globalAlpha = ringsOpacity;
 
       // Draw yellow ring as a donut shape
       ctx.fillStyle = '#F0CE25'; // Yellow
@@ -6454,10 +6496,9 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
     }
   }
 
-  // Draw blue circle (innermost) - always visible, same size in both states
-  const pinOpacity = isTokenDragging ? basePinOpacity * 0.5 : basePinOpacity;
+  // Draw blue circle (innermost) - always visible, same size in both states. Stays 100% when in add feature mode.
   ctx.save();
-  ctx.globalAlpha = pinOpacity;
+  ctx.globalAlpha = blueCircleOpacity;
   ctx.fillStyle = '#008CFF'; // Blue
   ctx.beginPath();
   ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
@@ -6470,6 +6511,20 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   ctx.arc(screenX, screenY, blueRadius, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
+
+  // Add blue center to hit testing when in add feature mode (for click-to-add feature)
+  if (isAddingFeatureMode && pin.feature && pin.feature.trim().length > 0) {
+    const hitRadius = blueRadius + 8;
+    bluePinCentersForHitTesting.push({
+      pinId: pin.id,
+      pin,
+      img,
+      x: screenX,
+      y: screenY,
+      hitRadius,
+      feature: pin.feature
+    });
+  }
 
   // Check if mouse is hovering over this pin (for hover tooltip)
   const dx = canvasRelativeX - screenX;
@@ -10684,6 +10739,16 @@ window.addEventListener('keydown', (e) => {
       return;
     }
 
+    // If in add feature mode, cancel it
+    if (isAddingFeatureMode) {
+      isAddingFeatureMode = false;
+      addingFeatureForCardId = null;
+      updateAspectCards();
+      requestDraw();
+      e.preventDefault();
+      return;
+    }
+
     // If in reflection mode, start hold-to-exit timer (don't close canvas immediately)
     if (isReflectionMode) {
       if (!isHoldingEscapeToExit) {
@@ -10879,6 +10944,29 @@ canvas.addEventListener('mousedown', (e) => {
 
   // Prevent interactions during animation
   if (isAnimating) return;
+
+  // Add feature mode: click on blue pin center to add feature to card
+  if (isAddingFeatureMode && addingFeatureForCardId && e.button === 0) {
+    const hit = getBluePinCenterAt(e.clientX, e.clientY);
+    if (hit) {
+      const card = aspectCards.find(c => c.id === addingFeatureForCardId);
+      if (card && hit.feature && hit.feature.trim()) {
+        if (!card.targetedFeatures) card.targetedFeatures = [];
+        const trimmed = hit.feature.trim();
+        if (!card.targetedFeatures.includes(trimmed)) {
+          card.targetedFeatures.push(trimmed);
+          // Exit add feature mode after successfully adding a feature
+          isAddingFeatureMode = false;
+          addingFeatureForCardId = null;
+          updateAspectCards();
+          requestDraw();
+        }
+      }
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
+  }
 
   // Check if clicking on an aspect dot
   const clickedAspectDot = e.button === 0 ? (hoveredAspectDot || getAspectDotAt(e.clientX, e.clientY)) : null;
