@@ -556,7 +556,9 @@ const CANVAS_EXIT_HOLD_DURATION = 500; // Duration to hold Escape key to exit ca
 let isHoldingDeleteToDeleteImage = false; // Whether Delete is currently being held to delete image
 let deleteHoldStartTime = 0; // Timestamp when Delete key was pressed (for hold-to-delete)
 let deleteHoldTimeout = null; // Timeout for completing the delete after hold duration
+let currentDeleteHoldDuration = 1000; // Active hold duration (set when delete starts)
 const DELETE_HOLD_DURATION = 1000; // Duration to hold Delete key to delete image (ms)
+const DELETE_HOLD_DURATION_QUICK = 400; // Shorter hold for cards and demo data (ms)
 
 // Generate unique ID for images and pins
 function generateId() {
@@ -4944,7 +4946,7 @@ function draw() {
 
     // Calculate progress (0 to 1)
     const holdElapsed = Date.now() - deleteHoldStartTime;
-    const progress = Math.min(holdElapsed / DELETE_HOLD_DURATION, 1);
+    const progress = Math.min(holdElapsed / currentDeleteHoldDuration, 1);
 
     // Center of selected images (artifacts)
     let totalCenterX = 0;
@@ -10842,6 +10844,13 @@ window.addEventListener('keydown', (e) => {
     if (selectedImageIndices.length > 0 && !isHoldingDeleteToDeleteImage) {
       e.preventDefault();
 
+      // Use shorter hold duration for cards and demo data (disposable content)
+      const selectionContainsOnlyCardsOrDemo = selectedImageIndices.every(idx => {
+        const img = images[idx];
+        return img && (img.isCard || img.isToken || img.isDemoData);
+      });
+      currentDeleteHoldDuration = selectionContainsOnlyCardsOrDemo ? DELETE_HOLD_DURATION_QUICK : DELETE_HOLD_DURATION;
+
       // Start holding Delete to delete images
       isHoldingDeleteToDeleteImage = true;
       deleteHoldStartTime = Date.now();
@@ -10855,12 +10864,27 @@ window.addEventListener('keydown', (e) => {
           // Check if reflection image is being deleted
           const isDeletingReflectionImage = sortedIndices.includes(reflectionImageIndex);
 
+          // Collect pin IDs before splicing (indices will shift)
+          const deletedPinIds = new Set();
+          sortedIndices.forEach(index => {
+            if (index >= 0 && index < images.length) {
+              const img = images[index];
+              if (img.pins) img.pins.forEach(p => deletedPinIds.add(p.id));
+            }
+          });
+
           // Remove images
           sortedIndices.forEach(index => {
             if (index >= 0 && index < images.length) {
               images.splice(index, 1);
             }
           });
+
+          // Remove orphaned aspect cards that referenced pins on deleted images
+          if (deletedPinIds.size > 0) {
+            const cardsToRemove = aspectCards.filter(c => c.pinId && deletedPinIds.has(c.pinId));
+            cardsToRemove.forEach(c => removeAspectCard(c.id));
+          }
 
           // Clear selection
           selectedImageIndices = [];
@@ -10878,7 +10902,7 @@ window.addEventListener('keydown', (e) => {
           deleteHoldTimeout = null;
           requestDraw(); // Redraw to remove delete button
         }
-      }, DELETE_HOLD_DURATION);
+      }, currentDeleteHoldDuration);
 
       // Continuously trigger redraw while holding to animate delete button
       requestDraw();
@@ -14529,7 +14553,8 @@ function loadDemoData() {
         pins: [],
         title: 'Apple Weather App',
         focus: 'Layout',
-        titleGenerated: false
+        titleGenerated: false,
+        isDemoData: true
       };
 
       const pins = [
@@ -14573,7 +14598,8 @@ function loadDemoData() {
           pins: [],
           title: 'Illustrated Weather App',
           focus: 'Illustrations',
-          titleGenerated: false
+          titleGenerated: false,
+          isDemoData: true
         };
 
         const rainPins = [
@@ -14618,7 +14644,7 @@ function clearDemoData() {
   draw();
 }
 
-// Demo data toggle handler (Development section) — on by default
+// Demo data toggle handler (Development section) — off by default
 // Sync both toggles (settings modal and top right)
 function syncDemoDataToggles(isEnabled) {
   if (demoDataToggle) {
@@ -14640,7 +14666,7 @@ function handleDemoDataToggleChange(isEnabled) {
 
 if (demoDataToggle || demoDataToggleTop) {
   const savedDemoData = localStorage.getItem('demoDataEnabled');
-  const isDemoDataEnabled = savedDemoData === null ? true : savedDemoData === 'true';
+  const isDemoDataEnabled = savedDemoData === null ? false : savedDemoData === 'true';
   syncDemoDataToggles(isDemoDataEnabled);
 
   if (isDemoDataEnabled) {
@@ -14701,7 +14727,7 @@ if (demoModeToggle) {
   demoModeToggle.checked = isDemoModeEnabled;
 
   // If demo mode was enabled (and demo data is off), load it on startup
-  const demoDataOn = localStorage.getItem('demoDataEnabled') === null ? true : localStorage.getItem('demoDataEnabled') === 'true';
+  const demoDataOn = localStorage.getItem('demoDataEnabled') === null ? false : localStorage.getItem('demoDataEnabled') === 'true';
   if (isDemoModeEnabled && !demoDataOn) {
     setTimeout(() => loadDemoMode(), 500);
   }
@@ -18170,8 +18196,8 @@ function initializeTokenStack() {
   }
 }
 
-// Tooltip component: shows after 2s hover on elements with data-tooltip
-const TOOLTIP_DELAY_MS = 2000;
+// Tooltip component: shows after short hover on elements with data-tooltip
+const TOOLTIP_DELAY_MS = 300;
 let tooltipTimeoutId = null;
 let tooltipCurrentTarget = null;
 
