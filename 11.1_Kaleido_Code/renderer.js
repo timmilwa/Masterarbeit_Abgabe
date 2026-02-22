@@ -5306,7 +5306,7 @@ function drawGrid() {
 function drawReflectiveAnalogyOutputCard(img) {
   if (!img.analogyOutput) return;
   const { analogy, question } = img.analogyOutput;
-  const CARD_COLOR = '#E4DCC0';
+  const CARD_COLOR = '#FFEFD8';
   const TEXT_COLOR = '#3d3630';
   const padding = 24;
   const maxWidth = img.width - padding * 2;
