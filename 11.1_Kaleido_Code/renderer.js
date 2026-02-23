@@ -214,6 +214,8 @@ let cardGenerateButtonBounds = {}; // Store generate button bounds for each card
 let analogyGridCircleDragging = null; // { imageId, imageIndex } when dragging the 3x3 grid circle on Reflective Analogy card
 let analogyGridCircleAnimation = null; // { imageId, imageIndex, fromX, fromY, toX, toY, radius, startTime, duration }
 let analogyOutputHeightAnimation = null; // { imageId, startHeight, targetHeight, startTime, duration } für Schrumpf-Animation
+let feelingLuckyOutputHeightAnimation = null; // Same for Feeling Lucky output card
+let perspectiveOutputHeightAnimation = null; // Same for Perspective Switch output card
 const ANALOGY_OUTPUT_HEIGHT_ANIMATION_DURATION = 400;
 let tokenPillBounds = {}; // Store pill bounds for each token image: { imageId: { pill: { x, y, width, height }, closeButton: { x, y, width, height }, isScreenCoords: true } }
 let expandedAccordionId = null; // Track which accordion is currently open ('general-info', 'features-pinned', 'emotions', 'values', or null)
@@ -588,7 +590,13 @@ let customInstructions = {
   tokenPrompt1: "",
   tokenPrompt2: "",
   reflectiveAnalogySystem: "",
-  reflectiveAnalogyInput: ""
+  reflectiveAnalogyInput: "",
+  feelingLuckySystem: "",
+  feelingLuckyInput: "",
+  perspectiveMusician: "",
+  perspectivePsychologist: "",
+  perspectiveArchitect: "",
+  perspectiveFuturologist: ""
 };
 
 // User data path (set once via IPC from main process - not available in renderer)
@@ -653,7 +661,13 @@ function loadCustomInstructions() {
         tokenPrompt1: loaded.tokenPrompt1 || "",
         tokenPrompt2: loaded.tokenPrompt2 || "",
         reflectiveAnalogySystem: loaded.reflectiveAnalogySystem || "",
-        reflectiveAnalogyInput: loaded.reflectiveAnalogyInput || ""
+        reflectiveAnalogyInput: loaded.reflectiveAnalogyInput || "",
+        feelingLuckySystem: loaded.feelingLuckySystem || "",
+        feelingLuckyInput: loaded.feelingLuckyInput || "",
+        perspectiveMusician: loaded.perspectiveMusician || "",
+        perspectivePsychologist: loaded.perspectivePsychologist || "",
+        perspectiveArchitect: loaded.perspectiveArchitect || "",
+        perspectiveFuturologist: loaded.perspectiveFuturologist || ""
       };
       // Fallback: load from TXT if missing in JSON
       if (!customInstructions.reflectiveAnalogySystem) {
@@ -2945,6 +2959,48 @@ function parseReflectiveAnalogyResponse(text) {
   return { analogy: analogy || trimmed, question };
 }
 
+// Build full prompt for Feeling Lucky generation
+function buildFeelingLuckyPrompt(img) {
+  const pinData = collectReflectiveAnalogyPinData(scaledPinIds);
+  const baseData = getBaseImageData();
+  const artifactContext = baseImageId && baseData.title
+    ? [baseData.title, baseData.focus].filter(Boolean).join('. ')
+    : '';
+  let system = customInstructions.feelingLuckySystem || '';
+  system = system
+    .replace(/\{\{ARTIFACT_CONTEXT\}\}/g, artifactContext)
+    .replace(/\{\{FUNCTION\}\}/g, pinData.function)
+    .replace(/\{\{EMOTION\}\}/g, pinData.emotion)
+    .replace(/\{\{VALUE\}\}/g, pinData.value);
+  const inputTemplate = customInstructions.feelingLuckyInput || '';
+  const userInput = inputTemplate
+    .replace(/\{\{ARTIFACT_CONTEXT\}\}/g, String(artifactContext || '').trim() || '[nicht angegeben]')
+    .replace(/\{\{FUNCTION\}\}/g, String(pinData.function || ''))
+    .replace(/\{\{EMOTION\}\}/g, String(pinData.emotion || ''))
+    .replace(/\{\{VALUE\}\}/g, String(pinData.value || ''));
+  return system + '\n\n---\n\n' + userInput;
+}
+
+// Build full prompt for Perspective Switch generation (single pin + selected perspective)
+function buildPerspectivePrompt(img) {
+  const pinIds = scaledPinId ? [scaledPinId] : [];
+  const pinData = collectReflectiveAnalogyPinData(pinIds);
+  const baseData = getBaseImageData();
+  const artifactContext = baseImageId && baseData.title
+    ? [baseData.title, baseData.focus].filter(Boolean).join('. ')
+    : '';
+  const perspectiveIndex = img.perspectiveSelectionIndex;
+  const keys = ['perspectiveMusician', 'perspectivePsychologist', 'perspectiveArchitect', 'perspectiveFuturologist'];
+  const key = keys[perspectiveIndex] || keys[0];
+  let system = customInstructions[key] || '';
+  system = system
+    .replace(/\{\{ARTIFACT_CONTEXT\}\}/g, artifactContext)
+    .replace(/\{\{FUNCTION\}\}/g, pinData.function)
+    .replace(/\{\{EMOTION\}\}/g, pinData.emotion)
+    .replace(/\{\{VALUE\}\}/g, pinData.value);
+  return system;
+}
+
 // Generate reflective analogy and replace card with output
 async function handleReflectiveAnalogyGenerate(img) {
   if (!img || !img.isCard || img.cardIndex !== 0) return;
@@ -2977,6 +3033,76 @@ async function handleReflectiveAnalogyGenerate(img) {
   }
 }
 
+// Generate Feeling Lucky impulse and replace card with output
+async function handleFeelingLuckyGenerate(img) {
+  if (!img || !img.isCard || img.cardIndex !== 2) return;
+  if (scaledPinIds.length < 1) {
+    showToast('Bitte mindestens einen Pin auswählen', true);
+    return;
+  }
+  if (!isAIModeEnabled()) {
+    showToast('AI-Modus ist deaktiviert', true);
+    return;
+  }
+  if (!aiSettings.apiKey || !validateAPIKey(aiSettings.apiKey)) {
+    showToast('Ungültiger API-Key. Bitte in den Einstellungen prüfen.', true);
+    return;
+  }
+  img.feelingLuckyGenerating = true;
+  requestDraw();
+  try {
+    const prompt = buildFeelingLuckyPrompt(img);
+    const response = await callGeminiAPI(prompt, null, null, aiSettings.model);
+    const text = (response || '').trim();
+    img.feelingLuckyOutput = { text };
+    showToast('Impulse generiert');
+  } catch (error) {
+    console.error('Feeling Lucky generation failed:', error);
+    showToast(error.message || 'Generierung fehlgeschlagen', true);
+  } finally {
+    img.feelingLuckyGenerating = false;
+    requestDraw();
+  }
+}
+
+// Generate Perspective Switch output and replace card with result
+async function handlePerspectiveGenerate(img) {
+  if (!img || !img.isCard || img.cardIndex !== 1) return;
+  if (!scaledPinId) {
+    showToast('Bitte einen Pin auswählen', true);
+    return;
+  }
+  const perspectiveIndex = img.perspectiveSelectionIndex;
+  if (perspectiveIndex === undefined || perspectiveIndex < 0 || perspectiveIndex > 3) {
+    showToast('Bitte eine Perspektive auswählen', true);
+    return;
+  }
+  if (!isAIModeEnabled()) {
+    showToast('AI-Modus ist deaktiviert', true);
+    return;
+  }
+  if (!aiSettings.apiKey || !validateAPIKey(aiSettings.apiKey)) {
+    showToast('Ungültiger API-Key. Bitte in den Einstellungen prüfen.', true);
+    return;
+  }
+  img.perspectiveGenerating = true;
+  requestDraw();
+  try {
+    const prompt = buildPerspectivePrompt(img);
+    const response = await callGeminiAPI(prompt, null, null, aiSettings.model);
+    const text = (response || '').trim();
+    const perspectiveNames = ['Musician', 'Psychologist', 'Architect', 'Futurologist'];
+    img.perspectiveOutput = { text, perspectiveName: perspectiveNames[perspectiveIndex] };
+    showToast('Perspektive generiert');
+  } catch (error) {
+    console.error('Perspective generation failed:', error);
+    showToast(error.message || 'Generierung fehlgeschlagen', true);
+  } finally {
+    img.perspectiveGenerating = false;
+    requestDraw();
+  }
+}
+
 // Helper function to get device pixel ratio
 // Get the base device pixel ratio from the browser
 function getBaseDevicePixelRatio() {
@@ -2992,6 +3118,11 @@ function getDevicePixelRatio() {
     return 1.5;
   } else if (dprMode === '2') {
     return 2.0;
+  }
+
+  // Check if delete hold animation is active - use INTERACTION_DPR (1.25) for smooth animation
+  if (isHoldingDeleteToDeleteImage) {
+    return INTERACTION_DPR;
   }
 
   // Check if pin expansion animation is active - use INTERACTION_DPR (1.25) for smooth animation, then back to 2 when done
@@ -4399,12 +4530,14 @@ function draw() {
     });
   }
 
-  // Draw pin thumbnail overlays for Reflective Analogy card IN CANVAS COORDINATES (before restore)
+  // Draw pin thumbnail overlays for Reflective Analogy and Feeling Lucky cards IN CANVAS COORDINATES (before restore)
   // So they scale with the card when zooming the canvas
   const analogyPinsToShow = [];
   selectedImageIndices.forEach(idx => {
     const img = images[idx];
-    if (!img || !img.isCard || img.hidden || img.cardIndex !== 0 || img.analogyOutput) return;
+    const isMultiPinCardType = img && img.isCard && (img.cardIndex === 0 || img.cardIndex === 2);
+    const hasOutput = (img && img.cardIndex === 0 && img.analogyOutput) || (img && img.cardIndex === 2 && img.feelingLuckyOutput);
+    if (!img || !img.isCard || img.hidden || !isMultiPinCardType || hasOutput) return;
     if (scaledPinIds.length === 0) return;
     scaledPinIds.forEach((pinId, index) => {
       let pin = null;
@@ -4421,11 +4554,35 @@ function draw() {
     drawPinThumbnailOverlayCanvasCoords(img, pin, index);
   });
 
+  // Perspective Switch: Pin-Thumbnail auf der Karte (analog zu Analogy/Feeling Lucky)
+  // Pin liegt auf dem Artifact; Karte hat keine eigenen Pins
+  if (scaledPinId !== null) {
+    selectedImageIndices.forEach(idx => {
+      const img = images[idx];
+      if (!img || !img.isCard || img.hidden || img.cardIndex !== 1 || img.perspectiveOutput) return;
+      let pin = null;
+      for (const candidateImg of images) {
+        if (candidateImg && candidateImg.pins) {
+          pin = candidateImg.pins.find(p => p.id === scaledPinId);
+          if (pin) break;
+        }
+      }
+      if (pin) drawPinThumbnailOverlayCanvasCoords(img, pin, 0);
+    });
+  }
+
   // 3x3 Grid-Kreis für Reflective Analogy Karte (nur wenn ausgewählt, nicht bei Output-Karte)
   selectedImageIndices.forEach(idx => {
     const img = images[idx];
     if (img && img.isCard && !img.hidden && img.cardIndex === 0 && !img.analogyOutput) {
       drawAnalogyGridCircle(img);
+    }
+  });
+  // Perspective Switch: Dot in gewähltem Kreis (nur wenn ausgewählt, nicht bei Output-Karte)
+  selectedImageIndices.forEach(idx => {
+    const img = images[idx];
+    if (img && img.isCard && !img.hidden && img.cardIndex === 1 && !img.perspectiveOutput) {
+      drawPerspectiveCircles(img);
     }
   });
   // Animation weiterlaufen lassen
@@ -4461,8 +4618,14 @@ function draw() {
     images.forEach((img, index) => {
       if (!img.hidden) {
         // During initial transition (before first exit), only show pins for selected image
+        // Exception: when a card is selected, also draw pins for images that contain the scaled pin(s)
+        // (Perspective/other cards: pin lives on artifact, not on card)
         if (!hasExitedReflectionModeOnce && !selectedImageIndices.includes(index)) {
-          return; // Skip other images
+          const hasScaledPin = img.pins && (
+            (scaledPinId !== null && img.pins.some(p => p.id === scaledPinId)) ||
+            (scaledPinIds.length > 0 && img.pins.some(p => scaledPinIds.includes(p.id)))
+          );
+          if (!hasScaledPin) return;
         }
         drawPins(img, selectedImageIndices.includes(index));
       }
@@ -4478,13 +4641,13 @@ function draw() {
   selectedImageIndices.forEach(idx => {
     const img = images[idx];
     if (!img || !img.isCard || img.hidden) return;
+    if (img.analogyOutput || img.feelingLuckyOutput || img.perspectiveOutput) return; // Output cards: no pin overlay
+    const isMultiPinCard = img.cardIndex === 0 || img.cardIndex === 2;
     
-    const isAnalogyCard = img.cardIndex === 0;
-    
-    if (isAnalogyCard && scaledPinIds.length > 0) {
-      // Analogy card: drawn in canvas coords before restore (scales with zoom) - skip here
+    if (isMultiPinCard && scaledPinIds.length > 0) {
+      // Analogy/Feeling Lucky: drawn in canvas coords before restore (scales with zoom) - skip here
       return;
-    } else if (!isAnalogyCard && (scaledPinId !== null || selectedPinId !== null) && img.pins) {
+    } else if (!isMultiPinCard && (scaledPinId !== null || selectedPinId !== null) && img.pins) {
       // Other cards: show single selected pin (must be on this card)
       const pinIdToShow = scaledPinId || selectedPinId;
       const selectedPin = img.pins.find(p => p.id === pinIdToShow);
@@ -5413,11 +5576,204 @@ function drawReflectiveAnalogyOutputCard(img) {
   ctx.restore();
 }
 
+// Draw Feeling Lucky output card (text overlay on beige background, title "Impulse")
+function drawFeelingLuckyOutputCard(img) {
+  if (!img.feelingLuckyOutput) return;
+  const { text } = img.feelingLuckyOutput;
+  const CARD_COLOR = '#EED8FF';
+  const TEXT_COLOR = '#3d3630';
+  const padding = 24;
+  const maxWidth = img.width - padding * 2;
+  const lineHeight = 22;
+
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const wrap = (txt, maxW, font) => {
+    ctx.font = font;
+    const words = (txt || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      const m = ctx.measureText(test);
+      if (m.width > maxW && line) {
+        lines.push(line);
+        line = w;
+      } else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+
+  const impulseText = (text || '').trim();
+  const bodyFont = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  const impulseLines = wrap(impulseText, maxWidth, bodyFont);
+  // Use actual font metrics for responsive height (avoids cutoff on different DPR/fonts)
+  ctx.font = bodyFont;
+  const fontMetrics = ctx.measureText('Ag'); // Sample with ascender + descender
+  const actualLineHeight = (fontMetrics.actualBoundingBoxAscent || 11) + (fontMetrics.actualBoundingBoxDescent || 4);
+  const effectiveLineHeight = Math.max(lineHeight, Math.ceil(actualLineHeight) + 4); // Use larger of nominal or measured + buffer
+  const targetHeight = padding * 2 + (lineHeight + 8) + impulseLines.length * effectiveLineHeight + padding; // Extra bottom padding
+
+  const currentStartHeight = img.height;
+  const needsShrink = targetHeight < currentStartHeight - 2;
+
+  if (needsShrink) {
+    const now = Date.now();
+    if (!feelingLuckyOutputHeightAnimation || feelingLuckyOutputHeightAnimation.imageId !== img.id) {
+      feelingLuckyOutputHeightAnimation = {
+        imageId: img.id,
+        startHeight: currentStartHeight,
+        targetHeight,
+        startTime: now,
+        duration: ANALOGY_OUTPUT_HEIGHT_ANIMATION_DURATION
+      };
+    }
+    const anim = feelingLuckyOutputHeightAnimation;
+    const elapsed = now - anim.startTime;
+    const t = Math.min(1, elapsed / anim.duration);
+    const easeOut = 1 - Math.pow(1 - t, 3);
+    img.height = anim.startHeight + (anim.targetHeight - anim.startHeight) * easeOut;
+    if (t >= 1) {
+      img.height = anim.targetHeight;
+      feelingLuckyOutputHeightAnimation = null;
+    } else {
+      requestDraw();
+    }
+  } else {
+    img.height = targetHeight;
+    feelingLuckyOutputHeightAnimation = null;
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = CARD_COLOR;
+  ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, img.x, img.y, img.width, img.height, 16);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = TEXT_COLOR;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  let y = img.y + padding;
+  ctx.font = 'bold 16px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.fillText('Impulse', img.x + padding, y);
+  y += lineHeight + 8;
+  ctx.font = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  impulseLines.forEach(line => {
+    ctx.fillText(line, img.x + padding, y);
+    y += lineHeight;
+  });
+  ctx.restore();
+}
+
+// Draw Perspective Switch output card (text overlay, background #D8ECFF)
+function drawPerspectiveOutputCard(img) {
+  if (!img.perspectiveOutput) return;
+  const { text, perspectiveName } = img.perspectiveOutput;
+  const CARD_COLOR = '#D8ECFF';
+  const TEXT_COLOR = '#3d3630';
+  const padding = 24;
+  const maxWidth = img.width - padding * 2;
+  const lineHeight = 22;
+
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const wrap = (txt, maxW, font) => {
+    ctx.font = font;
+    const words = (txt || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      const m = ctx.measureText(test);
+      if (m.width > maxW && line) {
+        lines.push(line);
+        line = w;
+      } else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+
+  const bodyText = (text || '').trim();
+  const bodyFont = '15px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  const bodyLines = wrap(bodyText, maxWidth, bodyFont);
+  ctx.font = bodyFont;
+  const fontMetrics = ctx.measureText('Ag');
+  const actualLineHeight = (fontMetrics.actualBoundingBoxAscent || 11) + (fontMetrics.actualBoundingBoxDescent || 4);
+  const effectiveLineHeight = Math.max(lineHeight, Math.ceil(actualLineHeight) + 4);
+  const targetHeight = padding * 2 + (lineHeight + 8) + bodyLines.length * effectiveLineHeight + padding;
+
+  const currentStartHeight = img.height;
+  const needsShrink = targetHeight < currentStartHeight - 2;
+
+  if (needsShrink) {
+    const now = Date.now();
+    if (!perspectiveOutputHeightAnimation || perspectiveOutputHeightAnimation.imageId !== img.id) {
+      perspectiveOutputHeightAnimation = {
+        imageId: img.id,
+        startHeight: currentStartHeight,
+        targetHeight,
+        startTime: now,
+        duration: ANALOGY_OUTPUT_HEIGHT_ANIMATION_DURATION
+      };
+    }
+    const anim = perspectiveOutputHeightAnimation;
+    const elapsed = now - anim.startTime;
+    const t = Math.min(1, elapsed / anim.duration);
+    const easeOut = 1 - Math.pow(1 - t, 3);
+    img.height = anim.startHeight + (anim.targetHeight - anim.startHeight) * easeOut;
+    if (t >= 1) {
+      img.height = anim.targetHeight;
+      perspectiveOutputHeightAnimation = null;
+    } else {
+      requestDraw();
+    }
+  } else {
+    img.height = targetHeight;
+    perspectiveOutputHeightAnimation = null;
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = CARD_COLOR;
+  ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, img.x, img.y, img.width, img.height, 16);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = TEXT_COLOR;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  let y = img.y + padding;
+  ctx.font = 'bold 16px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.fillText(perspectiveName || 'Perspective', img.x + padding, y);
+  y += lineHeight + 8;
+  ctx.font = bodyFont;
+  bodyLines.forEach(line => {
+    ctx.fillText(line, img.x + padding, y);
+    y += effectiveLineHeight;
+  });
+  ctx.restore();
+}
+
 // Draw image with selection
 function drawImage(img, isSelected) {
-  if (!img.element && !img.analogyOutput) return;
+  if (!img.element && !img.analogyOutput && !img.feelingLuckyOutput && !img.perspectiveOutput) return;
   if (img.analogyOutput) {
     drawReflectiveAnalogyOutputCard(img);
+    return;
+  }
+  if (img.feelingLuckyOutput) {
+    drawFeelingLuckyOutputCard(img);
+    return;
+  }
+  if (img.perspectiveOutput) {
+    drawPerspectiveOutputCard(img);
     return;
   }
   // Check if image is loaded before drawing
@@ -5885,18 +6241,18 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   const screenX = screenPos.x;
   const screenY = screenPos.y;
 
-  // Check if this image is an analogy card (cardIndex === 0)
-  const isAnalogyCard = img.isCard && img.cardIndex === 0;
+  // Check if this image is a multi-pin card (Analogy or Feeling Lucky, cardIndex 0 or 2)
+  const isMultiPinCard = img.isCard && (img.cardIndex === 0 || img.cardIndex === 2);
   
-  // Check if this pin is in the scaledPinIds array (for analogy cards) or matches scaledPinId/selectedPinId (for other cards)
+  // Check if this pin is in the scaledPinIds array (for multi-pin cards) or matches scaledPinId/selectedPinId (for other cards)
   const isInScaledPinIds = scaledPinIds.includes(pin.id);
   const isScaledPinId = scaledPinId === pin.id;
   const isSelectedPinId = selectedPinId === pin.id;
   
   // Determine if this pin should be visually "selected" (for highlighting and base size)
-  // For analogy cards: any pin in scaledPinIds is selected
+  // For multi-pin cards: any pin in scaledPinIds is selected
   // For other cards: only selectedPinId is selected
-  const isSelected = isAnyCardSelected && isAnalogyCard
+  const isSelected = isAnyCardSelected && isMultiPinCard
     ? isInScaledPinIds 
     : isSelectedPinId;
   
@@ -5911,18 +6267,18 @@ function drawSinglePin(pin, img, canvasRelativeX, canvasRelativeY, isReflectionM
   const canExpand = (hasEmotionalAspects || hasValueAspects) && !shouldPreventExpansion;
 
   // Check if this pin should be scaled up (when card is selected)
-  // For analogy cards: check scaledPinIds array
+  // For multi-pin cards: check scaledPinIds array
   // For other cards: check scaledPinId or selectedPinId
-  const isScaled = isAnyCardSelected && isAnalogyCard
+  const isScaled = isAnyCardSelected && isMultiPinCard
     ? isInScaledPinIds
     : (isScaledPinId || isSelectedPinId);
   const scaleFactor = isScaled ? 1.03 : 1.0; // 3% scale up
 
-  // Opacity: Analogy-Karte aktiv – Pins in scaledPinIds 100%; bei 2 ausgewählt: andere 0%; bei 1 ausgewählt: andere 50%
+  // Opacity: Analogy/Feeling Lucky aktiv – Pins in scaledPinIds 100%; bei 2 ausgewählt: andere 0%; bei 1 ausgewählt: andere 50%
   // Andere Karten: selectedPinId 100%; andere 50%
   // Add feature mode: green/yellow rings 50%, blue center stays 100%
   let basePinOpacity = 1.0;
-  if (isAnyCardSelected && selectedCardIndex === 0) {
+  if (isAnyCardSelected && (selectedCardIndex === 0 || selectedCardIndex === 2)) {
     basePinOpacity = isInScaledPinIds ? 1.0 : (scaledPinIds.length >= 2 ? 0.0 : scaledPinIds.length === 1 ? 0.5 : 1.0);
   } else {
     basePinOpacity = (selectedPinId !== null && selectedPinId !== pin.id) ? 0.5 : 1.0;
@@ -6560,27 +6916,30 @@ function drawPinThumbnailOverlay(img, pin, index = 0) {
   ctx.restore();
 }
 
-// Draw pin thumbnail overlay in CANVAS coordinates - scales with zoom (Reflective Analogy card only)
-// Pins aligned exactly on the dashed circular outlines on the card background (867x1183 source)
+// Draw pin thumbnail overlay in CANVAS coordinates - scales with zoom
+const PIN_OVERLAY_LEFT_ANALOGY = 0.605;   // linke Kante, 2 Pins nebeneinander
+const PIN_OVERLAY_LEFT_PERSPECTIVE = 0.78; // ein Pin, weiter rechts (rechts der Mitte)
+const PIN_OVERLAY_TOP_ANALOGY = 0.14;
+const PIN_OVERLAY_TOP_FEELING_LUCKY = 0.41;
+const PIN_OVERLAY_TOP_PERSPECTIVE = 0.137;  // vertikale Position
 function drawPinThumbnailOverlayCanvasCoords(img, pin, index = 0) {
   if (!img || !img.isCard || !pin || !pinThumbnailSvg || !pinThumbnailSvg.complete) {
     return;
   }
 
-  // Position/size aligned with dashed circular outlines on card (867x1183)
-  // Größere Pins; Position auf den gestrichelten Umrissen (etwas weiter links und unten)
-  const leftCircleLeft = 0.605;          // linke Kante des linken Kreises
-  const circleSizeRatio = 0.16;        // Durchmesser ~18% – etwas größer
-  const spacingRatio = 0.025;           // Abstand zwischen den Pins
-  const topOffsetRatio = 0.14;         // vertikale Position
-
+  const circleSizeRatio = 0.16;
+  const spacingRatio = 0.02;
   const overlaySize = img.width * circleSizeRatio;
   const spacing = img.width * spacingRatio;
 
-  // Side by side: index 0 left, index 1 right
+  const leftCircleLeft = (img.cardIndex === 1) ? PIN_OVERLAY_LEFT_PERSPECTIVE : PIN_OVERLAY_LEFT_ANALOGY;
+  const topOffsetRatio = (img.cardIndex === 1) ? PIN_OVERLAY_TOP_PERSPECTIVE
+    : (img.cardIndex === 2) ? PIN_OVERLAY_TOP_FEELING_LUCKY : PIN_OVERLAY_TOP_ANALOGY;
   const baseX = img.x + img.width * leftCircleLeft;
-  const overlayX = baseX + index * (overlaySize + spacing);
   const overlayY = img.y + img.height * topOffsetRatio;
+
+  // Side by side: index 0 left, index 1 right (nur Analogy/Feeling Lucky haben 2)
+  const overlayX = baseX + index * (overlaySize + spacing);
 
   ctx.save();
   ctx.drawImage(pinThumbnailSvg, overlayX, overlayY, overlaySize, overlaySize);
@@ -6686,6 +7045,62 @@ function drawAnalogyGridCircle(img) {
   ctx.restore();
 }
 
+// Perspective Switch card: 4 selection circles (Musician, Psychologist, Architect, Futurologist) – positions as ratios
+const PERSPECTIVE_CIRCLE_X = 0.868;
+const PERSPECTIVE_CIRCLE_Y = [0.337, 0.502, 0.674, 0.839];
+const PERSPECTIVE_CIRCLE_RADIUS_RATIO = 0.016; // Dot radius as fraction of card width (smaller)
+const PERSPECTIVE_DOT_COLOR = '#5E86AB';
+// Vertical bounds (y ratios) for each perspective section – whole section clickable
+const PERSPECTIVE_SECTION_Y_BOUNDS = [
+  [0.20, 0.425],   // 0: Musician
+  [0.425, 0.575], // 1: Psychologist
+  [0.575, 0.725], // 2: Architect
+  [0.725, 0.95]   // 3: Futurologist
+];
+
+function getPerspectiveCircleCenter(img, circleIndex) {
+  if (!img || circleIndex < 0 || circleIndex > 3) return null;
+  const cx = img.x + img.width * PERSPECTIVE_CIRCLE_X;
+  const cy = img.y + img.height * PERSPECTIVE_CIRCLE_Y[circleIndex];
+  const radius = img.width * PERSPECTIVE_CIRCLE_RADIUS_RATIO;
+  return { x: cx, y: cy, radius };
+}
+
+function getPerspectiveCircleAt(screenX, screenY) {
+  const canvasPos = screenToCanvas(screenX, screenY);
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    if (!img || !img.isCard || img.cardIndex !== 1 || img.hidden || img.perspectiveOutput) continue;
+    if (!selectedImageIndices.includes(i)) continue;
+    // Check if click is within card bounds
+    if (canvasPos.x < img.x || canvasPos.x > img.x + img.width ||
+        canvasPos.y < img.y || canvasPos.y > img.y + img.height) continue;
+    const relY = (canvasPos.y - img.y) / img.height;
+    for (let circleIndex = 0; circleIndex < 4; circleIndex++) {
+      const [yMin, yMax] = PERSPECTIVE_SECTION_Y_BOUNDS[circleIndex];
+      if (relY >= yMin && relY <= yMax) {
+        return { imageId: img.id, imageIndex: i, circleIndex };
+      }
+    }
+  }
+  return null;
+}
+
+function drawPerspectiveCircles(img) {
+  if (!img || !img.isCard || img.cardIndex !== 1 || img.hidden || img.perspectiveOutput) return;
+  if (!selectedImageIndices.some(idx => images[idx] === img)) return;
+  const sel = img.perspectiveSelectionIndex;
+  if (sel === undefined || sel < 0 || sel > 3) return;
+  const center = getPerspectiveCircleCenter(img, sel);
+  if (!center) return;
+  ctx.save();
+  ctx.fillStyle = PERSPECTIVE_DOT_COLOR;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, center.radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 // Draw pins on an image (called after transform is restored, so we draw in screen coordinates)
 function drawPins(img, isImageSelected) {
   if (!img || !img.pins || img.pins.length === 0) {
@@ -6732,21 +7147,22 @@ function drawPins(img, isImageSelected) {
   const canvasRelativeY = lastMouseY - rect.top;
 
   // Separate pins into selected/scaled and non-selected to ensure selected/scaled pins are drawn last (on top)
-  // Check if this is an analogy card directly from the image
-  const isAnalogyCard = img.isCard && img.cardIndex === 0;
+  // Check if this is a multi-pin card (Analogy or Feeling Lucky) directly from the image
+  const isMultiPinCard = img.isCard && (img.cardIndex === 0 || img.cardIndex === 2);
   
   const pinsToDrawLast = [];
-  if (isAnyCardSelected && isAnalogyCard && scaledPinIds.length > 0) {
-    // Analogy card: draw all scaled pins last
+  if (isAnyCardSelected && isMultiPinCard && scaledPinIds.length > 0) {
+    // Multi-pin card: draw all scaled pins last
     scaledPinIds.forEach(pinId => {
       const pin = img.pins.find(p => p.id === pinId);
       if (pin) {
         pinsToDrawLast.push(pin);
       }
     });
-  } else if (selectedPinId !== null) {
-    // Other cards: draw only selected pin last
-    const selectedPin = img.pins.find(p => p.id === selectedPinId);
+  } else if (scaledPinId !== null || selectedPinId !== null) {
+    // Single-pin cards (e.g. Perspective): draw scaled/selected pin last
+    const pinIdToShow = scaledPinId || selectedPinId;
+    const selectedPin = img.pins.find(p => p.id === pinIdToShow);
     if (selectedPin) {
       pinsToDrawLast.push(selectedPin);
     }
@@ -6815,21 +7231,22 @@ function drawPins(img, isImageSelected) {
   const canvasRelativeY = lastMouseY - rect.top;
 
   // Separate pins into selected/scaled and non-selected to ensure selected/scaled pins are drawn last (on top)
-  // Check if this is an analogy card directly from the image
-  const isAnalogyCard = img.isCard && img.cardIndex === 0;
+  // Check if this is a multi-pin card (Analogy or Feeling Lucky) directly from the image
+  const isMultiPinCard = img.isCard && (img.cardIndex === 0 || img.cardIndex === 2);
   
   const pinsToDrawLast = [];
-  if (isAnyCardSelected && isAnalogyCard && scaledPinIds.length > 0) {
-    // Analogy card: draw all scaled pins last
+  if (isAnyCardSelected && isMultiPinCard && scaledPinIds.length > 0) {
+    // Multi-pin card: draw all scaled pins last
     scaledPinIds.forEach(pinId => {
       const pin = img.pins.find(p => p.id === pinId);
       if (pin) {
         pinsToDrawLast.push(pin);
       }
     });
-  } else if (selectedPinId !== null) {
-    // Other cards: draw only selected pin last
-    const selectedPin = img.pins.find(p => p.id === selectedPinId);
+  } else if (scaledPinId !== null || selectedPinId !== null) {
+    // Single-pin cards (e.g. Perspective): draw scaled/selected pin last
+    const pinIdToShow = scaledPinId || selectedPinId;
+    const selectedPin = img.pins.find(p => p.id === pinIdToShow);
     if (selectedPin) {
       pinsToDrawLast.push(selectedPin);
     }
@@ -9283,16 +9700,19 @@ function drawAspectTag(text, x, y, type, index) {
   ctx.restore();
 }
 
-// Draw generate button below card images – nur Reflective Analogy (tokens auto-generate)
+// Draw generate button below card images – Reflective Analogy und Feeling Lucky (tokens auto-generate)
 function drawCardGenerateButton(img) {
   if (!img || !img.isCard) return;
-  // Nur Reflective Analogy zeigt Generate-Button; Perspective Switch und Feeling Lucky nicht
   const cardIndex = img.cardIndex !== undefined ? img.cardIndex : 0;
-  if (cardIndex !== 0) return;
-  if (img.analogyOutput) return; // Output-Karte hat keinen Generate-Button
+  // Analogy (0), Perspective (1), and Feeling Lucky (2) show Generate-Button
+  if (cardIndex !== 0 && cardIndex !== 1 && cardIndex !== 2) return;
+  if (img.analogyOutput) return; // Analogy output card has no Generate-Button
+  if (img.feelingLuckyOutput) return; // Feeling Lucky output card has no Generate-Button
+  if (img.perspectiveOutput) return; // Perspective output card has no Generate-Button
   // Use card config
   const buttonConfig = cardButtonConfig[cardIndex] || cardButtonConfig[0];
-  const buttonText = img.analogyGenerating ? 'Generating…' : (buttonConfig.text || 'Generate');
+  const isGenerating = img.analogyGenerating || img.feelingLuckyGenerating || img.perspectiveGenerating;
+  const buttonText = isGenerating ? 'Generating…' : (buttonConfig.text || 'Generate');
   const buttonBgColor = buttonConfig.bgColor;
   const buttonPadding = 10; // Fixed pixel padding (screen coordinates)
   const buttonSpacing = 10; // Fixed pixel spacing between image and button (screen coordinates)
@@ -10374,13 +10794,14 @@ function handleSelectionChange(newIndex) {
       expandedPinId = null;
     }
     
-    // If switching from analogy card to non-analogy card (or vice versa), clear the other selection mode
+    // If switching between multi-pin cards (0, 2) and non-multi-pin card (1), clear the other selection mode
+    const isMultiPin = (idx) => idx === 0 || idx === 2;
     if (previousCardIndex !== null && previousCardIndex !== selectedCardIndex) {
-      if (previousCardIndex === 0 && selectedCardIndex !== 0) {
-        // Switching FROM analogy TO non-analogy - clear multi-select
+      if (isMultiPin(previousCardIndex) && !isMultiPin(selectedCardIndex)) {
+        // Switching FROM Analogy/Feeling Lucky TO Perspective - clear multi-select
         scaledPinIds = [];
-      } else if (previousCardIndex !== 0 && selectedCardIndex === 0) {
-        // Switching FROM non-analogy TO analogy - clear single select
+      } else if (!isMultiPin(previousCardIndex) && isMultiPin(selectedCardIndex)) {
+        // Switching FROM Perspective TO Analogy/Feeling Lucky - clear single select
         scaledPinId = null;
       }
     }
@@ -10844,27 +11265,20 @@ window.addEventListener('keydown', (e) => {
     if (selectedImageIndices.length > 0 && !isHoldingDeleteToDeleteImage) {
       e.preventDefault();
 
-      // Use shorter hold duration for cards and demo data (disposable content)
+      // Shorter hold for cards, tokens, demo data; full duration for regular images
       const selectionContainsOnlyCardsOrDemo = selectedImageIndices.every(idx => {
         const img = images[idx];
         return img && (img.isCard || img.isToken || img.isDemoData);
       });
       currentDeleteHoldDuration = selectionContainsOnlyCardsOrDemo ? DELETE_HOLD_DURATION_QUICK : DELETE_HOLD_DURATION;
 
-      // Start holding Delete to delete images
       isHoldingDeleteToDeleteImage = true;
       deleteHoldStartTime = Date.now();
 
-      // Set timeout to delete after hold duration
-      deleteHoldTimeout = setTimeout(() => {
-        if (isHoldingDeleteToDeleteImage && selectedImageIndices.length > 0) {
-          // Sort indices in descending order to remove from highest to lowest (maintains correct indices)
+      const executeDelete = () => {
+        if (selectedImageIndices.length > 0) {
           const sortedIndices = [...selectedImageIndices].sort((a, b) => b - a);
-
-          // Check if reflection image is being deleted
           const isDeletingReflectionImage = sortedIndices.includes(reflectionImageIndex);
-
-          // Collect pin IDs before splicing (indices will shift)
           const deletedPinIds = new Set();
           sortedIndices.forEach(index => {
             if (index >= 0 && index < images.length) {
@@ -10872,40 +11286,42 @@ window.addEventListener('keydown', (e) => {
               if (img.pins) img.pins.forEach(p => deletedPinIds.add(p.id));
             }
           });
-
-          // Remove images
           sortedIndices.forEach(index => {
             if (index >= 0 && index < images.length) {
               images.splice(index, 1);
             }
           });
-
-          // Remove orphaned aspect cards that referenced pins on deleted images
           if (deletedPinIds.size > 0) {
             const cardsToRemove = aspectCards.filter(c => c.pinId && deletedPinIds.has(c.pinId));
             cardsToRemove.forEach(c => removeAspectCard(c.id));
           }
-
-          // Clear selection
           selectedImageIndices = [];
-          // Update button visibility (this will call requestDraw())
           handleSelectionChange(-1);
-
-          // If reflection image was deleted, exit reflection mode
           if (isDeletingReflectionImage && isReflectionMode) {
             exitReflectionMode();
           }
+        }
+      };
 
-          // Reset hold state
+      deleteHoldTimeout = setTimeout(() => {
+        if (isHoldingDeleteToDeleteImage && selectedImageIndices.length > 0) {
+          executeDelete();
           isHoldingDeleteToDeleteImage = false;
           deleteHoldStartTime = 0;
           deleteHoldTimeout = null;
-          requestDraw(); // Redraw to remove delete button
+          canvasNeedsReinit = true; // Restore DPR to 2 after animation
+          requestDraw();
         }
       }, currentDeleteHoldDuration);
 
-      // Continuously trigger redraw while holding to animate delete button
-      requestDraw();
+      // Continuously redraw while holding to animate delete progress
+      const animateDeleteProgress = () => {
+        if (isHoldingDeleteToDeleteImage && selectedImageIndices.length > 0) {
+          requestDraw();
+          requestAnimationFrame(animateDeleteProgress);
+        }
+      };
+      animateDeleteProgress();
     } else if (isHoldingDeleteToDeleteImage) {
       // Already holding, prevent default to avoid multiple triggers
       e.preventDefault();
@@ -10948,15 +11364,42 @@ window.addEventListener('keyup', (e) => {
 
   // Handle Delete key release for hold-to-delete
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    // Cancel delete hold-to-delete if Delete is released before duration completes
     if (isHoldingDeleteToDeleteImage) {
+      const holdElapsed = Date.now() - deleteHoldStartTime;
+      // If user held long enough (95% of animation = completed), execute delete - fixes race where keyup fires before timeout
+      const heldLongEnough = holdElapsed >= currentDeleteHoldDuration * 0.95;
+      if (heldLongEnough && selectedImageIndices.length > 0) {
+        const sortedIndices = [...selectedImageIndices].sort((a, b) => b - a);
+        const isDeletingReflectionImage = sortedIndices.includes(reflectionImageIndex);
+        const deletedPinIds = new Set();
+        sortedIndices.forEach(index => {
+          if (index >= 0 && index < images.length) {
+            const img = images[index];
+            if (img.pins) img.pins.forEach(p => deletedPinIds.add(p.id));
+          }
+        });
+        sortedIndices.forEach(index => {
+          if (index >= 0 && index < images.length) {
+            images.splice(index, 1);
+          }
+        });
+        if (deletedPinIds.size > 0) {
+          const cardsToRemove = aspectCards.filter(c => c.pinId && deletedPinIds.has(c.pinId));
+          cardsToRemove.forEach(c => removeAspectCard(c.id));
+        }
+        selectedImageIndices = [];
+        handleSelectionChange(-1);
+        if (isDeletingReflectionImage && isReflectionMode) {
+          exitReflectionMode();
+        }
+      }
       isHoldingDeleteToDeleteImage = false;
       deleteHoldStartTime = 0;
       if (deleteHoldTimeout) {
         clearTimeout(deleteHoldTimeout);
         deleteHoldTimeout = null;
       }
-      // Trigger redraw to remove delete button
+      canvasNeedsReinit = true; // Restore DPR to 2 after animation
       requestDraw();
     }
   }
@@ -11024,6 +11467,10 @@ canvas.addEventListener('mousedown', (e) => {
     const img = images.find(img => img.id === cardButtonClick.imageId);
     if (img && cardButtonClick.cardIndex === 0 && !img.analogyGenerating && !img.analogyOutput) {
       handleReflectiveAnalogyGenerate(img);
+    } else if (img && cardButtonClick.cardIndex === 1 && !img.perspectiveGenerating && !img.perspectiveOutput) {
+      handlePerspectiveGenerate(img);
+    } else if (img && cardButtonClick.cardIndex === 2 && !img.feelingLuckyGenerating && !img.feelingLuckyOutput) {
+      handleFeelingLuckyGenerate(img);
     }
     return;
   }
@@ -11106,6 +11553,26 @@ canvas.addEventListener('mousedown', (e) => {
     }
   }
 
+  // Check if clicking on Perspective Switch circle (before Analogy grid)
+  if (!isReflectionMode) {
+    const perspectiveHit = getPerspectiveCircleAt(e.clientX, e.clientY);
+    if (perspectiveHit) {
+      e.preventDefault();
+      e.stopPropagation();
+      const img = images[perspectiveHit.imageIndex];
+      if (img && img.isCard && img.cardIndex === 1) {
+        // Toggle: same circle → deselect; different → select
+        if (img.perspectiveSelectionIndex === perspectiveHit.circleIndex) {
+          img.perspectiveSelectionIndex = undefined;
+        } else {
+          img.perspectiveSelectionIndex = perspectiveHit.circleIndex;
+        }
+        requestDraw();
+      }
+      return;
+    }
+  }
+
   // Check if clicking on Analogy Grid Circle (VOR Pin-Leer-Klick-Logik, damit Pins ausgewählt bleiben)
   if (!isReflectionMode) {
     const circleHit = getAnalogyGridCircleAt(e.clientX, e.clientY);
@@ -11147,12 +11614,12 @@ canvas.addEventListener('mousedown', (e) => {
           }
           
           // Handle scaling instead of expansion
-          // For analogy card: allow selecting pins from ANY image when analogy card is selected
-          // For other cards: only allow selecting pins on the selected card itself
+          // Analogy/Feeling Lucky: multi-pin from any image. Perspective: single pin from any image. Other: pin on selected card only.
           const isThisCardSelected = img.isCard && selectedImageIndices.includes(i);
-          const isAnalogyCard = selectedCardIndex === 0;
+          const isMultiPinCard = selectedCardIndex === 0 || selectedCardIndex === 2;
+          const isPerspectiveCard = selectedCardIndex === 1;
           
-          if (isAnalogyCard) {
+          if (isMultiPinCard) {
             // Analogy card: allow up to 2 pins selected
             const pinIndex = scaledPinIds.indexOf(clickedPin.id);
             if (pinIndex >= 0) {
@@ -11181,8 +11648,20 @@ canvas.addEventListener('mousedown', (e) => {
             }
             // Clear single selection mode
             scaledPinId = null;
+          } else if (isPerspectiveCard) {
+            // Perspective: single pin from ANY image (card has no pins, user selects from artifact)
+            if (scaledPinId === clickedPin.id) {
+              scaledPinId = null;
+              selectedPinId = null;
+              tooltipPinId = null;
+            } else {
+              scaledPinId = clickedPin.id;
+              selectedPinId = clickedPin.id;
+              tooltipPinId = clickedPin.id;
+            }
+            scaledPinIds = [];
           } else {
-            // Other cards: single selection only
+            // Other cards: single selection only, pin must be on selected card
             if (scaledPinId === clickedPin.id) {
               // Already scaled - deselect it
               scaledPinId = null;
@@ -11194,7 +11673,7 @@ canvas.addEventListener('mousedown', (e) => {
               selectedPinId = clickedPin.id;
               tooltipPinId = clickedPin.id;
             }
-            // Clear multi-select array for non-analogy cards
+            // Clear multi-select array for non-multi-pin cards
             scaledPinIds = [];
           }
           
@@ -11217,8 +11696,8 @@ canvas.addEventListener('mousedown', (e) => {
         // Show tooltip (without delete button since not in reflection mode)
         tooltipPinId = clickedPin.id;
         
-        // Clear scaled pins if clicking on a different pin (only for single-select cards)
-        if (isAnyCardSelected && selectedCardIndex !== 0) {
+        // Clear scaled pins if clicking on a different pin (only for single-select cards, not Analogy/Feeling Lucky)
+        if (isAnyCardSelected && selectedCardIndex !== 0 && selectedCardIndex !== 2) {
           // For non-analogy cards, clear single selection if clicking different pin
           if (scaledPinId !== null && scaledPinId !== clickedPin.id) {
             scaledPinId = null;
