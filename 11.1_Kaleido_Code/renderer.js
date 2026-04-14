@@ -3120,11 +3120,6 @@ function getDevicePixelRatio() {
     return 2.0;
   }
 
-  // Check if delete hold animation is active - use INTERACTION_DPR (1.25) for smooth animation
-  if (isHoldingDeleteToDeleteImage) {
-    return INTERACTION_DPR;
-  }
-
   // Check if pin expansion animation is active - use INTERACTION_DPR (1.25) for smooth animation, then back to 2 when done
   if (pinExpansionAnimation) {
     return INTERACTION_DPR;
@@ -11309,7 +11304,6 @@ window.addEventListener('keydown', (e) => {
           isHoldingDeleteToDeleteImage = false;
           deleteHoldStartTime = 0;
           deleteHoldTimeout = null;
-          canvasNeedsReinit = true; // Restore DPR to 2 after animation
           requestDraw();
         }
       }, currentDeleteHoldDuration);
@@ -11399,7 +11393,6 @@ window.addEventListener('keyup', (e) => {
         clearTimeout(deleteHoldTimeout);
         deleteHoldTimeout = null;
       }
-      canvasNeedsReinit = true; // Restore DPR to 2 after animation
       requestDraw();
     }
   }
